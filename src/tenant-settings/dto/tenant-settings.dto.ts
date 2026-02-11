@@ -1,0 +1,98 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsString,
+  IsOptional,
+  IsInt,
+  IsBoolean,
+  IsArray,
+  Min,
+  Max,
+  Matches,
+  ArrayMinSize,
+} from 'class-validator';
+
+export class UpdateTenantSettingsDto {
+  // Working hours
+  @ApiPropertyOptional({
+    example: '09:00',
+    description: 'Start of working hours in HH:mm format',
+  })
+  @IsString()
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'workingHoursStart must be in HH:mm format',
+  })
+  workingHoursStart?: string;
+
+  @ApiPropertyOptional({
+    example: '18:00',
+    description: 'End of working hours in HH:mm format',
+  })
+  @IsString()
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
+    message: 'workingHoursEnd must be in HH:mm format',
+  })
+  workingHoursEnd?: string;
+
+  @ApiPropertyOptional({
+    example: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+    description: 'Working days of the week',
+  })
+  @IsArray()
+  @IsOptional()
+  @ArrayMinSize(1)
+  @IsString({ each: true })
+  workingDays?: string[];
+
+  // Appointment settings
+  @ApiPropertyOptional({
+    example: 60,
+    description: 'Default appointment duration in minutes',
+  })
+  @IsInt()
+  @IsOptional()
+  @Min(15)
+  @Max(240)
+  defaultAppointmentDuration?: number;
+
+  @ApiPropertyOptional({
+    example: false,
+    description: 'Allow overlapping appointments for same psychologist',
+  })
+  @IsBoolean()
+  @IsOptional()
+  allowDoubleBooking?: boolean;
+
+  // Reminder settings
+  @ApiPropertyOptional({
+    example: ['24h', '2h'],
+    description: 'Reminder rules (e.g., "24h", "2h", "30m")',
+  })
+  @IsArray()
+  @IsOptional()
+  @IsString({ each: true })
+  reminderRules?: string[];
+
+  @ApiPropertyOptional({ example: true, description: 'Enable/disable reminders' })
+  @IsBoolean()
+  @IsOptional()
+  reminderEnabled?: boolean;
+
+  // Locale & timezone
+  @ApiPropertyOptional({
+    example: 'America/Mexico_City',
+    description: 'Timezone for the clinic',
+  })
+  @IsString()
+  @IsOptional()
+  timezone?: string;
+
+  @ApiPropertyOptional({
+    example: 'es-MX',
+    description: 'Locale for formatting',
+  })
+  @IsString()
+  @IsOptional()
+  locale?: string;
+}

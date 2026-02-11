@@ -1,0 +1,636 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum UserRole {
+  TENANT_ADMIN
+  PSYCHOLOGIST
+  ASSISTANT
+}
+
+enum PlanType {
+  TRIAL
+  BASIC
+  PRO
+  CUSTOM
+}
+
+enum SubscriptionStatus {
+  TRIALING       // In trial period
+  ACTIVE         // Paid and active
+  PAST_DUE       // Payment failed, grace period
+  CANCELED       // Canceled but still in billing period
+  INCOMPLETE     // Payment setup incomplete
+  UNPAID         // Grace period expired
+}
+
+enum SubscriptionEventType {
+  TRIAL_STARTED
+  TRIAL_ENDED
+  PLAN_UPGRADED
+  PLAN_DOWNGRADED
+  SUBSCRIPTION_ACTIVATED
+  SUBSCRIPTION_CANCELED
+  SUBSCRIPTION_REACTIVATED
+  PAYMENT_SUCCEEDED
+  PAYMENT_FAILED
+  SEATS_INCREASED
+  SEATS_DECREASED
+  FEATURE_ENABLED
+  FEATURE_DISABLED
+  LIMIT_REACHED
+  GRACE_PERIOD_ENTERED
+  GRACE_PERIOD_ENDED
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum NotificationType {
+  APPOINTMENT_REMINDER
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_CANCELLED
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  SYSTEM_ANNOUNCEMENT
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+}
+
+enum AuditEntity {
+  CLINICAL_NOTE
+  PATIENT
+  APPOINTMENT
+  USER
+  TENANT
+}
+
+// ============================================
+// TENANT & SUBSCRIPTION
+// ============================================
+
+model Tenant {
+  id                String              @id @default(cuid())
+  name              String
+  slug              String              @unique
+  email             String
+  phone             String?
+  address           String?
+  logoUrl           String?
+  isActive          Boolean             @default(true)
+  onboardingCompleted Boolean           @default(false)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Relations
+  settings          TenantSettings?
+  subscription      TenantSubscription?
+  users             User[]
+  patients          Patient[]
+  appointments      Appointment[]
+  clinicalNotes     ClinicalNote[]
+  tasks             Task[]
+  nextSessionPlans  NextSessionPlan[]
+  notifications     NotificationLog[]
+  auditLogs         AuditLog[]
+  usageMetrics      UsageMetrics[]
+  subscriptionEvents SubscriptionEvent[]
+
+  @@index([slug])
+  @@index([isActive])
+}
+
+model TenantSettings {
+  id                    String   @id @default(cuid())
+  tenantId              String   @unique
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Working hours
+  workingHoursStart     String   @default("09:00") // HH:mm format
+  workingHoursEnd       String   @default("18:00")
+  workingDays           String[] @default(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"])
+
+  // Appointment settings
+  defaultAppointmentDuration Int  @default(60) // minutes
+  allowDoubleBooking    Boolean  @default(false)
+
+  // Reminder settings
+  reminderRules         String[] @default(["24h", "2h"]) // e.g., ["24h", "2h", "30m"]
+  reminderEnabled       Boolean  @default(true)
+
+  // Locale & timezone
+  timezone              String   @default("America/Mexico_City")
+  locale                String   @default("es-MX")
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model TenantSubscription {
+  id                    String             @id @default(cuid())
+  tenantId              String             @unique
+  tenant                Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Plan & Status
+  planType              PlanType           @default(TRIAL)
+  status                SubscriptionStatus @default(TRIALING)
+
+  // Billing cycle
+  startDate             DateTime           @default(now())
+  endDate               DateTime?
+  trialEndsAt           DateTime?
+  currentPeriodStart    DateTime           @default(now())
+  currentPeriodEnd      DateTime?
+  canceledAt            DateTime?
+  cancelAt              DateTime?          // Scheduled cancellation
+
+  // Pricing
+  basePrice             Decimal            @default(0) @db.Decimal(10, 2)
+  pricePerSeat          Decimal            @default(0) @db.Decimal(10, 2)
+  currency              String             @default("USD")
+
+  // Seats
+  seatsPsychologistsMax Int                @default(1)
+  seatsPsychologistsUsed Int               @default(0)
+
+  // Resource Limits
+  maxActivePatients     Int                @default(10)
+  storageGB             Int                @default(0) // 0 = unlimited
+  monthlyNotificationsLimit Int            @default(100)
+
+  // Feature Flags (boolean)
+  featureClinicalNotes  Boolean            @default(true)
+  featureClinicalNotesEncryption Boolean   @default(false)
+  featureAttachments    Boolean            @default(false)
+  featureTasks          Boolean            @default(false)
+  featurePsychologicalTests Boolean        @default(false)
+  featureWebPush        Boolean            @default(false)
+  featureFCMPush        Boolean            @default(false)
+  featureAdvancedAnalytics Boolean         @default(false)
+  featureVideoConsultation Boolean         @default(false)
+  featureCalendarSync   Boolean            @default(false)
+  featureOnlineSchedulingWidget Boolean    @default(false)
+  featureCustomReports  Boolean            @default(false)
+  featureAPIAccess      Boolean            @default(false)
+  featureWhatsAppIntegration Boolean       @default(false)
+  featureSSO            Boolean            @default(false)
+
+  // Usage Tracking (updated in real-time)
+  activePatientsCount   Int                @default(0)
+  storageUsedBytes      BigInt             @default(0)
+  monthlyNotificationsSent Int             @default(0)
+  lastNotificationReset DateTime           @default(now())
+
+  // Scheduled changes
+  scheduledPlanChange   PlanType?
+  scheduledPlanChangeAt DateTime?
+
+  // Payment integration
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  stripePaymentMethodId String?
+
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+model UsageMetrics {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Snapshot date
+  recordedAt          DateTime @default(now())
+  periodStart         DateTime
+  periodEnd           DateTime
+
+  // Usage data
+  seatsPsychologistsUsed Int
+  activePatientsCount Int
+  storageUsedGB       Decimal  @db.Decimal(10, 2)
+  notificationsSent   Int
+  appointmentsCreated Int
+  clinicalNotesCreated Int
+  tasksCreated        Int
+
+  // Costs (for internal tracking)
+  estimatedCost       Decimal? @db.Decimal(10, 2)
+
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId, recordedAt])
+  @@index([periodStart, periodEnd])
+}
+
+model SubscriptionEvent {
+  id                  String                  @id @default(cuid())
+  tenantId            String
+  tenant              Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  eventType           SubscriptionEventType
+  previousPlan        PlanType?
+  newPlan             PlanType?
+  previousStatus      SubscriptionStatus?
+  newStatus           SubscriptionStatus?
+
+  // Details
+  reason              String?
+  metadata            Json?
+
+  // Who triggered (null for system events)
+  triggeredByUserId   String?
+  triggeredByUser     User?                   @relation(fields: [triggeredByUserId], references: [id])
+
+  createdAt           DateTime                @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([eventType])
+}
+
+// ============================================
+// USERS & AUTH
+// ============================================
+
+model User {
+  id                String    @id @default(cuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  email             String
+  password          String
+  firstName         String
+  lastName          String
+  phone             String?
+  avatarUrl         String?
+
+  role              UserRole
+  isActive          Boolean   @default(true)
+  emailVerified     Boolean   @default(false)
+
+  // Push notifications
+  fcmToken          String?   // Firebase Cloud Messaging token
+  
+  // Invite flow
+  invitedAt         DateTime?
+  invitedBy         String?   // userId who sent the invite
+  activatedAt       DateTime?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  refreshTokens     RefreshToken[]
+  assignedAppointments Appointment[]
+  assignedPatients  Patient[]      @relation("AssignedPatients")
+  clinicalNotes     ClinicalNote[]
+  tasksCreated      Task[]         @relation("TaskCreator")
+  tasksAssigned     Task[]         @relation("TaskAssignee")
+  nextSessionPlans  NextSessionPlan[]
+  notifications     NotificationLog[]
+  auditLogs         AuditLog[]
+  subscriptionEvents SubscriptionEvent[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+  @@index([role])
+}
+
+model RefreshToken {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  token         String   @unique
+  familyId      String   // for token rotation tracking
+  isRevoked     Boolean  @default(false)
+  expiresAt     DateTime
+  
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([familyId])
+}
+
+// ============================================
+// PATIENTS
+// ============================================
+
+model Patient {
+  id                String    @id @default(cuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  firstName              String
+  lastName               String
+  email                  String?
+  phone                  String?
+  dateOfBirth            DateTime?
+  gender                 String?
+  address                String?
+  emergencyContact       String?
+  emergencyPhone         String?
+  emergencyContactName   String?
+  emergencyContactPhone  String?
+
+  // Assigned psychologist
+  assignedPsychologistId String?
+  assignedPsychologist   User?     @relation("AssignedPatients", fields: [assignedPsychologistId], references: [id], onDelete: SetNull)
+
+  // Medical info (basic)
+  allergies              String?
+  currentMedication      String?
+  notes                  String?   // General notes (not clinical)
+
+  isActive               Boolean   @default(true)
+  deletedAt              DateTime? // Soft delete
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  // Relations
+  appointments           Appointment[]
+  clinicalNotes          ClinicalNote[]
+  tasks                  Task[]
+  nextSessionPlans       NextSessionPlan[]
+
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@index([lastName])
+}
+
+// ============================================
+// APPOINTMENTS
+// ============================================
+
+model Appointment {
+  id                String            @id @default(cuid())
+  tenantId          String
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patientId         String
+  patient           Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  psychologistId    String
+  psychologist      User              @relation(fields: [psychologistId], references: [id], onDelete: Restrict)
+
+  title             String            @default("Sesión de terapia")
+  description       String?
+  
+  startTime         DateTime
+  endTime           DateTime
+  duration          Int               // minutes
+
+  status            AppointmentStatus @default(SCHEDULED)
+
+  // Reminders tracking
+  reminderSent24h   Boolean           @default(false)
+  reminderSent2h    Boolean           @default(false)
+  lastReminderSentAt DateTime?
+
+  // Location/mode
+  location          String?           // e.g., "Consultorio 1", "Online - Zoom"
+  isOnline          Boolean           @default(false)
+  meetingUrl        String?
+
+  // Cancellation
+  cancelledAt       DateTime?
+  cancelledBy       String?           // userId
+  cancellationReason String?
+
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  // Relations
+  clinicalNotes     ClinicalNote[]
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([psychologistId])
+  @@index([startTime])
+  @@index([status])
+  @@index([tenantId, psychologistId, startTime])
+}
+
+// ============================================
+// CLINICAL RECORDS
+// ============================================
+
+model ClinicalNote {
+  id                String   @id @default(cuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patientId         String
+  patient           Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  appointmentId     String?
+  appointment       Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  psychologistId    String
+  psychologist      User     @relation(fields: [psychologistId], references: [id], onDelete: Restrict)
+
+  // Content - can be encrypted at rest
+  content           String   // Clinical session notes
+  diagnosis         String?
+  treatment         String?
+  observations      String?
+
+  // Metadata
+  sessionDate       DateTime @default(now())
+  sessionDuration   Int?     // minutes
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([psychologistId])
+  @@index([appointmentId])
+  @@index([sessionDate])
+}
+
+// ============================================
+// TASKS
+// ============================================
+
+model Task {
+  id                String       @id @default(cuid())
+  tenantId          String
+  tenant            Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patientId         String
+  patient           Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  title             String
+  description       String?
+  
+  status            TaskStatus   @default(PENDING)
+  priority          TaskPriority @default(MEDIUM)
+
+  dueDate           DateTime?
+  completedAt       DateTime?
+
+  createdById       String
+  createdBy         User         @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  assignedToId      String?
+  assignedTo        User?        @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([dueDate])
+}
+
+// ============================================
+// NEXT SESSION PLAN
+// ============================================
+
+model NextSessionPlan {
+  id                String   @id @default(cuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patientId         String   @unique
+  patient           Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  psychologistId    String
+  psychologist      User     @relation(fields: [psychologistId], references: [id], onDelete: Restrict)
+
+  // Plan content
+  objectives        String?  // Goals for next session
+  techniques        String?  // Techniques to apply
+  homework          String?  // Homework for patient
+  notes             String?  // Additional notes
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([patientId])
+  @@index([psychologistId])
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+model NotificationLog {
+  id                String             @id @default(cuid())
+  tenantId          String
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId            String?
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  type              NotificationType
+  status            NotificationStatus @default(PENDING)
+
+  title             String
+  body              String
+  data              Json?              // Custom payload for frontend
+
+  // FCM specific
+  fcmToken          String?
+  fcmMessageId      String?
+
+  // Delivery tracking
+  sentAt            DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  errorMessage      String?
+
+  // Reference to related entity
+  relatedEntityType String?            // e.g., "appointment", "task"
+  relatedEntityId   String?
+
+  createdAt         DateTime           @default(now())
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id                String       @id @default(cuid())
+  tenantId          String
+  tenant            Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  userId            String?
+  user              User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action            AuditAction
+  entity            AuditEntity
+  entityId          String
+
+  // Details
+  changes           Json?        // Before/after values
+  ipAddress         String?
+  userAgent         String?
+
+  createdAt         DateTime     @default(now())
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
