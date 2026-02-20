@@ -30,14 +30,17 @@ export class SubscriptionService {
 
     // Calculate remaining trial days
     const trialDaysRemaining = subscription.trialEndsAt
-      ? Math.max(0, Math.ceil((subscription.trialEndsAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      ? Math.max(
+          0,
+          Math.ceil((subscription.trialEndsAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+        )
       : 0;
 
     // Calculate billing cycle days
     const billingCycleDaysRemaining = subscription.currentPeriodEnd
       ? Math.max(
           0,
-          Math.ceil((subscription.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+          Math.ceil((subscription.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
         )
       : 0;
 
@@ -49,7 +52,7 @@ export class SubscriptionService {
         basePrice: subscription.basePrice,
         pricePerSeat: subscription.pricePerSeat,
         currency: subscription.currency,
-        
+
         // Dates
         startDate: subscription.startDate,
         endDate: subscription.endDate,
@@ -58,27 +61,29 @@ export class SubscriptionService {
         currentPeriodStart: subscription.currentPeriodStart,
         currentPeriodEnd: subscription.currentPeriodEnd,
         billingCycleDaysRemaining,
-        
+
         // Seats
         seatsPsychologistsMax: subscription.seatsPsychologistsMax,
         seatsPsychologistsUsed: subscription.seatsPsychologistsUsed,
         seatsAvailable: subscription.seatsPsychologistsMax - subscription.seatsPsychologistsUsed,
-        
+
         // Limits
         limits: {
           maxActivePatients: subscription.maxActivePatients,
           storageGB: subscription.storageGB,
           monthlyNotifications: subscription.monthlyNotificationsLimit,
         },
-        
+
         // Features
         features: this.extractFeatures(subscription),
-        
+
         // Scheduled changes
-        scheduledChange: subscription.scheduledPlanChange ? {
-          newPlan: subscription.scheduledPlanChange,
-          effectiveDate: subscription.scheduledPlanChangeAt,
-        } : null,
+        scheduledChange: subscription.scheduledPlanChange
+          ? {
+              newPlan: subscription.scheduledPlanChange,
+              effectiveDate: subscription.scheduledPlanChangeAt,
+            }
+          : null,
       },
       tenant: subscription.tenant,
     };
@@ -154,7 +159,7 @@ export class SubscriptionService {
         start: subscription.currentPeriodStart,
         end: subscription.currentPeriodEnd,
       },
-      
+
       usage: {
         // Seats
         seats: {
@@ -163,7 +168,7 @@ export class SubscriptionService {
           percentage: (psychologistsCount / subscription.seatsPsychologistsMax) * 100,
           available: subscription.seatsPsychologistsMax - psychologistsCount,
         },
-        
+
         // Patients
         patients: {
           active: activePatientsCount,
@@ -171,15 +176,19 @@ export class SubscriptionService {
           percentage: (activePatientsCount / subscription.maxActivePatients) * 100,
           available: subscription.maxActivePatients - activePatientsCount,
         },
-        
+
         // Storage
         storage: {
           usedGB: parseFloat(storageUsedGB.toFixed(2)),
           limitGB: subscription.storageGB,
-          percentage: subscription.storageGB > 0 ? (storageUsedGB / subscription.storageGB) * 100 : 0,
-          availableGB: subscription.storageGB > 0 ? parseFloat((subscription.storageGB - storageUsedGB).toFixed(2)) : 0,
+          percentage:
+            subscription.storageGB > 0 ? (storageUsedGB / subscription.storageGB) * 100 : 0,
+          availableGB:
+            subscription.storageGB > 0
+              ? parseFloat((subscription.storageGB - storageUsedGB).toFixed(2))
+              : 0,
         },
-        
+
         // Notifications
         notifications: {
           sentThisMonth: notificationsThisMonth,
@@ -189,12 +198,12 @@ export class SubscriptionService {
           resetDate: this.getStartOfNextMonth(),
         },
       },
-      
+
       activity: {
         appointmentsThisMonth,
         totalClinicalNotes: clinicalNotesTotal,
       },
-      
+
       // Warnings
       warnings: this.generateUsageWarnings({
         psychologistsCount,
@@ -212,11 +221,7 @@ export class SubscriptionService {
   // ========================================
   // UPGRADE PLAN
   // ========================================
-  async upgradePlan(
-    tenantId: string,
-    userId: string,
-    newPlan: PlanType,
-  ) {
+  async upgradePlan(tenantId: string, userId: string, newPlan: PlanType) {
     const subscription = await this.prisma.tenantSubscription.findUnique({
       where: { tenantId },
     });
@@ -245,6 +250,8 @@ export class SubscriptionService {
 
     // Update subscription (immediate effect)
     const updatedSubscription = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId, userId });
+
       const updated = await tx.tenantSubscription.update({
         where: { tenantId },
         data: {
@@ -256,10 +263,10 @@ export class SubscriptionService {
           maxActivePatients: newPlanLimits.maxActivePatients,
           storageGB: newPlanLimits.storageGB,
           monthlyNotificationsLimit: newPlanLimits.monthlyNotificationsLimit,
-          
+
           // Update feature flags
           ...this.getPlanFeatures(newPlan),
-          
+
           // Clear scheduled changes
           scheduledPlanChange: null,
           scheduledPlanChangeAt: null,
@@ -298,11 +305,7 @@ export class SubscriptionService {
   // ========================================
   // DOWNGRADE PLAN
   // ========================================
-  async downgradePlan(
-    tenantId: string,
-    userId: string,
-    newPlan: PlanType,
-  ) {
+  async downgradePlan(tenantId: string, userId: string, newPlan: PlanType) {
     const subscription = await this.prisma.tenantSubscription.findUnique({
       where: { tenantId },
     });
@@ -336,6 +339,8 @@ export class SubscriptionService {
 
     // Schedule downgrade for end of billing period
     const updated = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId, userId });
+
       const result = await tx.tenantSubscription.update({
         where: { tenantId },
         data: {
@@ -366,9 +371,7 @@ export class SubscriptionService {
       success: true,
       effectiveDate: subscription.currentPeriodEnd,
       daysUntilChange: subscription.currentPeriodEnd
-        ? Math.ceil(
-            (subscription.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-          )
+        ? Math.ceil((subscription.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
         : 0,
       currentPlan: subscription.planType,
       newPlan,
@@ -385,11 +388,12 @@ export class SubscriptionService {
       where: { tenantId },
     });
 
-    if (!subscription || subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING') {
+    if (!subscription || (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING')) {
       return false;
     }
 
-    const featureKey = `feature${feature.charAt(0).toUpperCase()}${feature.slice(1)}` as keyof typeof subscription;
+    const featureKey =
+      `feature${feature.charAt(0).toUpperCase()}${feature.slice(1)}` as keyof typeof subscription;
     return subscription[featureKey] === true;
   }
 
@@ -425,7 +429,10 @@ export class SubscriptionService {
         break;
 
       case 'notifications':
-        if (subscription.monthlyNotificationsSent + incrementBy > subscription.monthlyNotificationsLimit) {
+        if (
+          subscription.monthlyNotificationsSent + incrementBy >
+          subscription.monthlyNotificationsLimit
+        ) {
           return {
             allowed: false,
             reason: `Monthly notification limit reached (${subscription.monthlyNotificationsLimit})`,
@@ -455,11 +462,7 @@ export class SubscriptionService {
   // ========================================
   // INCREMENT USAGE
   // ========================================
-  async incrementUsage(
-    tenantId: string,
-    metric: 'notifications' | 'storage',
-    amount: number,
-  ) {
+  async incrementUsage(tenantId: string, metric: 'notifications' | 'storage', amount: number) {
     if (metric === 'notifications') {
       await this.prisma.tenantSubscription.update({
         where: { tenantId },
@@ -491,7 +494,7 @@ export class SubscriptionService {
 
     if (psychologistsCount > newPlanLimits.seatsIncluded) {
       errors.push(
-        `You have ${psychologistsCount} active psychologists. The new plan allows only ${newPlanLimits.seatsIncluded}. Please deactivate ${psychologistsCount - newPlanLimits.seatsIncluded} psychologist(s).`
+        `You have ${psychologistsCount} active psychologists. The new plan allows only ${newPlanLimits.seatsIncluded}. Please deactivate ${psychologistsCount - newPlanLimits.seatsIncluded} psychologist(s).`,
       );
     }
 
@@ -502,7 +505,7 @@ export class SubscriptionService {
 
     if (activePatientsCount > newPlanLimits.maxActivePatients) {
       errors.push(
-        `You have ${activePatientsCount} active patients. The new plan allows only ${newPlanLimits.maxActivePatients}.`
+        `You have ${activePatientsCount} active patients. The new plan allows only ${newPlanLimits.maxActivePatients}.`,
       );
     }
 
@@ -510,13 +513,13 @@ export class SubscriptionService {
     const subscription = await this.prisma.tenantSubscription.findUnique({
       where: { tenantId },
     });
-    
+
     if (subscription) {
       const storageUsedGB = Number(subscription.storageUsedBytes) / (1024 * 1024 * 1024);
 
       if (storageUsedGB > newPlanLimits.storageGB) {
         errors.push(
-          `Your storage usage (${storageUsedGB.toFixed(2)} GB) exceeds the new plan limit (${newPlanLimits.storageGB} GB).`
+          `Your storage usage (${storageUsedGB.toFixed(2)} GB) exceeds the new plan limit (${newPlanLimits.storageGB} GB).`,
         );
       }
 
@@ -529,8 +532,13 @@ export class SubscriptionService {
       if (subscription.featureVideoConsultation && !newFeatures.featureVideoConsultation) {
         warnings.push('Video Consultation integration will be disabled');
       }
-      if (subscription.featureClinicalNotesEncryption && !newFeatures.featureClinicalNotesEncryption) {
-        warnings.push('Clinical notes encryption will be disabled (existing notes remain encrypted)');
+      if (
+        subscription.featureClinicalNotesEncryption &&
+        !newFeatures.featureClinicalNotesEncryption
+      ) {
+        warnings.push(
+          'Clinical notes encryption will be disabled (existing notes remain encrypted)',
+        );
       }
     }
 
@@ -715,7 +723,9 @@ export class SubscriptionService {
 
     if (!periodEnd) return newBasePrice;
 
-    const totalDays = Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24));
+    const totalDays = Math.ceil(
+      (periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24),
+    );
     const daysRemaining = Math.ceil((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
     const unusedCredit = (Number(currentSubscription.basePrice) / totalDays) * daysRemaining;

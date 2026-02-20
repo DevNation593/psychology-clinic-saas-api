@@ -3,11 +3,15 @@ import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-async function main() {
-  console.log('🌱 Starting database seed...');
+const DEMO_PASSWORD = 'Password123!';
 
-  // Clean up existing data
-  console.log('🧹 Cleaning up existing data...');
+function daysFromNow(days: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+async function clearDatabase() {
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();
   await prisma.nextSessionPlan.deleteMany();
@@ -22,47 +26,46 @@ async function main() {
   await prisma.tenantSettings.deleteMany();
   await prisma.tenantSubscription.deleteMany();
   await prisma.tenant.deleteMany();
+}
 
-  // Create Tenant 1: "Clínica Bienestar"
-  console.log('🏢 Creating Tenant 1: Clínica Bienestar...');
-  const tenant1 = await prisma.tenant.create({
+async function seedMainTenant(hashedPassword: string) {
+  const tenant = await prisma.tenant.create({
     data: {
-      name: 'Clínica Bienestar',
-      slug: 'clinica-bienestar',
-      email: 'contacto@clinicabienestar.com',
-      phone: '+52 555 100 2000',
+      name: 'Demo Psicologia Integral',
+      slug: 'demo-psicologia',
+      email: 'contacto@demopsicologia.com',
+      phone: '+593999000001',
+      address: 'Av. Principal 123, Quito',
       isActive: true,
       onboardingCompleted: true,
     },
   });
 
-  // Create Tenant Settings
   await prisma.tenantSettings.create({
     data: {
-      tenantId: tenant1.id,
+      tenantId: tenant.id,
+      workingHoursStart: '08:30',
+      workingHoursEnd: '18:30',
       workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-      workingHoursStart: '09:00',
-      workingHoursEnd: '18:00',
-      defaultAppointmentDuration: 60,
+      defaultAppointmentDuration: 50,
+      allowDoubleBooking: false,
       reminderEnabled: true,
       reminderRules: ['24h', '2h'],
+      timezone: 'America/Guayaquil',
+      locale: 'es-EC',
     },
   });
 
-  // Create Subscription (PRO plan) for Tenant 1
-  const sub1StartDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000); // Started 60 days ago
-  const sub1 = await prisma.tenantSubscription.create({
+  await prisma.tenantSubscription.create({
     data: {
-      tenantId: tenant1.id,
+      tenantId: tenant.id,
       planType: 'PRO',
       status: 'ACTIVE',
-      startDate: sub1StartDate,
-      endDate: new Date(sub1StartDate.getTime() + 365 * 24 * 60 * 60 * 1000), // 1 year from start
-      trialEndsAt: new Date(sub1StartDate.getTime() + 14 * 24 * 60 * 60 * 1000), // Trial ended 46 days ago
-      currentPeriodStart: new Date(Date.now() - 0 * 24 * 60 * 60 * 1000), // Current billing period started today
-      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Ends in 30 days
-      basePrice: 149.00,
-      pricePerSeat: 29.00,
+      startDate: daysFromNow(-45),
+      currentPeriodStart: daysFromNow(-5),
+      currentPeriodEnd: daysFromNow(25),
+      basePrice: 149,
+      pricePerSeat: 29,
       currency: 'USD',
       seatsPsychologistsMax: 10,
       seatsPsychologistsUsed: 2,
@@ -79,382 +82,408 @@ async function main() {
       featureAdvancedAnalytics: true,
       featureVideoConsultation: true,
       featureCalendarSync: true,
-      featureOnlineSchedulingWidget: false,
+      featureOnlineSchedulingWidget: true,
       featureCustomReports: true,
-      featureAPIAccess: false,
+      featureAPIAccess: true,
       featureWhatsAppIntegration: false,
       featureSSO: false,
-      activePatientsCount: 3,
-      storageUsedBytes: BigInt(524288000), // ~500MB
-      monthlyNotificationsSent: 127,
-      lastNotificationReset: new Date(Date.now() - 0 * 24 * 60 * 60 * 1000),
+      activePatientsCount: 4,
+      storageUsedBytes: BigInt(850 * 1024 * 1024),
+      monthlyNotificationsSent: 97,
+      lastNotificationReset: daysFromNow(-5),
     },
   });
 
-  // Subscription Events for Tenant 1
-  console.log('📊 Creating subscription events for Clínica Bienestar...');
-  await prisma.subscriptionEvent.createMany({
-    data: [
-      {
-        tenantId: tenant1.id,
-        eventType: 'TRIAL_STARTED',
-        newPlan: 'TRIAL',
-        newStatus: 'TRIALING',
-        reason: 'Registro inicial de la clínica',
-        createdAt: sub1StartDate,
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'TRIAL_ENDED',
-        previousPlan: 'TRIAL',
-        previousStatus: 'TRIALING',
-        reason: 'Periodo de prueba de 14 días finalizado',
-        createdAt: new Date(sub1StartDate.getTime() + 14 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'PLAN_UPGRADED',
-        previousPlan: 'TRIAL',
-        newPlan: 'BASIC',
-        previousStatus: 'TRIALING',
-        newStatus: 'ACTIVE',
-        reason: 'Upgrade a plan BASIC tras finalizar trial',
-        createdAt: new Date(sub1StartDate.getTime() + 14 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'SUBSCRIPTION_ACTIVATED',
-        newPlan: 'BASIC',
-        newStatus: 'ACTIVE',
-        reason: 'Primer pago procesado exitosamente',
-        createdAt: new Date(sub1StartDate.getTime() + 14 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'PAYMENT_SUCCEEDED',
-        newPlan: 'BASIC',
-        newStatus: 'ACTIVE',
-        reason: 'Pago mensual procesado - $49.00 USD',
-        metadata: { amount: 49.00, currency: 'USD', paymentMethod: 'card_visa_4242' },
-        createdAt: new Date(sub1StartDate.getTime() + 14 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'PLAN_UPGRADED',
-        previousPlan: 'BASIC',
-        newPlan: 'PRO',
-        previousStatus: 'ACTIVE',
-        newStatus: 'ACTIVE',
-        reason: 'Upgrade a plan PRO para acceder a notas clínicas encriptadas y analíticas avanzadas',
-        createdAt: new Date(sub1StartDate.getTime() + 30 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'PAYMENT_SUCCEEDED',
-        newPlan: 'PRO',
-        newStatus: 'ACTIVE',
-        reason: 'Pago mensual procesado - $149.00 USD + $58.00 (2 seats extra)',
-        metadata: { amount: 207.00, currency: 'USD', seats: 2, paymentMethod: 'card_visa_4242' },
-        createdAt: new Date(sub1StartDate.getTime() + 30 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'SEATS_INCREASED',
-        newPlan: 'PRO',
-        newStatus: 'ACTIVE',
-        reason: 'Se agregó 1 asiento adicional para psicólogo',
-        metadata: { previousSeats: 1, newSeats: 2 },
-        createdAt: new Date(sub1StartDate.getTime() + 35 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        eventType: 'PAYMENT_SUCCEEDED',
-        newPlan: 'PRO',
-        newStatus: 'ACTIVE',
-        reason: 'Pago mensual procesado - $207.00 USD',
-        metadata: { amount: 207.00, currency: 'USD', seats: 2, paymentMethod: 'card_visa_4242' },
-        createdAt: new Date(Date.now() - 0 * 24 * 60 * 60 * 1000),
-      },
-    ],
-  });
-
-  // Usage Metrics for Tenant 1 (last 2 months)
-  console.log('📈 Creating usage metrics for Clínica Bienestar...');
-  await prisma.usageMetrics.createMany({
-    data: [
-      {
-        tenantId: tenant1.id,
-        periodStart: new Date(sub1StartDate.getTime() + 14 * 24 * 60 * 60 * 1000),
-        periodEnd: new Date(sub1StartDate.getTime() + 44 * 24 * 60 * 60 * 1000),
-        seatsPsychologistsUsed: 1,
-        activePatientsCount: 2,
-        storageUsedGB: 0.12,
-        notificationsSent: 45,
-        appointmentsCreated: 18,
-        clinicalNotesCreated: 12,
-        tasksCreated: 5,
-        estimatedCost: 49.00,
-        recordedAt: new Date(sub1StartDate.getTime() + 44 * 24 * 60 * 60 * 1000),
-      },
-      {
-        tenantId: tenant1.id,
-        periodStart: new Date(sub1StartDate.getTime() + 44 * 24 * 60 * 60 * 1000),
-        periodEnd: new Date(Date.now()),
-        seatsPsychologistsUsed: 2,
-        activePatientsCount: 3,
-        storageUsedGB: 0.49,
-        notificationsSent: 127,
-        appointmentsCreated: 32,
-        clinicalNotesCreated: 24,
-        tasksCreated: 8,
-        estimatedCost: 207.00,
-        recordedAt: new Date(Date.now()),
-      },
-    ],
-  });
-
-  // Create Users for Tenant 1
-  console.log('👤 Creating users for Clínica Bienestar...');
-  const hashedPassword = await bcrypt.hash('Password123!', 10);
-
-  const admin1 = await prisma.user.create({
+  const admin = await prisma.user.create({
     data: {
-      tenantId: tenant1.id,
-      email: 'admin@clinicabienestar.com',
+      tenantId: tenant.id,
+      email: 'admin.demo@psic.com',
       password: hashedPassword,
-      firstName: 'Carlos',
-      lastName: 'Rodríguez',
-      phone: '+52 555 100 2001',
+      firstName: 'Daniela',
+      lastName: 'Mendoza',
+      phone: '+593999000010',
       role: 'TENANT_ADMIN',
       isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-45),
+      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Daniela%20Mendoza',
     },
   });
 
-  const psychologist1 = await prisma.user.create({
+  const psych1 = await prisma.user.create({
     data: {
-      tenantId: tenant1.id,
-      email: 'dra.martinez@clinicabienestar.com',
-      password: hashedPassword,
-      firstName: 'María',
-      lastName: 'Martínez',
-      phone: '+52 555 100 2002',
-      role: 'PSYCHOLOGIST',
-      isActive: true,
-    },
-  });
-
-  const psychologist2 = await prisma.user.create({
-    data: {
-      tenantId: tenant1.id,
-      email: 'dr.lopez@clinicabienestar.com',
-      password: hashedPassword,
-      firstName: 'Javier',
-      lastName: 'López',
-      phone: '+52 555 100 2003',
-      role: 'PSYCHOLOGIST',
-      isActive: true,
-    },
-  });
-
-  const assistant1 = await prisma.user.create({
-    data: {
-      tenantId: tenant1.id,
-      email: 'asistente@clinicabienestar.com',
+      tenantId: tenant.id,
+      email: 'psic.ana@psic.com',
       password: hashedPassword,
       firstName: 'Ana',
-      lastName: 'García',
-      phone: '+52 555 100 2004',
-      role: 'ASSISTANT',
+      lastName: 'Vega',
+      phone: '+593999000011',
+      role: 'PSYCHOLOGIST',
       isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-40),
+      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Ana%20Vega',
     },
   });
 
-  // Create Patients for Tenant 1
-  console.log('🩺 Creating patients for Clínica Bienestar...');
+  const psych2 = await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      email: 'psic.luis@psic.com',
+      password: hashedPassword,
+      firstName: 'Luis',
+      lastName: 'Paredes',
+      phone: '+593999000012',
+      role: 'PSYCHOLOGIST',
+      isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-30),
+      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Luis%20Paredes',
+    },
+  });
+
+  const assistant = await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      email: 'asistente.demo@psic.com',
+      password: hashedPassword,
+      firstName: 'Mariana',
+      lastName: 'Rojas',
+      phone: '+593999000013',
+      role: 'ASSISTANT',
+      isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-20),
+      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Mariana%20Rojas',
+    },
+  });
+
   const patient1 = await prisma.patient.create({
     data: {
-      tenantId: tenant1.id,
-      firstName: 'Pedro',
-      lastName: 'Sánchez',
-      email: 'pedro.sanchez@email.com',
-      phone: '+52 555 200 3001',
-      dateOfBirth: new Date('1985-06-15'),
-      address: 'Calle Principal 123, CDMX',
-      emergencyContact: 'Laura Sánchez',
-      emergencyPhone: '+52 555 200 3002',
+      tenantId: tenant.id,
+      firstName: 'Valeria',
+      lastName: 'Ortega',
+      email: 'valeria.ortega@email.com',
+      phone: '+593999100001',
+      dateOfBirth: new Date('1994-04-12'),
+      gender: 'FEMALE',
+      address: 'La Carolina, Quito',
+      emergencyContactName: 'Paula Ortega',
+      emergencyContactPhone: '+593999100002',
+      assignedPsychologistId: psych1.id,
+      notes: 'Paciente con seguimiento semanal por ansiedad social.',
     },
   });
 
   const patient2 = await prisma.patient.create({
     data: {
-      tenantId: tenant1.id,
-      firstName: 'Sofía',
-      lastName: 'Hernández',
-      email: 'sofia.hernandez@email.com',
-      phone: '+52 555 200 3003',
-      dateOfBirth: new Date('1992-03-22'),
-      address: 'Av. Reforma 456, CDMX',
-      emergencyContact: 'Roberto Hernández',
-      emergencyPhone: '+52 555 200 3004',
-      allergies: 'Ninguna conocida',
-      currentMedication: 'Sertralina 50mg',
+      tenantId: tenant.id,
+      firstName: 'Jorge',
+      lastName: 'Salazar',
+      email: 'jorge.salazar@email.com',
+      phone: '+593999100003',
+      dateOfBirth: new Date('1988-09-02'),
+      gender: 'MALE',
+      emergencyContactName: 'Rosa Salazar',
+      emergencyContactPhone: '+593999100004',
+      assignedPsychologistId: psych1.id,
+      currentMedication: 'Escitalopram 10mg',
     },
   });
 
   const patient3 = await prisma.patient.create({
     data: {
-      tenantId: tenant1.id,
-      firstName: 'Luis',
-      lastName: 'Gómez',
-      email: 'luis.gomez@email.com',
-      phone: '+52 555 200 3005',
-      dateOfBirth: new Date('1978-11-08'),
-      address: 'Col. Roma 789, CDMX',
-      emergencyContact: 'Carmen Gómez',
-      emergencyPhone: '+52 555 200 3006',
+      tenantId: tenant.id,
+      firstName: 'Camila',
+      lastName: 'Naranjo',
+      phone: '+593999100005',
+      dateOfBirth: new Date('2001-11-20'),
+      gender: 'FEMALE',
+      assignedPsychologistId: psych2.id,
     },
   });
 
-  // Create Appointments for Tenant 1
-  console.log('📅 Creating appointments for Clínica Bienestar...');
-  const now = new Date();
-  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-  const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-  await prisma.appointment.create({
+  const patient4 = await prisma.patient.create({
     data: {
-      tenantId: tenant1.id,
+      tenantId: tenant.id,
+      firstName: 'Andres',
+      lastName: 'Mora',
+      email: 'andres.mora@email.com',
+      phone: '+593999100006',
+      dateOfBirth: new Date('1979-06-18'),
+      gender: 'MALE',
+      assignedPsychologistId: psych2.id,
+    },
+  });
+
+  const completedAppointment = await prisma.appointment.create({
+    data: {
+      tenantId: tenant.id,
       patientId: patient1.id,
-      psychologistId: psychologist1.id,
-      title: 'Sesión de seguimiento',
-      startTime: new Date(tomorrow.setHours(10, 0, 0, 0)),
-      endTime: new Date(tomorrow.setHours(11, 0, 0, 0)),
-      duration: 60,
-      location: 'Consultorio 1',
-      isOnline: false,
-      status: 'SCHEDULED',
-    },
-  });
-
-  await prisma.appointment.create({
-    data: {
-      tenantId: tenant1.id,
-      patientId: patient2.id,
-      psychologistId: psychologist1.id,
-      title: 'Terapia cognitivo-conductual',
-      startTime: new Date(tomorrow.setHours(15, 0, 0, 0)),
-      endTime: new Date(tomorrow.setHours(16, 0, 0, 0)),
-      duration: 60,
-      location: 'Online',
-      isOnline: true,
-      meetingUrl: 'https://meet.google.com/abc-defg-hij',
-      status: 'CONFIRMED',
-    },
-  });
-
-  await prisma.appointment.create({
-    data: {
-      tenantId: tenant1.id,
-      patientId: patient3.id,
-      psychologistId: psychologist2.id,
-      title: 'Primera consulta',
-      startTime: new Date(nextWeek.setHours(11, 0, 0, 0)),
-      endTime: new Date(nextWeek.setHours(12, 0, 0, 0)),
-      duration: 60,
+      psychologistId: psych1.id,
+      title: 'Sesion de seguimiento ansiedad',
+      description: 'Revision de avances y ajuste de tecnicas',
+      startTime: daysFromNow(-3),
+      endTime: new Date(daysFromNow(-3).getTime() + 50 * 60 * 1000),
+      duration: 50,
+      status: 'COMPLETED',
       location: 'Consultorio 2',
       isOnline: false,
-      status: 'SCHEDULED',
     },
   });
 
-  // Create Clinical Notes
-  console.log('📝 Creating clinical notes...');
-  const pastAppointment = await prisma.appointment.create({
+  await prisma.appointment.create({
     data: {
-      tenantId: tenant1.id,
-      patientId: patient1.id,
-      psychologistId: psychologist1.id,
-      title: 'Sesión completada',
-      startTime: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000), // 1 week ago
-      endTime: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000),
+      tenantId: tenant.id,
+      patientId: patient2.id,
+      psychologistId: psych1.id,
+      title: 'TCC - gestion de estres',
+      startTime: daysFromNow(1),
+      endTime: new Date(daysFromNow(1).getTime() + 60 * 60 * 1000),
       duration: 60,
+      status: 'CONFIRMED',
+      isOnline: true,
+      meetingUrl: 'https://meet.example.com/demo-psic-001',
+      location: 'Online',
+    },
+  });
+
+  await prisma.appointment.create({
+    data: {
+      tenantId: tenant.id,
+      patientId: patient3.id,
+      psychologistId: psych2.id,
+      title: 'Evaluacion inicial',
+      startTime: daysFromNow(2),
+      endTime: new Date(daysFromNow(2).getTime() + 50 * 60 * 1000),
+      duration: 50,
+      status: 'SCHEDULED',
       location: 'Consultorio 1',
       isOnline: false,
-      status: 'COMPLETED',
+    },
+  });
+
+  await prisma.appointment.create({
+    data: {
+      tenantId: tenant.id,
+      patientId: patient4.id,
+      psychologistId: psych2.id,
+      title: 'Consulta cancelada',
+      startTime: daysFromNow(-1),
+      endTime: new Date(daysFromNow(-1).getTime() + 50 * 60 * 1000),
+      duration: 50,
+      status: 'CANCELLED',
+      cancellationReason: 'Paciente reprogramo por viaje',
+      cancelledAt: daysFromNow(-1),
+      cancelledBy: assistant.id,
+      location: 'Consultorio 3',
+      isOnline: false,
     },
   });
 
   await prisma.clinicalNote.create({
     data: {
-      tenantId: tenant1.id,
+      tenantId: tenant.id,
       patientId: patient1.id,
-      psychologistId: psychologist1.id,
-      appointmentId: pastAppointment.id,
+      psychologistId: psych1.id,
+      appointmentId: completedAppointment.id,
       content:
-        'Paciente refiere mejoría significativa en síntomas de ansiedad. Maneja mejor las técnicas de respiración. Se observa mayor confianza en situaciones sociales.',
-      diagnosis: 'Trastorno de ansiedad generalizada (F41.1)',
-      treatment:
-        'Continuar con TCC. Reforzar técnicas de exposición gradual.',
-      observations: 'Programar sesión de seguimiento en 2 semanas.',
-      sessionDuration: 60,
+        'Paciente muestra menor evitacion social. Se reforzaron tecnicas de respiracion y registro de pensamientos automaticos.',
+      diagnosis: 'Trastorno de ansiedad social',
+      treatment: 'Terapia cognitivo conductual con exposicion gradual.',
+      observations: 'Mantener frecuencia semanal por 4 sesiones adicionales.',
+      sessionDate: daysFromNow(-3),
+      sessionDuration: 50,
     },
   });
 
-  // Create Tasks
-  console.log('✅ Creating tasks...');
-  await prisma.task.create({
-    data: {
-      tenantId: tenant1.id,
-      patientId: patient2.id,
-      createdById: admin1.id,
-      assignedToId: psychologist1.id,
-      title: 'Revisar resultados de evaluación',
-      description: 'Analizar cuestionario Beck completado por la paciente',
-      priority: 'HIGH',
-      dueDate: new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000), // 2 days from now
-      status: 'PENDING',
-    },
+  await prisma.task.createMany({
+    data: [
+      {
+        tenantId: tenant.id,
+        patientId: patient2.id,
+        createdById: admin.id,
+        assignedToId: psych1.id,
+        title: 'Revisar cuestionario PHQ-9',
+        description: 'Analizar variacion respecto a la ultima medicion.',
+        status: 'PENDING',
+        priority: 'HIGH',
+        dueDate: daysFromNow(1),
+      },
+      {
+        tenantId: tenant.id,
+        patientId: patient3.id,
+        createdById: admin.id,
+        assignedToId: psych2.id,
+        title: 'Preparar plan de primera intervencion',
+        status: 'IN_PROGRESS',
+        priority: 'MEDIUM',
+        dueDate: daysFromNow(2),
+      },
+      {
+        tenantId: tenant.id,
+        patientId: patient4.id,
+        createdById: admin.id,
+        assignedToId: psych2.id,
+        title: 'Actualizar historia de medicacion',
+        status: 'COMPLETED',
+        priority: 'LOW',
+        completedAt: daysFromNow(-2),
+      },
+      {
+        tenantId: tenant.id,
+        patientId: patient1.id,
+        createdById: admin.id,
+        assignedToId: psych1.id,
+        title: 'Enviar material de psicoeducacion',
+        status: 'PENDING',
+        priority: 'URGENT',
+        dueDate: daysFromNow(-1),
+      },
+    ],
   });
 
-  await prisma.task.create({
-    data: {
-      tenantId: tenant1.id,
-      patientId: patient3.id,
-      createdById: admin1.id,
-      assignedToId: psychologist2.id,
-      title: 'Preparar material para primera sesión',
-      description: 'Revisar historial médico y preparar ejercicios',
-      priority: 'MEDIUM',
-      dueDate: new Date(nextWeek.getTime() - 1 * 24 * 60 * 60 * 1000), // 1 day before appointment
-      status: 'PENDING',
-    },
-  });
-
-  // Create Next Session Plans
-  console.log('📋 Creating session plans...');
   await prisma.nextSessionPlan.create({
     data: {
-      tenantId: tenant1.id,
+      tenantId: tenant.id,
       patientId: patient1.id,
-      psychologistId: psychologist1.id,
-      objectives: 'Trabajar en exposición gradual a situaciones sociales',
-      techniques:
-        'Reestructuración cognitiva, role-playing, registro de pensamientos',
-      homework:
-        'Llevar diario de situaciones sociales y pensamientos automáticos',
-      notes:
-        'Considerar incluir técnicas de mindfulness en próximas sesiones',
+      psychologistId: psych1.id,
+      objectives: 'Consolidar exposicion en contextos laborales.',
+      techniques: 'Reestructuracion cognitiva y role-play.',
+      homework: 'Registro ABC 3 veces por semana.',
+      notes: 'Evaluar reduccion de evitacion en proxima sesion.',
     },
   });
 
-  // Create Tenant 2: "Centro Psicológico Integral"
-  console.log('🏢 Creating Tenant 2: Centro Psicológico Integral...');
-  const tenant2 = await prisma.tenant.create({
+  await prisma.notificationLog.createMany({
+    data: [
+      {
+        tenantId: tenant.id,
+        userId: admin.id,
+        type: 'SYSTEM_ANNOUNCEMENT',
+        status: 'SENT',
+        title: 'Bienvenido al entorno demo',
+        body: 'La base de datos fue sembrada correctamente.',
+        sentAt: daysFromNow(-1),
+      },
+      {
+        tenantId: tenant.id,
+        userId: psych1.id,
+        type: 'APPOINTMENT_REMINDER',
+        status: 'PENDING',
+        title: 'Recordatorio de cita',
+        body: 'Tienes una cita confirmada para manana.',
+      },
+      {
+        tenantId: tenant.id,
+        userId: psych1.id,
+        type: 'TASK_DUE_SOON',
+        status: 'READ',
+        title: 'Tarea proxima a vencer',
+        body: 'Revisar cuestionario PHQ-9 vence pronto.',
+        readAt: daysFromNow(-1),
+        sentAt: daysFromNow(-2),
+      },
+    ],
+  });
+
+  await prisma.auditLog.createMany({
+    data: [
+      {
+        tenantId: tenant.id,
+        userId: psych1.id,
+        action: 'CREATE',
+        entity: 'CLINICAL_NOTE',
+        entityId: completedAppointment.id,
+        changes: { createdFrom: 'seed' },
+      },
+      {
+        tenantId: tenant.id,
+        userId: admin.id,
+        action: 'UPDATE',
+        entity: 'PATIENT',
+        entityId: patient2.id,
+        changes: { field: 'currentMedication', value: 'Escitalopram 10mg' },
+      },
+    ],
+  });
+
+  await prisma.subscriptionEvent.createMany({
+    data: [
+      {
+        tenantId: tenant.id,
+        eventType: 'TRIAL_ENDED',
+        previousPlan: 'TRIAL',
+        previousStatus: 'TRIALING',
+        newPlan: 'BASIC',
+        newStatus: 'ACTIVE',
+        reason: 'Fin de trial y activacion inicial',
+        createdAt: daysFromNow(-31),
+      },
+      {
+        tenantId: tenant.id,
+        eventType: 'PLAN_UPGRADED',
+        previousPlan: 'BASIC',
+        newPlan: 'PRO',
+        previousStatus: 'ACTIVE',
+        newStatus: 'ACTIVE',
+        reason: 'Upgrade para habilitar analiticas avanzadas',
+        createdAt: daysFromNow(-20),
+      },
+    ],
+  });
+
+  await prisma.usageMetrics.createMany({
+    data: [
+      {
+        tenantId: tenant.id,
+        periodStart: daysFromNow(-30),
+        periodEnd: daysFromNow(-1),
+        seatsPsychologistsUsed: 2,
+        activePatientsCount: 4,
+        storageUsedGB: 0.63,
+        notificationsSent: 61,
+        appointmentsCreated: 18,
+        clinicalNotesCreated: 7,
+        tasksCreated: 9,
+        estimatedCost: 207,
+        recordedAt: daysFromNow(-1),
+      },
+      {
+        tenantId: tenant.id,
+        periodStart: daysFromNow(-1),
+        periodEnd: daysFromNow(29),
+        seatsPsychologistsUsed: 2,
+        activePatientsCount: 4,
+        storageUsedGB: 0.81,
+        notificationsSent: 97,
+        appointmentsCreated: 6,
+        clinicalNotesCreated: 3,
+        tasksCreated: 4,
+        estimatedCost: 207,
+        recordedAt: new Date(),
+      },
+    ],
+  });
+
+  return {
+    tenant,
+    users: {
+      admin,
+      psych1,
+      psych2,
+      assistant,
+    },
+  };
+}
+
+async function seedSecondaryTenant(hashedPassword: string) {
+  const tenant = await prisma.tenant.create({
     data: {
-      name: 'Centro Psicológico Integral',
-      slug: 'centro-integral',
-      email: 'info@centrointegral.com',
-      phone: '+52 555 300 4000',
+      name: 'Demo Centro en Trial',
+      slug: 'demo-trial',
+      email: 'contacto@demotrial.com',
+      phone: '+593999200001',
       isActive: true,
       onboardingCompleted: false,
     },
@@ -462,27 +491,27 @@ async function main() {
 
   await prisma.tenantSettings.create({
     data: {
-      tenantId: tenant2.id,
-      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'],
-      workingHoursStart: '08:00',
-      workingHoursEnd: '20:00',
-      defaultAppointmentDuration: 50,
+      tenantId: tenant.id,
+      workingHoursStart: '09:00',
+      workingHoursEnd: '17:00',
+      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+      defaultAppointmentDuration: 60,
       reminderEnabled: true,
-      reminderRules: ['48h', '24h', '2h'],
+      reminderRules: ['24h'],
+      timezone: 'America/Guayaquil',
+      locale: 'es-EC',
     },
   });
 
-  // Create Subscription (BASIC plan - recently started, still in trial) for Tenant 2
-  const sub2StartDate = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // Started 5 days ago
-  const sub2 = await prisma.tenantSubscription.create({
+  await prisma.tenantSubscription.create({
     data: {
-      tenantId: tenant2.id,
+      tenantId: tenant.id,
       planType: 'TRIAL',
       status: 'TRIALING',
-      startDate: sub2StartDate,
-      trialEndsAt: new Date(sub2StartDate.getTime() + 14 * 24 * 60 * 60 * 1000), // Trial ends in 9 days
-      currentPeriodStart: sub2StartDate,
-      currentPeriodEnd: new Date(sub2StartDate.getTime() + 14 * 24 * 60 * 60 * 1000),
+      startDate: daysFromNow(-4),
+      trialEndsAt: daysFromNow(10),
+      currentPeriodStart: daysFromNow(-4),
+      currentPeriodEnd: daysFromNow(10),
       basePrice: 0,
       pricePerSeat: 0,
       currency: 'USD',
@@ -492,117 +521,86 @@ async function main() {
       storageGB: 0,
       monthlyNotificationsLimit: 100,
       featureClinicalNotes: true,
-      featureClinicalNotesEncryption: false,
       featureAttachments: false,
       featureTasks: false,
-      featurePsychologicalTests: false,
-      featureWebPush: false,
-      featureFCMPush: false,
-      featureAdvancedAnalytics: false,
-      featureVideoConsultation: false,
-      featureCalendarSync: false,
-      featureOnlineSchedulingWidget: false,
-      featureCustomReports: false,
-      featureAPIAccess: false,
-      featureWhatsAppIntegration: false,
-      featureSSO: false,
-      activePatientsCount: 0,
-      storageUsedBytes: BigInt(0),
-      monthlyNotificationsSent: 3,
-      lastNotificationReset: sub2StartDate,
-      // Scheduled upgrade to BASIC when trial ends
+      activePatientsCount: 1,
+      storageUsedBytes: BigInt(50 * 1024 * 1024),
+      monthlyNotificationsSent: 8,
+      lastNotificationReset: daysFromNow(-4),
       scheduledPlanChange: 'BASIC',
-      scheduledPlanChangeAt: new Date(sub2StartDate.getTime() + 14 * 24 * 60 * 60 * 1000),
+      scheduledPlanChangeAt: daysFromNow(10),
     },
   });
 
-  // Subscription Events for Tenant 2
-  console.log('📊 Creating subscription events for Centro Psicológico Integral...');
-  await prisma.subscriptionEvent.createMany({
-    data: [
-      {
-        tenantId: tenant2.id,
-        eventType: 'TRIAL_STARTED',
-        newPlan: 'TRIAL',
-        newStatus: 'TRIALING',
-        reason: 'Registro inicial del centro - periodo de prueba de 14 días',
-        createdAt: sub2StartDate,
-      },
-    ],
-  });
-
-  // Usage Metrics for Tenant 2
-  console.log('📈 Creating usage metrics for Centro Psicológico Integral...');
-  await prisma.usageMetrics.create({
+  const admin = await prisma.user.create({
     data: {
-      tenantId: tenant2.id,
-      periodStart: sub2StartDate,
-      periodEnd: new Date(Date.now()),
-      seatsPsychologistsUsed: 1,
-      activePatientsCount: 0,
-      storageUsedGB: 0,
-      notificationsSent: 3,
-      appointmentsCreated: 0,
-      clinicalNotesCreated: 0,
-      tasksCreated: 0,
-      estimatedCost: 0,
-      recordedAt: new Date(Date.now()),
-    },
-  });
-
-  const admin2 = await prisma.user.create({
-    data: {
-      tenantId: tenant2.id,
-      email: 'admin@centrointegral.com',
+      tenantId: tenant.id,
+      email: 'admin.trial@psic.com',
       password: hashedPassword,
-      firstName: 'Laura',
-      lastName: 'Fernández',
-      phone: '+52 555 300 4001',
+      firstName: 'Carla',
+      lastName: 'Noboa',
       role: 'TENANT_ADMIN',
       isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-4),
     },
   });
 
-  const psychologist3 = await prisma.user.create({
+  const psych = await prisma.user.create({
     data: {
-      tenantId: tenant2.id,
-      email: 'dra.torres@centrointegral.com',
+      tenantId: tenant.id,
+      email: 'psic.trial@psic.com',
       password: hashedPassword,
-      firstName: 'Elena',
-      lastName: 'Torres',
-      phone: '+52 555 300 4002',
+      firstName: 'Miguel',
+      lastName: 'Arias',
       role: 'PSYCHOLOGIST',
       isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-4),
     },
   });
 
-  console.log('✅ Seed completed successfully!');
-  console.log('\n📊 Summary:');
-  console.log('  - 2 Tenants created');
-  console.log('  - 2 Subscriptions (Tenant 1: PRO/ACTIVE, Tenant 2: TRIAL/TRIALING)');
-  console.log('  - 10 Subscription Events');
-  console.log('  - 3 Usage Metrics snapshots');
-  console.log('  - 6 Users created (2 admins, 3 psychologists, 1 assistant)');
-  console.log('  - 3 Patients created');
-  console.log('  - 4 Appointments created');
-  console.log('  - 1 Clinical Note created');
-  console.log('  - 2 Tasks created');
-  console.log('  - 1 Next Session Plan created');
-  console.log('\n🔑 Test Credentials (all tenants):');
-  console.log('  Password: Password123!');
-  console.log('\n📧 Tenant 1 - Clínica Bienestar (Plan PRO - Activo):');
-  console.log('  Admin: admin@clinicabienestar.com');
-  console.log('  Psychologist 1: dra.martinez@clinicabienestar.com');
-  console.log('  Psychologist 2: dr.lopez@clinicabienestar.com');
-  console.log('  Assistant: asistente@clinicabienestar.com');
-  console.log('\n📧 Tenant 2 - Centro Psicológico Integral (Trial - 9 días restantes):');
-  console.log('  Admin: admin@centrointegral.com');
-  console.log('  Psychologist: dra.torres@centrointegral.com');
+  await prisma.patient.create({
+    data: {
+      tenantId: tenant.id,
+      firstName: 'Priscila',
+      lastName: 'Viteri',
+      email: 'priscila.viteri@email.com',
+      phone: '+593999200010',
+      assignedPsychologistId: psych.id,
+    },
+  });
+
+  return { tenant, admin };
+}
+
+async function main() {
+  console.log('🌱 Starting deterministic demo seed...');
+  await clearDatabase();
+
+  const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const mainTenant = await seedMainTenant(hashedPassword);
+  const trialTenant = await seedSecondaryTenant(hashedPassword);
+
+  console.log('✅ Seed completed successfully.');
+  console.log('');
+  console.log('Login credentials (all users):');
+  console.log(`  Password: ${DEMO_PASSWORD}`);
+  console.log('');
+  console.log(`Main tenant: ${mainTenant.tenant.name} (${mainTenant.tenant.slug})`);
+  console.log('  admin.demo@psic.com (TENANT_ADMIN)');
+  console.log('  psic.ana@psic.com (PSYCHOLOGIST)');
+  console.log('  psic.luis@psic.com (PSYCHOLOGIST)');
+  console.log('  asistente.demo@psic.com (ASSISTANT)');
+  console.log('');
+  console.log(`Trial tenant: ${trialTenant.tenant.name} (${trialTenant.tenant.slug})`);
+  console.log('  admin.trial@psic.com (TENANT_ADMIN)');
+  console.log('  psic.trial@psic.com (PSYCHOLOGIST)');
 }
 
 main()
-  .catch((e) => {
-    console.error('❌ Seed failed:', e);
+  .catch((error) => {
+    console.error('❌ Seed failed:', error);
     process.exit(1);
   })
   .finally(async () => {

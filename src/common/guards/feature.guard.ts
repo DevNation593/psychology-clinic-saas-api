@@ -12,7 +12,7 @@ export class FeatureGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredFeature = this.reflector.get<string>(REQUIRE_FEATURE_KEY, context.getHandler());
-    
+
     if (!requiredFeature) {
       return true; // No feature requirement
     }
@@ -32,7 +32,8 @@ export class FeatureGuard implements CanActivate {
       return false;
     }
 
-    const featureKey = `feature${requiredFeature.charAt(0).toUpperCase()}${requiredFeature.slice(1)}` as keyof typeof subscription;
+    const featureKey =
+      `feature${requiredFeature.charAt(0).toUpperCase()}${requiredFeature.slice(1)}` as keyof typeof subscription;
     const hasFeature = subscription[featureKey] === true;
 
     if (!hasFeature) {

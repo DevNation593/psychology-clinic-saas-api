@@ -42,8 +42,12 @@ export class ReminderProcessor {
 
         // Find appointments needing reminders
         for (const hoursBefore of tenantRules) {
-          const startTimeFrom = new Date(now.getTime() + hoursBefore * 60 * 60 * 1000 - 30 * 60 * 1000);
-          const startTimeTo = new Date(now.getTime() + hoursBefore * 60 * 60 * 1000 + 30 * 60 * 1000);
+          const startTimeFrom = new Date(
+            now.getTime() + hoursBefore * 60 * 60 * 1000 - 30 * 60 * 1000,
+          );
+          const startTimeTo = new Date(
+            now.getTime() + hoursBefore * 60 * 60 * 1000 + 30 * 60 * 1000,
+          );
 
           const appointments = await this.prisma.appointment.findMany({
             where: {
@@ -57,8 +61,8 @@ export class ReminderProcessor {
               ...(hoursBefore === 24
                 ? { reminderSent24h: false }
                 : hoursBefore === 2
-                ? { reminderSent2h: false }
-                : {}),
+                  ? { reminderSent2h: false }
+                  : {}),
             },
             include: {
               patient: true,

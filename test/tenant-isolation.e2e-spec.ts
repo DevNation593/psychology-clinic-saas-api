@@ -4,6 +4,8 @@ import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
 
+jest.setTimeout(30000);
+
 describe('Tenant Isolation (E2E)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -18,6 +20,7 @@ describe('Tenant Isolation (E2E)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -68,6 +71,7 @@ describe('Tenant Isolation (E2E)', () => {
     const login1 = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({
+        tenantSlug: 'tenant1',
         email: 'admin@tenant1.com',
         password: 'password123',
       })
@@ -79,6 +83,7 @@ describe('Tenant Isolation (E2E)', () => {
     const login2 = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({
+        tenantSlug: 'tenant2',
         email: 'admin@tenant2.com',
         password: 'password123',
       })
@@ -148,6 +153,8 @@ describe('Tenant Isolation (E2E)', () => {
       .expect(200);
 
     // Should only see tenant 1 patients
-    expect(tenant1Patients.body.every((p) => p.email.includes('t1') || p.email.includes('one'))).toBe(true);
+    expect(
+      tenant1Patients.body.every((p) => p.email.includes('t1') || p.email.includes('one')),
+    ).toBe(true);
   });
 });

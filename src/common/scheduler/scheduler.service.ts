@@ -7,9 +7,7 @@ import { Queue } from 'bull';
 export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
 
-  constructor(
-    @InjectQueue('reminders') private remindersQueue: Queue,
-  ) {}
+  constructor(@InjectQueue('reminders') private remindersQueue: Queue) {}
 
   // Run every 15 minutes
   @Cron('*/15 * * * *')
@@ -17,13 +15,17 @@ export class SchedulerService {
     this.logger.log('Scheduling appointment reminder check...');
 
     try {
-      await this.remindersQueue.add('check-appointments', {}, {
-        attempts: 3,
-        backoff: {
-          type: 'exponential',
-          delay: 5000,
+      await this.remindersQueue.add(
+        'check-appointments',
+        {},
+        {
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 5000,
+          },
         },
-      });
+      );
 
       this.logger.log('Reminder check job scheduled successfully');
     } catch (error) {

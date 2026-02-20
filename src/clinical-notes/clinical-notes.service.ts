@@ -67,14 +67,24 @@ export class ClinicalNotesService {
     return note;
   }
 
-  async findAll(tenantId: string, filters?: { patientId?: string; psychologistId?: string }) {
+  async findAll(
+    tenantId: string,
+    filters?: { patientId?: string; psychologistId?: string },
+    userId?: string,
+    userRole?: string,
+  ) {
     const where: any = { tenantId };
+
+    // Psychologists can only list their own notes.
+    if (userRole === 'PSYCHOLOGIST') {
+      where.psychologistId = userId;
+    }
 
     if (filters?.patientId) {
       where.patientId = filters.patientId;
     }
 
-    if (filters?.psychologistId) {
+    if (filters?.psychologistId && userRole !== 'PSYCHOLOGIST') {
       where.psychologistId = filters.psychologistId;
     }
 

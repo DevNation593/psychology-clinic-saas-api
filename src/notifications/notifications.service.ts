@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,12 +22,16 @@ export class NotificationsService {
       const clientEmail = this.configService.get<string>('FCM_CLIENT_EMAIL');
 
       if (
-        !projectId || !privateKey || !clientEmail ||
+        !projectId ||
+        !privateKey ||
+        !clientEmail ||
         projectId.includes('your-') ||
         clientEmail.includes('your-') ||
         !privateKey.includes('BEGIN PRIVATE KEY')
       ) {
-        this.logger.warn('Firebase credentials not configured. Push notifications will be disabled.');
+        this.logger.warn(
+          'Firebase credentials not configured. Push notifications will be disabled.',
+        );
         return;
       }
 
@@ -182,7 +186,7 @@ export class NotificationsService {
     });
 
     if (!user) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
     }
 
     await this.prisma.user.update({
@@ -267,9 +271,18 @@ export class NotificationsService {
     );
 
     // Optionally send push notification
-    await this.sendPushNotification(tenantId, psychologistId, title, body, data, 'APPOINTMENT_REMINDER');
+    await this.sendPushNotification(
+      tenantId,
+      psychologistId,
+      title,
+      body,
+      data,
+      'APPOINTMENT_REMINDER',
+    );
 
-    this.logger.log(`Sent appointment reminder to psychologist ${psychologistId} for appointment ${appointment.id}`);
+    this.logger.log(
+      `Sent appointment reminder to psychologist ${psychologistId} for appointment ${appointment.id}`,
+    );
   }
 
   /**

@@ -1,10 +1,35 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto, UpdateAppointmentDto } from './dto/appointment.dto';
 
 @Injectable()
 export class AppointmentsService {
   constructor(private prisma: PrismaService) {}
+
+  private async assertPatientBelongsToTenant(tenantId: string, patientId: string) {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, tenantId, deletedAt: null },
+    });
+
+    if (!patient) {
+      throw new NotFoundException('Patient not found');
+    }
+  }
+
+  private async assertPsychologistBelongsToTenant(tenantId: string, psychologistId: string) {
+    const psychologist = await this.prisma.user.findFirst({
+      where: { id: psychologistId, tenantId, role: 'PSYCHOLOGIST', isActive: true },
+    });
+
+    if (!psychologist) {
+      throw new NotFoundException('Psychologist not found or not authorized');
+    }
+  }
 
   /**
    * Create appointment with conflict detection
@@ -26,22 +51,10 @@ export class AppointmentsService {
     }
 
     // Verify patient belongs to tenant
-    const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, tenantId },
-    });
-
-    if (!patient) {
-      throw new NotFoundException('Patient not found');
-    }
+    await this.assertPatientBelongsToTenant(tenantId, patientId);
 
     // Verify psychologist belongs to tenant
-    const psychologist = await this.prisma.user.findFirst({
-      where: { id: psychologistId, tenantId, role: 'PSYCHOLOGIST', isActive: true },
-    });
-
-    if (!psychologist) {
-      throw new NotFoundException('Psychologist not found or not authorized');
-    }
+    await this.assertPsychologistBelongsToTenant(tenantId, psychologistId);
 
     // Get tenant settings for working hours validation
     const settings = await this.prisma.tenantSettings.findUnique({
@@ -170,7 +183,16 @@ export class AppointmentsService {
     }
   }
 
-  async findAll(tenantId: string, filters?: { psychologistId?: string; patientId?: string; status?: string; from?: string; to?: string }) {
+  async findAll(
+    tenantId: string,
+    filters?: {
+      psychologistId?: string;
+      patientId?: string;
+      status?: string;
+      from?: string;
+      to?: string;
+    },
+  ) {
     const where: any = { tenantId };
 
     if (filters?.psychologistId) {
@@ -248,7 +270,11 @@ export class AppointmentsService {
     return appointment;
   }
 
-  async update(tenantId: string, appointmentId: string, updateAppointmentDto: UpdateAppointmentDto) {
+  async update(
+    tenantId: string,
+    appointmentId: string,
+    updateAppointmentDto: UpdateAppointmentDto,
+  ) {
     const existing = await this.prisma.appointment.findFirst({
       where: { id: appointmentId, tenantId },
     });
@@ -274,6 +300,14 @@ export class AppointmentsService {
       );
 
       updateAppointmentDto['endTime'] = newEnd;
+    }
+
+    if (updateAppointmentDto.patientId) {
+      await this.assertPatientBelongsToTenant(tenantId, updateAppointmentDto.patientId);
+    }
+
+    if (updateAppointmentDto.psychologistId) {
+      await this.assertPsychologistBelongsToTenant(tenantId, updateAppointmentDto.psychologistId);
     }
 
     const { patientId, psychologistId, status, ...dataToUpdate } = updateAppointmentDto;

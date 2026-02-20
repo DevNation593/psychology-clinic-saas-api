@@ -6,7 +6,6 @@ import { TenantGuard } from '../common/guards/tenant.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { User } from '@prisma/client';
 import { UpgradePlanDto } from './dto/upgrade-plan.dto';
 import { DowngradePlanDto } from './dto/downgrade-plan.dto';
 
@@ -34,10 +33,10 @@ export class SubscriptionController {
   @ApiOperation({ summary: 'Upgrade subscription plan (TENANT_ADMIN only)' })
   async upgradePlan(
     @Param('tenantId') tenantId: string,
-    @CurrentUser() user: User,
+    @CurrentUser() user: any,
     @Body() dto: UpgradePlanDto,
   ) {
-    return this.subscriptionService.upgradePlan(tenantId, user.id, dto.newPlan);
+    return this.subscriptionService.upgradePlan(tenantId, user.userId, dto.newPlan);
   }
 
   @Post('downgrade')
@@ -45,9 +44,9 @@ export class SubscriptionController {
   @ApiOperation({ summary: 'Schedule downgrade (TENANT_ADMIN only)' })
   async downgradePlan(
     @Param('tenantId') tenantId: string,
-    @CurrentUser() user: User,
+    @CurrentUser() user: any,
     @Body() dto: DowngradePlanDto,
   ) {
-    return this.subscriptionService.downgradePlan(tenantId, user.id, dto.newPlan);
+    return this.subscriptionService.downgradePlan(tenantId, user.userId, dto.newPlan);
   }
 }

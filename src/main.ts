@@ -1,23 +1,24 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-
-// Fix BigInt serialization for JSON.stringify
-(BigInt.prototype as any).toJSON = function () {
-  return Number(this);
-};
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Global prefix
   const apiPrefix = process.env.API_PREFIX || 'api/v1';
-  app.setGlobalPrefix(apiPrefix);
+  app.setGlobalPrefix(apiPrefix, {
+    exclude: [{ path: 'health', method: RequestMethod.GET }],
+  });
 
   // CORS
+  const corsOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
+    : [process.env.FRONTEND_URL || 'http://localhost:4200'];
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+    origin: corsOrigins,
     credentials: true,
   });
 
@@ -58,6 +59,7 @@ async function bootstrap() {
     .addTag('tasks', 'Task management')
     .addTag('next-session-plans', 'Treatment plans')
     .addTag('notifications', 'Notification system')
+    .addTag('health', 'Health checks')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

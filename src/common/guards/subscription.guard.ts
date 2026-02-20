@@ -46,7 +46,8 @@ export class SubscriptionGuard implements CanActivate {
       }
       throw new ForbiddenException({
         error: 'SUBSCRIPTION_PAST_DUE',
-        message: 'Your payment is past due. Please update your payment method to restore full access.',
+        message:
+          'Your payment is past due. Please update your payment method to restore full access.',
         readOnlyMode: true,
       });
     }

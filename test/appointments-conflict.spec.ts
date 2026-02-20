@@ -25,10 +25,7 @@ describe('Appointments - Conflict Detection', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AppointmentsService,
-        { provide: PrismaService, useValue: mockPrismaService },
-      ],
+      providers: [AppointmentsService, { provide: PrismaService, useValue: mockPrismaService }],
     }).compile();
 
     service = module.get<AppointmentsService>(AppointmentsService);
@@ -39,13 +36,16 @@ describe('Appointments - Conflict Detection', () => {
     jest.clearAllMocks();
   });
 
+  const futureIso = (minutesFromNow: number) =>
+    new Date(Date.now() + minutesFromNow * 60 * 1000).toISOString();
+
   describe('create appointment with conflict detection', () => {
     it('should create appointment when no conflicts', async () => {
       const tenantId = 'tenant-1';
       const createDto = {
         patientId: 'patient-1',
         psychologistId: 'psych-1',
-        startTime: '2024-12-15T10:00:00Z',
+        startTime: futureIso(24 * 60),
         duration: 60,
       };
 
@@ -57,9 +57,9 @@ describe('Appointments - Conflict Detection', () => {
         isActive: true,
       });
       mockPrismaService.tenantSettings.findUnique.mockResolvedValue({
-        workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-        workingHoursStart: '09:00',
-        workingHoursEnd: '18:00',
+        workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+        workingHoursStart: '00:00',
+        workingHoursEnd: '23:59',
       });
       mockPrismaService.appointment.findMany.mockResolvedValue([]); // No conflicts
       mockPrismaService.appointment.create.mockResolvedValue({
@@ -80,7 +80,7 @@ describe('Appointments - Conflict Detection', () => {
       const createDto = {
         patientId: 'patient-1',
         psychologistId: 'psych-1',
-        startTime: '2024-12-15T10:00:00Z',
+        startTime: futureIso(24 * 60),
         duration: 60,
       };
 
@@ -92,19 +92,23 @@ describe('Appointments - Conflict Detection', () => {
         isActive: true,
       });
       mockPrismaService.tenantSettings.findUnique.mockResolvedValue({
-        workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-        workingHoursStart: '09:00',
-        workingHoursEnd: '18:00',
+        workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+        workingHoursStart: '00:00',
+        workingHoursEnd: '23:59',
       });
 
       // Mock existing appointment that conflicts
+      const conflictStart = new Date(createDto.startTime);
+      conflictStart.setMinutes(conflictStart.getMinutes() - 30);
+      const conflictEnd = new Date(createDto.startTime);
+      conflictEnd.setMinutes(conflictEnd.getMinutes() + 30);
       mockPrismaService.appointment.findMany.mockResolvedValue([
         {
           id: 'existing-1',
           tenantId,
           psychologistId: 'psych-1',
-          startTime: new Date('2024-12-15T09:30:00Z'),
-          endTime: new Date('2024-12-15T10:30:00Z'),
+          startTime: conflictStart,
+          endTime: conflictEnd,
           patient: { firstName: 'John', lastName: 'Doe' },
         },
       ]);
@@ -118,7 +122,7 @@ describe('Appointments - Conflict Detection', () => {
       const createDto = {
         patientId: 'patient-1',
         psychologistId: 'psych-1',
-        startTime: '2024-12-15T11:00:00Z', // Starts exactly when previous ends
+        startTime: futureIso(26 * 60), // Starts in the future
         duration: 60,
       };
 
@@ -130,9 +134,9 @@ describe('Appointments - Conflict Detection', () => {
         isActive: true,
       });
       mockPrismaService.tenantSettings.findUnique.mockResolvedValue({
-        workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-        workingHoursStart: '09:00',
-        workingHoursEnd: '18:00',
+        workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+        workingHoursStart: '00:00',
+        workingHoursEnd: '23:59',
       });
 
       // Mock existing appointment that ends exactly when new one starts

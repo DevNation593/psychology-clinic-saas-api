@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { RlsContextService } from '../../prisma/rls-context.service';
 
 /**
  * TenantGuard ensures that users can only access resources within their own tenant.
@@ -14,7 +15,10 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
-  constructor(private reflector: Reflector) {}
+  constructor(
+    private reflector: Reflector,
+    private readonly rlsContext: RlsContextService,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
@@ -35,7 +39,7 @@ export class TenantGuard implements CanActivate {
 
     // Check tenantId in params (e.g., /tenants/:tenantId/users)
     const tenantIdFromParams = request.params?.tenantId;
-    
+
     // Check tenantId in body (for POST/PUT requests)
     const tenantIdFromBody = request.body?.tenantId;
 
@@ -55,6 +59,11 @@ export class TenantGuard implements CanActivate {
 
     // Inject user's tenantId into the request for convenience
     request.tenantId = user.tenantId;
+    this.rlsContext.set({
+      tenantId: user.tenantId,
+      userId: user.userId,
+      role: user.role,
+    });
 
     return true;
   }

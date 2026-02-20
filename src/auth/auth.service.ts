@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,26 +17,37 @@ export class AuthService {
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
     const { email, password } = loginDto;
 
-    // Find user
-    const user = await this.prisma.user.findFirst({
-      where: { email, isActive: true },
+    const users = await this.prisma.user.findMany({
+      where: {
+        email,
+        isActive: true,
+        tenant: { isActive: true },
+      },
       include: { tenant: true },
     });
 
-    if (!user) {
+    if (users.length === 0) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Verify tenant is active
-    if (!user.tenant.isActive) {
-      throw new UnauthorizedException('Tenant is inactive');
+    const matchingUsers: typeof users = [];
+    for (const candidate of users) {
+      const isPasswordValid = await bcrypt.compare(password, candidate.password);
+      if (isPasswordValid) {
+        matchingUsers.push(candidate);
+      }
     }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
+    if (matchingUsers.length === 0) {
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    if (matchingUsers.length > 1) {
+      // Deterministic fallback for legacy data with duplicate email+password across tenants.
+      matchingUsers.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    }
+
+    const user = matchingUsers[0];
 
     // Generate tokens
     const tokens = await this.generateTokens(user);
@@ -60,52 +71,60 @@ export class AuthService {
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
-
-      // Find refresh token in database
-      const storedToken = await this.prisma.refreshToken.findUnique({
-        where: { token: refreshToken },
-        include: { user: { include: { tenant: true } } },
-      });
-
-      if (!storedToken || storedToken.isRevoked) {
-        // Token reuse detected - revoke entire token family
-        if (storedToken?.familyId) {
-          await this.revokeTokenFamily(storedToken.familyId);
-        }
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      // Check expiration
-      if (new Date() > storedToken.expiresAt) {
-        throw new UnauthorizedException('Refresh token expired');
-      }
-
-      const user = storedToken.user;
-
-      if (!user.isActive || !user.tenant.isActive) {
-        throw new UnauthorizedException('User or tenant is inactive');
-      }
-
-      // Revoke old refresh token
-      await this.prisma.refreshToken.update({
-        where: { id: storedToken.id },
-        data: { isRevoked: true },
-      });
-
-      // Generate new tokens with same family
-      const tokens = await this.generateTokens(user, storedToken.familyId);
-
-      return {
-        ...tokens,
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role,
-          tenantId: user.tenantId,
+      return this.prisma.withRlsContext(
+        {
+          tenantId: payload.tenantId,
+          userId: payload.sub,
+          role: payload.role,
         },
-      };
+        async () => {
+          // Find refresh token in database
+          const storedToken = await this.prisma.refreshToken.findUnique({
+            where: { token: refreshToken },
+            include: { user: { include: { tenant: true } } },
+          });
+
+          if (!storedToken || storedToken.isRevoked) {
+            // Token reuse detected - revoke entire token family
+            if (storedToken?.familyId) {
+              await this.revokeTokenFamily(storedToken.familyId);
+            }
+            throw new UnauthorizedException('Invalid refresh token');
+          }
+
+          // Check expiration
+          if (new Date() > storedToken.expiresAt) {
+            throw new UnauthorizedException('Refresh token expired');
+          }
+
+          const user = storedToken.user;
+
+          if (!user.isActive || !user.tenant.isActive) {
+            throw new UnauthorizedException('User or tenant is inactive');
+          }
+
+          // Revoke old refresh token
+          await this.prisma.refreshToken.update({
+            where: { id: storedToken.id },
+            data: { isRevoked: true },
+          });
+
+          // Generate new tokens with same family
+          const tokens = await this.generateTokens(user, storedToken.familyId);
+
+          return {
+            ...tokens,
+            user: {
+              id: user.id,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              role: user.role,
+              tenantId: user.tenantId,
+            },
+          };
+        },
+      );
     } catch (error) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -125,6 +144,81 @@ export class AuthService {
       where: { userId },
       data: { isRevoked: true },
     });
+  }
+
+  async requestPasswordReset(email: string): Promise<void> {
+    // Avoid email enumeration: always return success.
+    const user = await this.prisma.user.findFirst({
+      where: { email, isActive: true },
+    });
+
+    if (!user) {
+      return;
+    }
+
+    const token = this.jwtService.sign(
+      {
+        sub: user.id,
+        tenantId: user.tenantId,
+        type: 'password-reset',
+      },
+      {
+        secret: this.configService.get<string>('JWT_RESET_SECRET') || this.configService.get<string>('JWT_ACCESS_SECRET'),
+        expiresIn: this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h',
+      },
+    );
+
+    // Integrate with your email provider in production.
+    // Logging keeps the flow testable in development environments.
+    // eslint-disable-next-line no-console
+    console.log(`[Auth] Password reset token generated for ${email}: ${token}`);
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    try {
+      const payload = this.jwtService.verify(token, {
+        secret: this.configService.get<string>('JWT_RESET_SECRET') || this.configService.get<string>('JWT_ACCESS_SECRET'),
+      }) as { sub: string; tenantId: string; type?: string };
+
+      if (payload.type !== 'password-reset') {
+        throw new BadRequestException('Invalid reset token');
+      }
+
+      const user = await this.prisma.user.findFirst({
+        where: { id: payload.sub, tenantId: payload.tenantId, isActive: true },
+      });
+
+      if (!user) {
+        throw new BadRequestException('Invalid reset token');
+      }
+
+      const hashedPassword = await this.hashPassword(newPassword);
+
+      await this.prisma.withRlsContext(
+        {
+          tenantId: payload.tenantId,
+          userId: payload.sub,
+        },
+        async () => {
+          await this.prisma.$transaction(async (tx) => {
+            await this.prisma.applyRlsContext(tx);
+
+            await tx.user.update({
+              where: { id: user.id },
+              data: { password: hashedPassword },
+            });
+
+            // Invalidate all active sessions after password reset.
+            await tx.refreshToken.updateMany({
+              where: { userId: user.id, isRevoked: false },
+              data: { isRevoked: true },
+            });
+          });
+        },
+      );
+    } catch {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
   }
 
   private async generateTokens(user: any, familyId?: string) {

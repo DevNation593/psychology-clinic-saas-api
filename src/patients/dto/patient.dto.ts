@@ -52,7 +52,10 @@ export class CreatePatientDto {
   @IsOptional()
   emergencyContactName?: string;
 
-  @ApiPropertyOptional({ example: '+52 555 111 2222', description: 'Teléfono del contacto de emergencia' })
+  @ApiPropertyOptional({
+    example: '+52 555 111 2222',
+    description: 'Teléfono del contacto de emergencia',
+  })
   @IsString()
   @IsOptional()
   emergencyContactPhone?: string;

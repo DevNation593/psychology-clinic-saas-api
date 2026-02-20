@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
@@ -11,6 +12,8 @@ import { AuthService } from '../auth/auth.service';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
@@ -44,6 +47,8 @@ export class UsersService {
 
     // Create user in transaction
     const user = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId, userId: createdBy });
+
       const newUser = await tx.user.create({
         data: {
           tenantId,
@@ -101,6 +106,8 @@ export class UsersService {
 
     // Create user in transaction
     const user = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId, userId: invitedBy });
+
       const newUser = await tx.user.create({
         data: {
           tenantId,
@@ -128,9 +135,8 @@ export class UsersService {
       return newUser;
     });
 
-    // TODO: Send invitation email with activation link
-
     const { password: _, ...userWithoutPassword } = user;
+    await this.sendInvitationEmail(tenantId, userWithoutPassword.id, userWithoutPassword.email);
     return userWithoutPassword;
   }
 
@@ -186,6 +192,7 @@ export class UsersService {
       where,
       select: {
         id: true,
+        tenantId: true,
         email: true,
         firstName: true,
         lastName: true,
@@ -210,6 +217,7 @@ export class UsersService {
       where: { id: userId, tenantId },
       select: {
         id: true,
+        tenantId: true,
         email: true,
         firstName: true,
         lastName: true,
@@ -241,49 +249,57 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    // Prevent role changes that would violate seat limits
-    if (updateUserDto.role && updateUserDto.role !== user.role) {
-      // If changing TO PSYCHOLOGIST, check seats
-      if (updateUserDto.role === 'PSYCHOLOGIST') {
-        await this.checkSeatAvailability(tenantId);
-      }
+    const nextRole = updateUserDto.role || user.role;
+    const nextIsActive = updateUserDto.isActive ?? user.isActive;
+    const currentUsesSeat = user.role === 'PSYCHOLOGIST' && user.isActive;
+    const nextUsesSeat = nextRole === 'PSYCHOLOGIST' && nextIsActive;
 
-      // Update seat count in transaction
-      await this.prisma.$transaction(async (tx) => {
-        // If changing FROM PSYCHOLOGIST, decrement
-        if (user.role === 'PSYCHOLOGIST') {
-          await tx.tenantSubscription.update({
-            where: { tenantId },
-            data: { seatsPsychologistsUsed: { decrement: 1 } },
-          });
-        }
+    if (!currentUsesSeat && nextUsesSeat) {
+      await this.checkSeatAvailability(tenantId);
+    }
 
-        // If changing TO PSYCHOLOGIST, increment
-        if (updateUserDto.role === 'PSYCHOLOGIST') {
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId });
+
+      if (currentUsesSeat !== nextUsesSeat) {
+        if (!currentUsesSeat && nextUsesSeat) {
           await tx.tenantSubscription.update({
             where: { tenantId },
             data: { seatsPsychologistsUsed: { increment: 1 } },
           });
+        } else if (currentUsesSeat && !nextUsesSeat) {
+          await tx.tenantSubscription.updateMany({
+            where: {
+              tenantId,
+              seatsPsychologistsUsed: { gt: 0 },
+            },
+            data: {
+              seatsPsychologistsUsed: {
+                decrement: 1,
+              },
+            },
+          });
         }
-      });
-    }
+      }
 
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: updateUserDto,
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-        avatarUrl: true,
-        role: true,
-        isActive: true,
-        emailVerified: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      return tx.user.update({
+        where: { id: userId },
+        data: updateUserDto,
+        select: {
+          id: true,
+          tenantId: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          avatarUrl: true,
+          role: true,
+          isActive: true,
+          emailVerified: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
     });
 
     return updated;
@@ -298,18 +314,30 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    // Deactivate user and free up seat if PSYCHOLOGIST
+    if (!user.isActive) {
+      return { message: 'User already inactive' };
+    }
+
+    // Deactivate user and free up seat if active PSYCHOLOGIST
     await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId });
+
       await tx.user.update({
         where: { id: userId },
         data: { isActive: false },
       });
 
-      // Free up seat if PSYCHOLOGIST
       if (user.role === 'PSYCHOLOGIST') {
-        await tx.tenantSubscription.update({
-          where: { tenantId },
-          data: { seatsPsychologistsUsed: { decrement: 1 } },
+        await tx.tenantSubscription.updateMany({
+          where: {
+            tenantId,
+            seatsPsychologistsUsed: { gt: 0 },
+          },
+          data: {
+            seatsPsychologistsUsed: {
+              decrement: 1,
+            },
+          },
         });
       }
     });
@@ -326,21 +354,40 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    // Re-check seat availability if PSYCHOLOGIST
-    if (user.role === 'PSYCHOLOGIST') {
+    const hashedPassword = await this.authService.hashPassword(password);
+
+    // Invited psychologists already reserve a seat at invitation time.
+    const seatReservedAtInvite =
+      user.role === 'PSYCHOLOGIST' && !!user.invitedAt && !user.activatedAt;
+    const needsSeatNow = user.role === 'PSYCHOLOGIST' && !user.isActive && !seatReservedAtInvite;
+
+    if (needsSeatNow) {
       await this.checkSeatAvailability(tenantId);
     }
 
-    const hashedPassword = await this.authService.hashPassword(password);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId });
 
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        password: hashedPassword,
-        isActive: true,
-        emailVerified: true,
-        activatedAt: new Date(),
-      },
+      if (needsSeatNow) {
+        await tx.tenantSubscription.update({
+          where: { tenantId },
+          data: {
+            seatsPsychologistsUsed: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
+      return tx.user.update({
+        where: { id: userId },
+        data: {
+          password: hashedPassword,
+          isActive: true,
+          emailVerified: true,
+          activatedAt: new Date(),
+        },
+      });
     });
 
     const { password: _, ...userWithoutPassword } = updated;
@@ -381,5 +428,94 @@ export class UsersService {
     });
 
     return { message: 'Password changed successfully' };
+  }
+
+  async uploadAvatar(
+    tenantId: string,
+    userId: string,
+    currentUserId: string,
+    currentUserRole: string,
+    file: any,
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Only tenant admins or the same user can change the avatar.
+    if (currentUserRole !== 'TENANT_ADMIN' && currentUserId !== userId) {
+      throw new ForbiddenException('You can only update your own avatar');
+    }
+
+    if (!file.mimetype?.startsWith('image/')) {
+      throw new BadRequestException('Only image files are allowed');
+    }
+
+    const avatarUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl },
+      select: {
+        id: true,
+        tenantId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        avatarUrl: true,
+        role: true,
+        isActive: true,
+        emailVerified: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  private async sendInvitationEmail(tenantId: string, userId: string, email: string) {
+    const apiUrl = process.env.EMAIL_API_URL;
+    const apiKey = process.env.EMAIL_API_KEY;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+    const activationLink = `${frontendUrl}/activate?tenantId=${tenantId}&userId=${userId}`;
+
+    if (!apiUrl) {
+      this.logger.warn(
+        `EMAIL_API_URL is not configured. Invitation for ${email} not sent. Activation link: ${activationLink}`,
+      );
+      return;
+    }
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          to: email,
+          template: 'user-invitation',
+          subject: 'You have been invited to Psychology Clinic SaaS',
+          variables: {
+            activationLink,
+            tenantId,
+            userId,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        this.logger.error(
+          `Invitation email failed for ${email}. Status ${response.status}. Body: ${errorBody}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(`Invitation email request failed for ${email}`, error as any);
+    }
   }
 }

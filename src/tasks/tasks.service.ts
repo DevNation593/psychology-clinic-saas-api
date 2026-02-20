@@ -6,6 +6,16 @@ import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
 export class TasksService {
   constructor(private prisma: PrismaService) {}
 
+  private async assertAssignableUserBelongsToTenant(tenantId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId, isActive: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Assigned user not found in this tenant');
+    }
+  }
+
   async create(tenantId: string, createdById: string, createTaskDto: CreateTaskDto) {
     const { patientId, dueDate, ...taskData } = createTaskDto;
 
@@ -16,6 +26,10 @@ export class TasksService {
 
     if (!patient) {
       throw new NotFoundException('Patient not found');
+    }
+
+    if (taskData.assignedToId) {
+      await this.assertAssignableUserBelongsToTenant(tenantId, taskData.assignedToId);
     }
 
     const task = await this.prisma.task.create({
@@ -152,6 +166,10 @@ export class TasksService {
     }
 
     const updateData: any = { ...updateTaskDto };
+
+    if (updateTaskDto.assignedToId) {
+      await this.assertAssignableUserBelongsToTenant(tenantId, updateTaskDto.assignedToId);
+    }
 
     // If marking as completed, set completedAt
     if (updateTaskDto.status === 'COMPLETED' && task.status !== 'COMPLETED') {

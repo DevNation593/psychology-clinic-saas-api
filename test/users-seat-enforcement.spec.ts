@@ -57,6 +57,7 @@ describe('Users - Seat Enforcement', () => {
       mockPrismaService.tenantSubscription.findUnique.mockResolvedValue({
         id: 'sub-1',
         tenantId,
+        status: 'ACTIVE',
         seatsPsychologistsMax: 3,
         seatsPsychologistsUsed: 1,
       });
@@ -91,6 +92,7 @@ describe('Users - Seat Enforcement', () => {
       mockPrismaService.tenantSubscription.findUnique.mockResolvedValue({
         id: 'sub-1',
         tenantId,
+        status: 'ACTIVE',
         seatsPsychologistsMax: 1,
         seatsPsychologistsUsed: 1, // Already at limit
         planType: 'BASIC',

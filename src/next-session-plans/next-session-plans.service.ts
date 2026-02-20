@@ -24,7 +24,9 @@ export class NextSessionPlansService {
     });
 
     if (existing) {
-      throw new ConflictException('A session plan already exists for this patient. Use update instead.');
+      throw new ConflictException(
+        'A session plan already exists for this patient. Use update instead.',
+      );
     }
 
     const plan = await this.prisma.nextSessionPlan.create({

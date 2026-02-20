@@ -1,5 +1,12 @@
 import { Controller, Get, Post, Delete, Param, Body, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiProperty } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiQuery,
+  ApiProperty,
+} from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { IsString, IsNotEmpty } from 'class-validator';
@@ -36,7 +43,8 @@ export class NotificationsController {
   @Post('fcm-token')
   @ApiOperation({
     summary: 'Register FCM token for push notifications',
-    description: 'Frontend sends the FCM token obtained from Firebase SDK after user grants notification permission.',
+    description:
+      'Frontend sends the FCM token obtained from Firebase SDK after user grants notification permission.',
   })
   @ApiResponse({ status: 201, description: 'FCM token registered' })
   async registerFcmToken(
@@ -53,10 +61,7 @@ export class NotificationsController {
     description: 'Call this on logout to stop receiving push notifications on this device.',
   })
   @ApiResponse({ status: 200, description: 'FCM token removed' })
-  async removeFcmToken(
-    @Param('tenantId') tenantId: string,
-    @CurrentUser() user: any,
-  ) {
+  async removeFcmToken(@Param('tenantId') tenantId: string, @CurrentUser() user: any) {
     return this.notificationsService.removeFcmToken(tenantId, user.userId);
   }
 

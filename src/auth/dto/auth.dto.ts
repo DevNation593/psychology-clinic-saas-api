@@ -21,6 +21,26 @@ export class RefreshTokenDto {
   refreshToken: string;
 }
 
+export class ForgotPasswordDto {
+  @ApiProperty({ example: 'admin@clinic.com' })
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+}
+
+export class ResetPasswordDto {
+  @ApiProperty({ description: 'Password reset token received by email' })
+  @IsString()
+  @IsNotEmpty()
+  token: string;
+
+  @ApiProperty({ example: 'NewSecurePassword123!' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8)
+  password: string;
+}
+
 export class AuthResponseDto {
   @ApiProperty()
   accessToken: string;

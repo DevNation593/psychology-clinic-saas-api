@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { PatientsService } from './patients.service';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('patients')
 @ApiBearerAuth('access-token')
@@ -14,8 +15,12 @@ export class PatientsController {
   @Post()
   @ApiOperation({ summary: 'Create new patient' })
   @ApiResponse({ status: 201, description: 'Patient created' })
-  async create(@Param('tenantId') tenantId: string, @Body() createPatientDto: CreatePatientDto) {
-    return this.patientsService.create(tenantId, createPatientDto);
+  async create(
+    @Param('tenantId') tenantId: string,
+    @Body() createPatientDto: CreatePatientDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.patientsService.create(tenantId, createPatientDto, user.userId, user.role);
   }
 
   @Get()
@@ -50,7 +55,11 @@ export class PatientsController {
   @Delete(':patientId')
   @ApiOperation({ summary: 'Soft delete patient' })
   @ApiResponse({ status: 200, description: 'Patient deleted' })
-  async remove(@Param('tenantId') tenantId: string, @Param('patientId') patientId: string) {
-    return this.patientsService.softDelete(tenantId, patientId);
+  async remove(
+    @Param('tenantId') tenantId: string,
+    @Param('patientId') patientId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.patientsService.softDelete(tenantId, patientId, user.userId, user.role);
   }
 }

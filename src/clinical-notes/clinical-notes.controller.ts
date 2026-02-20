@@ -38,8 +38,14 @@ export class ClinicalNotesController {
     @Param('tenantId') tenantId: string,
     @Query('patientId') patientId?: string,
     @Query('psychologistId') psychologistId?: string,
+    @CurrentUser() user?: any,
   ) {
-    return this.clinicalNotesService.findAll(tenantId, { patientId, psychologistId });
+    return this.clinicalNotesService.findAll(
+      tenantId,
+      { patientId, psychologistId },
+      user.userId,
+      user.role,
+    );
   }
 
   @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')

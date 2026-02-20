@@ -7,11 +7,20 @@ import {
   Param,
   Delete,
   Query,
-  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
-import { CreateUserDto, InviteUserDto, UpdateUserDto, ActivateUserDto, ChangePasswordDto } from './dto/user.dto';
+import {
+  CreateUserDto,
+  InviteUserDto,
+  UpdateUserDto,
+  ActivateUserDto,
+  ChangePasswordDto,
+} from './dto/user.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -35,7 +44,8 @@ export class UsersController {
       example: {
         statusCode: 403,
         error: 'SEAT_LIMIT_REACHED',
-        message: 'Seat limit reached. Current plan allows 1 psychologist(s). Please upgrade your plan.',
+        message:
+          'Seat limit reached. Current plan allows 1 psychologist(s). Please upgrade your plan.',
         details: {
           seatsPsychologistsMax: 1,
           seatsPsychologistsUsed: 1,
@@ -124,10 +134,37 @@ export class UsersController {
     return this.usersService.activate(tenantId, userId, activateUserDto.password);
   }
 
+  @Post(':userId/avatar')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    }),
+  )
+  @ApiOperation({ summary: 'Upload/update user avatar' })
+  @ApiResponse({ status: 200, description: 'Avatar updated' })
+  async uploadAvatar(
+    @Param('tenantId') tenantId: string,
+    @Param('userId') userId: string,
+    @UploadedFile() file: any,
+    @CurrentUser() currentUser: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    return this.usersService.uploadAvatar(
+      tenantId,
+      userId,
+      currentUser.userId,
+      currentUser.role,
+      file,
+    );
+  }
+
   @Post('me/change-password')
   @ApiOperation({
     summary: 'Change own password',
-    description: 'Authenticated user changes their own password by providing current and new password.',
+    description:
+      'Authenticated user changes their own password by providing current and new password.',
   })
   @ApiResponse({ status: 200, description: 'Password changed successfully' })
   @ApiResponse({ status: 400, description: 'Current password is incorrect' })

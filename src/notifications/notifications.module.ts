@@ -17,10 +17,7 @@ const isRedisEnabled = process.env.REDIS_ENABLED === 'true';
       : []),
   ],
   controllers: [NotificationsController],
-  providers: [
-    NotificationsService,
-    ...(isRedisEnabled ? [ReminderProcessor] : []),
-  ],
+  providers: [NotificationsService, ...(isRedisEnabled ? [ReminderProcessor] : [])],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

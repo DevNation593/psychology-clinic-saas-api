@@ -1,7 +1,11 @@
 import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AppointmentsService } from './appointments.service';
-import { CreateAppointmentDto, UpdateAppointmentDto, CancelAppointmentDto } from './dto/appointment.dto';
+import {
+  CreateAppointmentDto,
+  UpdateAppointmentDto,
+  CancelAppointmentDto,
+} from './dto/appointment.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -37,7 +41,10 @@ export class AppointmentsController {
       },
     },
   })
-  async create(@Param('tenantId') tenantId: string, @Body() createAppointmentDto: CreateAppointmentDto) {
+  async create(
+    @Param('tenantId') tenantId: string,
+    @Body() createAppointmentDto: CreateAppointmentDto,
+  ) {
     return this.appointmentsService.create(tenantId, createAppointmentDto);
   }
 
@@ -70,7 +77,10 @@ export class AppointmentsController {
   @ApiOperation({ summary: 'Get appointment details' })
   @ApiResponse({ status: 200, description: 'Appointment found' })
   @ApiResponse({ status: 404, description: 'Appointment not found' })
-  async findOne(@Param('tenantId') tenantId: string, @Param('appointmentId') appointmentId: string) {
+  async findOne(
+    @Param('tenantId') tenantId: string,
+    @Param('appointmentId') appointmentId: string,
+  ) {
     return this.appointmentsService.findOne(tenantId, appointmentId);
   }
 

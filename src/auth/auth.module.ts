@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -11,13 +11,10 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { SubscriptionGuard } from '../common/guards/subscription.guard';
 import { FeatureGuard } from '../common/guards/feature.guard';
+import { RlsContextInterceptor } from '../common/interceptors/rls-context.interceptor';
 
 @Module({
-  imports: [
-    PassportModule,
-    JwtModule.register({}),
-    ConfigModule,
-  ],
+  imports: [PassportModule, JwtModule.register({}), ConfigModule],
   controllers: [AuthController],
   providers: [
     AuthService,
@@ -41,6 +38,10 @@ import { FeatureGuard } from '../common/guards/feature.guard';
     {
       provide: APP_GUARD,
       useClass: FeatureGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: RlsContextInterceptor,
     },
   ],
   exports: [AuthService],

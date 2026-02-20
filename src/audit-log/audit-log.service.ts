@@ -5,14 +5,17 @@ import { PrismaService } from '../prisma/prisma.service';
 export class AuditLogService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(tenantId: string, filters?: {
-    entity?: string;
-    entityId?: string;
-    userId?: string;
-    action?: string;
-    from?: string;
-    to?: string;
-  }) {
+  async findAll(
+    tenantId: string,
+    filters?: {
+      entity?: string;
+      entityId?: string;
+      userId?: string;
+      action?: string;
+      from?: string;
+      to?: string;
+    },
+  ) {
     const where: any = { tenantId };
 
     if (filters?.entity) {

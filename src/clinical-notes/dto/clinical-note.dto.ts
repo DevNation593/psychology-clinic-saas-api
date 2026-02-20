@@ -22,7 +22,9 @@ export class CreateClinicalNoteDto {
   @IsOptional()
   diagnosis?: string;
 
-  @ApiPropertyOptional({ example: 'Continuar con técnicas de relajación y reestructuración cognitiva' })
+  @ApiPropertyOptional({
+    example: 'Continuar con técnicas de relajación y reestructuración cognitiva',
+  })
   @IsString()
   @IsOptional()
   treatment?: string;

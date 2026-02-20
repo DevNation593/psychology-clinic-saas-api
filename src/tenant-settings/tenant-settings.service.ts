@@ -39,9 +39,7 @@ export class TenantSettingsService {
     const end = updateDto.workingHoursEnd ?? existing.workingHoursEnd;
 
     if (start >= end) {
-      throw new BadRequestException(
-        'workingHoursEnd must be after workingHoursStart',
-      );
+      throw new BadRequestException('workingHoursEnd must be after workingHoursStart');
     }
 
     // Validate working days values
@@ -55,9 +53,7 @@ export class TenantSettingsService {
       'SUNDAY',
     ];
     if (updateDto.workingDays) {
-      const invalidDays = updateDto.workingDays.filter(
-        (d) => !validDays.includes(d),
-      );
+      const invalidDays = updateDto.workingDays.filter((d) => !validDays.includes(d));
       if (invalidDays.length > 0) {
         throw new BadRequestException(
           `Invalid working days: ${invalidDays.join(', ')}. Valid values: ${validDays.join(', ')}`,

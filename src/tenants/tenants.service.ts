@@ -46,6 +46,8 @@ export class TenantsService {
         },
       });
 
+      await this.prisma.applyRlsContext(tx, { tenantId: newTenant.id });
+
       // Create tenant settings
       await tx.tenantSettings.create({
         data: {

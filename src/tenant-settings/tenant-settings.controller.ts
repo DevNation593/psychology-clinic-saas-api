@@ -13,7 +13,8 @@ export class TenantSettingsController {
   @Get()
   @ApiOperation({
     summary: 'Get tenant settings',
-    description: 'Returns working hours, appointment defaults, reminder rules, timezone, and locale.',
+    description:
+      'Returns working hours, appointment defaults, reminder rules, timezone, and locale.',
   })
   @ApiResponse({ status: 200, description: 'Tenant settings returned' })
   @ApiResponse({ status: 404, description: 'Settings not found' })
@@ -31,10 +32,7 @@ export class TenantSettingsController {
   @ApiResponse({ status: 200, description: 'Settings updated' })
   @ApiResponse({ status: 400, description: 'Invalid settings values' })
   @ApiResponse({ status: 404, description: 'Settings not found' })
-  async update(
-    @Param('tenantId') tenantId: string,
-    @Body() updateDto: UpdateTenantSettingsDto,
-  ) {
+  async update(@Param('tenantId') tenantId: string, @Body() updateDto: UpdateTenantSettingsDto) {
     return this.tenantSettingsService.update(tenantId, updateDto);
   }
 }

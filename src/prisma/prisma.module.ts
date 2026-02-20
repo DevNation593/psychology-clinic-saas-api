@@ -1,9 +1,10 @@
 import { Module, Global } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
+import { RlsContextService } from './rls-context.service';
 
 @Global()
 @Module({
-  providers: [PrismaService],
-  exports: [PrismaService],
+  providers: [PrismaService, RlsContextService],
+  exports: [PrismaService, RlsContextService],
 })
 export class PrismaModule {}

@@ -16,10 +16,15 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { SchedulerModule } from './common/scheduler/scheduler.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { TenantSettingsModule } from './tenant-settings/tenant-settings.module';
+import { HealthController } from './health.controller';
+import './common/utils/bigint-json';
 
 const isRedisEnabled = process.env.REDIS_ENABLED === 'true';
+const throttleTtlRaw = parseInt(process.env.THROTTLE_TTL || '60', 10);
+const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTtlRaw;
 
 @Module({
+  controllers: [HealthController],
   imports: [
     // Configuration
     ConfigModule.forRoot({
@@ -30,7 +35,7 @@ const isRedisEnabled = process.env.REDIS_ENABLED === 'true';
     // Rate limiting
     ThrottlerModule.forRoot([
       {
-        ttl: parseInt(process.env.THROTTLE_TTL) || 60000,
+        ttl: throttleTtlMs,
         limit: parseInt(process.env.THROTTLE_LIMIT) || 10,
       },
     ]),
