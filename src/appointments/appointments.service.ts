@@ -17,7 +17,7 @@ export class AppointmentsService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient not found');
+      throw new NotFoundException('Paciente no encontrado');
     }
   }
 
@@ -27,7 +27,7 @@ export class AppointmentsService {
     });
 
     if (!psychologist) {
-      throw new NotFoundException('Psychologist not found or not authorized');
+      throw new NotFoundException('Psicólogo no encontrado o no autorizado');
     }
   }
 
@@ -43,11 +43,11 @@ export class AppointmentsService {
 
     // Validate dates
     if (isNaN(start.getTime())) {
-      throw new BadRequestException('Invalid start time');
+      throw new BadRequestException('Fecha de inicio inválida');
     }
 
     if (start < new Date()) {
-      throw new BadRequestException('Cannot create appointments in the past');
+      throw new BadRequestException('No se pueden crear citas en el pasado');
     }
 
     // Verify patient belongs to tenant
@@ -64,9 +64,14 @@ export class AppointmentsService {
     // Validate working hours
     if (settings) {
       const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+      const dayLabels: Record<string, string> = {
+        MONDAY: 'Lunes', TUESDAY: 'Martes', WEDNESDAY: 'Miércoles',
+        THURSDAY: 'Jueves', FRIDAY: 'Viernes', SATURDAY: 'Sábado', SUNDAY: 'Domingo',
+      };
       if (!settings.workingDays.includes(dayOfWeek)) {
+        const workingDayLabels = settings.workingDays.map((d: string) => dayLabels[d] || d).join(', ');
         throw new BadRequestException(
-          `Appointments cannot be scheduled on ${dayOfWeek}. Working days: ${settings.workingDays.join(', ')}`,
+          `No se pueden programar citas el día ${dayLabels[dayOfWeek] || dayOfWeek}. Días laborales: ${workingDayLabels}`,
         );
       }
 
@@ -78,7 +83,7 @@ export class AppointmentsService {
 
       if (startHour < workStart || startHour >= workEnd) {
         throw new BadRequestException(
-          `Appointments must be within working hours: ${settings.workingHoursStart} - ${settings.workingHoursEnd}`,
+          `Las citas deben estar dentro del horario laboral: ${settings.workingHoursStart} - ${settings.workingHoursEnd}`,
         );
       }
     }
@@ -177,7 +182,7 @@ export class AppointmentsService {
       throw new ConflictException({
         statusCode: 409,
         error: 'APPOINTMENT_CONFLICT',
-        message: 'This time slot conflicts with existing appointment(s)',
+        message: 'Este horario tiene conflicto con cita(s) existente(s)',
         conflicts: conflictDetails,
       });
     }
@@ -264,7 +269,7 @@ export class AppointmentsService {
     });
 
     if (!appointment) {
-      throw new NotFoundException('Appointment not found');
+      throw new NotFoundException('Cita no encontrada');
     }
 
     return appointment;
@@ -280,7 +285,7 @@ export class AppointmentsService {
     });
 
     if (!existing) {
-      throw new NotFoundException('Appointment not found');
+      throw new NotFoundException('Cita no encontrada');
     }
 
     // If updating time, check conflicts
@@ -333,7 +338,7 @@ export class AppointmentsService {
     });
 
     if (!appointment) {
-      throw new NotFoundException('Appointment not found');
+      throw new NotFoundException('Cita no encontrada');
     }
 
     return this.prisma.appointment.update({

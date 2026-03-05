@@ -149,7 +149,7 @@ export class UsersController {
     @CurrentUser() currentUser: any,
   ) {
     if (!file) {
-      throw new BadRequestException('No file uploaded');
+      throw new BadRequestException('No se subió ningún archivo');
     }
     return this.usersService.uploadAvatar(
       tenantId,

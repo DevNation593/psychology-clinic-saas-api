@@ -38,4 +38,9 @@ export class UpdateTaskDto extends PartialType(CreateTaskDto) {
   @IsEnum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])
   @IsOptional()
   status?: string;
+
+  @ApiPropertyOptional({ description: 'Fecha de completado (se establece automáticamente al completar)' })
+  @IsDateString()
+  @IsOptional()
+  completedAt?: string;
 }

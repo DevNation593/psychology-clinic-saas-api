@@ -20,7 +20,7 @@ export class TenantsService {
     });
 
     if (existingTenant) {
-      throw new ConflictException('Tenant with this slug already exists');
+      throw new ConflictException('Ya existe un tenant con este slug');
     }
 
     // Check if admin email already exists
@@ -29,7 +29,7 @@ export class TenantsService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already in use');
+      throw new ConflictException('El correo electrónico ya está en uso');
     }
 
     // Hash password
@@ -104,7 +104,7 @@ export class TenantsService {
     });
 
     if (!tenant) {
-      throw new NotFoundException('Tenant not found');
+      throw new NotFoundException('Tenant no encontrado');
     }
 
     return tenant;
@@ -120,7 +120,7 @@ export class TenantsService {
     });
 
     if (!tenant) {
-      throw new NotFoundException('Tenant not found');
+      throw new NotFoundException('Tenant no encontrado');
     }
 
     return tenant;
@@ -152,7 +152,7 @@ export class TenantsService {
     });
 
     if (!subscription) {
-      throw new NotFoundException('Subscription not found');
+      throw new NotFoundException('Suscripción no encontrada');
     }
 
     return subscription;
