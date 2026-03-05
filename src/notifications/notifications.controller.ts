@@ -79,9 +79,17 @@ export class NotificationsController {
     @Param('notificationId') notificationId: string,
     @CurrentUser() user: any,
   ) {
-    const notification = await this.notificationsService.markAsRead(tenantId, notificationId, user.userId);
+    const notification = await this.notificationsService.markAsRead(
+      tenantId,
+      notificationId,
+      user.userId,
+    );
     if (notification) {
-      return { ...notification, isRead: true, message: (notification as any).body || (notification as any).message };
+      return {
+        ...notification,
+        isRead: true,
+        message: (notification as any).body || (notification as any).message,
+      };
     }
     return notification;
   }

@@ -111,19 +111,31 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   // Helper method to clean database (for testing)
+  // Models ordered so child tables are deleted before parent tables (FK constraints).
   async cleanDatabase() {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Cannot clean database in production');
     }
 
-    const models = Reflect.ownKeys(this).filter(
-      (key) => typeof key === 'string' && key[0] !== '_' && key[0] !== '$',
-    );
+    const orderedModels = [
+      'auditLog',
+      'notificationLog',
+      'nextSessionPlan',
+      'task',
+      'clinicalNote',
+      'appointment',
+      'refreshToken',
+      'patient',
+      'user',
+      'subscriptionEvent',
+      'usageMetrics',
+      'tenantSubscription',
+      'tenantSettings',
+      'tenant',
+    ] as const;
 
-    return Promise.all(
-      models.map((modelKey) => {
-        return this[modelKey]?.deleteMany?.();
-      }),
-    );
+    for (const modelKey of orderedModels) {
+      await (this as any)[modelKey].deleteMany();
+    }
   }
 }

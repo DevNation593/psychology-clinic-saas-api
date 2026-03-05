@@ -65,11 +65,18 @@ export class AppointmentsService {
     if (settings) {
       const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
       const dayLabels: Record<string, string> = {
-        MONDAY: 'Lunes', TUESDAY: 'Martes', WEDNESDAY: 'Miércoles',
-        THURSDAY: 'Jueves', FRIDAY: 'Viernes', SATURDAY: 'Sábado', SUNDAY: 'Domingo',
+        MONDAY: 'Lunes',
+        TUESDAY: 'Martes',
+        WEDNESDAY: 'Miércoles',
+        THURSDAY: 'Jueves',
+        FRIDAY: 'Viernes',
+        SATURDAY: 'Sábado',
+        SUNDAY: 'Domingo',
       };
       if (!settings.workingDays.includes(dayOfWeek)) {
-        const workingDayLabels = settings.workingDays.map((d: string) => dayLabels[d] || d).join(', ');
+        const workingDayLabels = settings.workingDays
+          .map((d: string) => dayLabels[d] || d)
+          .join(', ');
         throw new BadRequestException(
           `No se pueden programar citas el día ${dayLabels[dayOfWeek] || dayOfWeek}. Días laborales: ${workingDayLabels}`,
         );

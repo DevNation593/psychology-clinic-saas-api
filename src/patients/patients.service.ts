@@ -258,7 +258,12 @@ export class PatientsService {
     });
   }
 
-  async softDelete(tenantId: string, patientId: string, currentUserId: string, currentUserRole: string) {
+  async softDelete(
+    tenantId: string,
+    patientId: string,
+    currentUserId: string,
+    currentUserRole: string,
+  ) {
     const patient = await this.prisma.patient.findFirst({
       where: { id: patientId, tenantId },
     });

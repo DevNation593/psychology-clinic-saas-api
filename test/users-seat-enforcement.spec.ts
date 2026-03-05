@@ -18,6 +18,7 @@ describe('Users - Seat Enforcement', () => {
       update: jest.fn(),
     },
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
+    applyRlsContext: jest.fn(),
   };
 
   const mockAuthService = {
