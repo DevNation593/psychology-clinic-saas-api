@@ -33,11 +33,17 @@ export class NotificationsController {
     @CurrentUser() user: any,
     @Query('unreadOnly') unreadOnly?: string,
   ) {
-    return this.notificationsService.getUserNotifications(
+    const notifications = await this.notificationsService.getUserNotifications(
       tenantId,
       user.userId,
       unreadOnly === 'true',
     );
+    // Transform readAt to isRead and body to message for frontend compatibility
+    return notifications.map((n: any) => ({
+      ...n,
+      isRead: !!n.readAt,
+      message: n.body || n.message,
+    }));
   }
 
   @Post('fcm-token')
@@ -73,7 +79,19 @@ export class NotificationsController {
     @Param('notificationId') notificationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.notificationsService.markAsRead(tenantId, notificationId, user.userId);
+    const notification = await this.notificationsService.markAsRead(
+      tenantId,
+      notificationId,
+      user.userId,
+    );
+    if (notification) {
+      return {
+        ...notification,
+        isRead: true,
+        message: (notification as any).body || (notification as any).message,
+      };
+    }
+    return notification;
   }
 
   @Post('read-all')

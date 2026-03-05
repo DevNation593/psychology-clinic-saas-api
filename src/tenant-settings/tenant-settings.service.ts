@@ -15,7 +15,7 @@ export class TenantSettingsService {
     });
 
     if (!settings) {
-      throw new NotFoundException('Tenant settings not found');
+      throw new NotFoundException('Configuración del tenant no encontrada');
     }
 
     return settings;
@@ -31,7 +31,7 @@ export class TenantSettingsService {
     });
 
     if (!existing) {
-      throw new NotFoundException('Tenant settings not found');
+      throw new NotFoundException('Configuración del tenant no encontrada');
     }
 
     // Validate working hours order if both provided
@@ -39,7 +39,7 @@ export class TenantSettingsService {
     const end = updateDto.workingHoursEnd ?? existing.workingHoursEnd;
 
     if (start >= end) {
-      throw new BadRequestException('workingHoursEnd must be after workingHoursStart');
+      throw new BadRequestException('La hora de fin debe ser posterior a la hora de inicio');
     }
 
     // Validate working days values
@@ -56,7 +56,7 @@ export class TenantSettingsService {
       const invalidDays = updateDto.workingDays.filter((d) => !validDays.includes(d));
       if (invalidDays.length > 0) {
         throw new BadRequestException(
-          `Invalid working days: ${invalidDays.join(', ')}. Valid values: ${validDays.join(', ')}`,
+          `Días laborales inválidos: ${invalidDays.join(', ')}. Valores válidos: ${validDays.join(', ')}`,
         );
       }
     }

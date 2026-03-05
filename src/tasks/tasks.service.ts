@@ -12,7 +12,7 @@ export class TasksService {
     });
 
     if (!user) {
-      throw new NotFoundException('Assigned user not found in this tenant');
+      throw new NotFoundException('Usuario asignado no encontrado en esta clínica');
     }
   }
 
@@ -25,7 +25,7 @@ export class TasksService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient not found');
+      throw new NotFoundException('Paciente no encontrado');
     }
 
     if (taskData.assignedToId) {
@@ -150,7 +150,7 @@ export class TasksService {
     });
 
     if (!task) {
-      throw new NotFoundException('Task not found');
+      throw new NotFoundException('Tarea no encontrada');
     }
 
     return task;
@@ -162,7 +162,7 @@ export class TasksService {
     });
 
     if (!task) {
-      throw new NotFoundException('Task not found');
+      throw new NotFoundException('Tarea no encontrada');
     }
 
     const updateData: any = { ...updateTaskDto };
@@ -193,13 +193,13 @@ export class TasksService {
     });
 
     if (!task) {
-      throw new NotFoundException('Task not found');
+      throw new NotFoundException('Tarea no encontrada');
     }
 
     await this.prisma.task.delete({
       where: { id: taskId },
     });
 
-    return { message: 'Task deleted successfully' };
+    return { message: 'Tarea eliminada exitosamente' };
   }
 }

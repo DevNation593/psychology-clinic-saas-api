@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +8,8 @@ import { LoginDto, AuthResponseDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -27,7 +29,7 @@ export class AuthService {
     });
 
     if (users.length === 0) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Credenciales inválidas');
     }
 
     const matchingUsers: typeof users = [];
@@ -39,7 +41,7 @@ export class AuthService {
     }
 
     if (matchingUsers.length === 0) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Credenciales inválidas');
     }
 
     if (matchingUsers.length > 1) {
@@ -89,18 +91,18 @@ export class AuthService {
             if (storedToken?.familyId) {
               await this.revokeTokenFamily(storedToken.familyId);
             }
-            throw new UnauthorizedException('Invalid refresh token');
+            throw new UnauthorizedException('Token de actualización inválido');
           }
 
           // Check expiration
           if (new Date() > storedToken.expiresAt) {
-            throw new UnauthorizedException('Refresh token expired');
+            throw new UnauthorizedException('El token de actualización ha expirado');
           }
 
           const user = storedToken.user;
 
           if (!user.isActive || !user.tenant.isActive) {
-            throw new UnauthorizedException('User or tenant is inactive');
+            throw new UnauthorizedException('Usuario o tenant inactivo');
           }
 
           // Revoke old refresh token
@@ -126,7 +128,7 @@ export class AuthService {
         },
       );
     } catch (error) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException('Token de actualización inválido');
     }
   }
 
@@ -163,25 +165,28 @@ export class AuthService {
         type: 'password-reset',
       },
       {
-        secret: this.configService.get<string>('JWT_RESET_SECRET') || this.configService.get<string>('JWT_ACCESS_SECRET'),
+        secret:
+          this.configService.get<string>('JWT_RESET_SECRET') ||
+          this.configService.get<string>('JWT_ACCESS_SECRET'),
         expiresIn: this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h',
       },
     );
 
     // Integrate with your email provider in production.
     // Logging keeps the flow testable in development environments.
-    // eslint-disable-next-line no-console
-    console.log(`[Auth] Password reset token generated for ${email}: ${token}`);
+    this.logger.debug(`Password reset token generated for ${email}: ${token}`);
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
     try {
       const payload = this.jwtService.verify(token, {
-        secret: this.configService.get<string>('JWT_RESET_SECRET') || this.configService.get<string>('JWT_ACCESS_SECRET'),
+        secret:
+          this.configService.get<string>('JWT_RESET_SECRET') ||
+          this.configService.get<string>('JWT_ACCESS_SECRET'),
       }) as { sub: string; tenantId: string; type?: string };
 
       if (payload.type !== 'password-reset') {
-        throw new BadRequestException('Invalid reset token');
+        throw new BadRequestException('Token de restablecimiento inválido');
       }
 
       const user = await this.prisma.user.findFirst({
@@ -189,7 +194,7 @@ export class AuthService {
       });
 
       if (!user) {
-        throw new BadRequestException('Invalid reset token');
+        throw new BadRequestException('Token de restablecimiento inválido');
       }
 
       const hashedPassword = await this.hashPassword(newPassword);
@@ -217,7 +222,7 @@ export class AuthService {
         },
       );
     } catch {
-      throw new BadRequestException('Invalid or expired reset token');
+      throw new BadRequestException('Token de restablecimiento inválido o expirado');
     }
   }
 

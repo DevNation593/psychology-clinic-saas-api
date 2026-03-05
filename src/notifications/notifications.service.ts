@@ -186,7 +186,7 @@ export class NotificationsService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
     await this.prisma.user.update({
@@ -195,7 +195,7 @@ export class NotificationsService {
     });
 
     this.logger.log(`FCM token registered for user ${userId}`);
-    return { message: 'FCM token registered successfully' };
+    return { message: 'Token FCM registrado exitosamente' };
   }
 
   /**
@@ -207,7 +207,7 @@ export class NotificationsService {
       data: { fcmToken: null },
     });
 
-    return { message: 'FCM token removed successfully' };
+    return { message: 'Token FCM eliminado exitosamente' };
   }
 
   /**
@@ -339,6 +339,6 @@ export class NotificationsService {
       },
     });
 
-    return { message: 'All notifications marked as read' };
+    return { message: 'Todas las notificaciones marcadas como leídas' };
   }
 }

@@ -34,7 +34,7 @@ export class TenantGuard implements CanActivate {
     const user = request.user;
 
     if (!user || !user.tenantId) {
-      throw new ForbiddenException('Tenant context not found');
+      throw new ForbiddenException('Contexto del tenant no encontrado');
     }
 
     // Check tenantId in params (e.g., /tenants/:tenantId/users)
@@ -46,14 +46,14 @@ export class TenantGuard implements CanActivate {
     // If tenantId is provided in params, validate it
     if (tenantIdFromParams) {
       if (tenantIdFromParams !== user.tenantId) {
-        throw new ForbiddenException('Access denied: Tenant mismatch');
+        throw new ForbiddenException('Acceso denegado: El tenant no coincide');
       }
     }
 
     // If tenantId is provided in body, validate and ensure it matches
     if (tenantIdFromBody) {
       if (tenantIdFromBody !== user.tenantId) {
-        throw new ForbiddenException('Access denied: Cannot create resources for another tenant');
+        throw new ForbiddenException('Acceso denegado: No puede crear recursos para otro tenant');
       }
     }
 
