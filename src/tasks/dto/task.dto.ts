@@ -39,7 +39,9 @@ export class UpdateTaskDto extends PartialType(CreateTaskDto) {
   @IsOptional()
   status?: string;
 
-  @ApiPropertyOptional({ description: 'Fecha de completado (se establece automáticamente al completar)' })
+  @ApiPropertyOptional({
+    description: 'Fecha de completado (se establece automáticamente al completar)',
+  })
   @IsDateString()
   @IsOptional()
   completedAt?: string;

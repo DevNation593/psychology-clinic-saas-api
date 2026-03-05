@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +8,8 @@ import { LoginDto, AuthResponseDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -163,21 +165,24 @@ export class AuthService {
         type: 'password-reset',
       },
       {
-        secret: this.configService.get<string>('JWT_RESET_SECRET') || this.configService.get<string>('JWT_ACCESS_SECRET'),
+        secret:
+          this.configService.get<string>('JWT_RESET_SECRET') ||
+          this.configService.get<string>('JWT_ACCESS_SECRET'),
         expiresIn: this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h',
       },
     );
 
     // Integrate with your email provider in production.
     // Logging keeps the flow testable in development environments.
-    // eslint-disable-next-line no-console
-    console.log(`[Auth] Password reset token generated for ${email}: ${token}`);
+    this.logger.debug(`Password reset token generated for ${email}: ${token}`);
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
     try {
       const payload = this.jwtService.verify(token, {
-        secret: this.configService.get<string>('JWT_RESET_SECRET') || this.configService.get<string>('JWT_ACCESS_SECRET'),
+        secret:
+          this.configService.get<string>('JWT_RESET_SECRET') ||
+          this.configService.get<string>('JWT_ACCESS_SECRET'),
       }) as { sub: string; tenantId: string; type?: string };
 
       if (payload.type !== 'password-reset') {
