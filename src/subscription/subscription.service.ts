@@ -25,7 +25,7 @@ export class SubscriptionService {
     });
 
     if (!subscription) {
-      throw new BadRequestException('No subscription found for this tenant');
+      throw new BadRequestException('No se encontró suscripción para este tenant');
     }
 
     // Calculate remaining trial days
@@ -98,7 +98,7 @@ export class SubscriptionService {
     });
 
     if (!subscription) {
-      throw new BadRequestException('No subscription found');
+      throw new BadRequestException('Suscripción no encontrada');
     }
 
     // Get real-time counts
@@ -227,7 +227,7 @@ export class SubscriptionService {
     });
 
     if (!subscription) {
-      throw new BadRequestException('No subscription found');
+      throw new BadRequestException('Suscripción no encontrada');
     }
 
     // Validate upgrade path
@@ -236,7 +236,7 @@ export class SubscriptionService {
     const newIndex = planHierarchy.indexOf(newPlan);
 
     if (newIndex <= currentIndex) {
-      throw new BadRequestException('This is not an upgrade. Use downgradePlan for downgrades.');
+      throw new BadRequestException('Esto no es una mejora. Use downgradePlan para degradaciones.');
     }
 
     // Get new plan limits
@@ -298,7 +298,7 @@ export class SubscriptionService {
         proratedCharge: proratedAmount,
         nextBillingDate: updatedSubscription.currentPeriodEnd,
       },
-      message: `Successfully upgraded to ${newPlan}. All features are now available.`,
+      message: `Actualizado exitosamente a ${newPlan}. Todas las funcionalidades están ahora disponibles.`,
     };
   }
 
@@ -311,7 +311,7 @@ export class SubscriptionService {
     });
 
     if (!subscription) {
-      throw new BadRequestException('No subscription found');
+      throw new BadRequestException('Suscripción no encontrada');
     }
 
     // Validate downgrade path
@@ -320,7 +320,7 @@ export class SubscriptionService {
     const newIndex = planHierarchy.indexOf(newPlan);
 
     if (newIndex >= currentIndex) {
-      throw new BadRequestException('This is not a downgrade. Use upgradePlan for upgrades.');
+      throw new BadRequestException('Esto no es una degradación. Use upgradePlan para mejoras.');
     }
 
     // Get new plan limits
@@ -332,7 +332,7 @@ export class SubscriptionService {
     if (!validations.canDowngrade) {
       throw new ForbiddenException({
         error: 'DOWNGRADE_BLOCKED',
-        message: 'Cannot downgrade: Please resolve the following issues first',
+        message: 'No se puede degradar: Por favor resuelva los siguientes problemas primero',
         validations: validations.errors,
       });
     }
@@ -376,7 +376,7 @@ export class SubscriptionService {
       currentPlan: subscription.planType,
       newPlan,
       warnings: validations.warnings,
-      message: `Downgrade scheduled for ${subscription.currentPeriodEnd?.toLocaleDateString()}. You can cancel this change anytime before then.`,
+      message: `Degradación programada para ${subscription.currentPeriodEnd?.toLocaleDateString()}. Puede cancelar este cambio en cualquier momento antes de esa fecha.`,
     };
   }
 
@@ -410,7 +410,7 @@ export class SubscriptionService {
     });
 
     if (!subscription) {
-      return { allowed: false, reason: 'No subscription found' };
+      return { allowed: false, reason: 'Suscripción no encontrada' };
     }
 
     switch (limitType) {
@@ -421,7 +421,7 @@ export class SubscriptionService {
         if (currentPatients + incrementBy > subscription.maxActivePatients) {
           return {
             allowed: false,
-            reason: `Patient limit reached (${subscription.maxActivePatients})`,
+            reason: `Límite de pacientes alcanzado (${subscription.maxActivePatients})`,
             current: currentPatients,
             limit: subscription.maxActivePatients,
           };
@@ -435,7 +435,7 @@ export class SubscriptionService {
         ) {
           return {
             allowed: false,
-            reason: `Monthly notification limit reached (${subscription.monthlyNotificationsLimit})`,
+            reason: `Límite de notificaciones mensuales alcanzado (${subscription.monthlyNotificationsLimit})`,
             current: subscription.monthlyNotificationsSent,
             limit: subscription.monthlyNotificationsLimit,
           };
@@ -448,7 +448,7 @@ export class SubscriptionService {
         if (storageUsedGB + incrementGB > subscription.storageGB) {
           return {
             allowed: false,
-            reason: `Storage limit reached (${subscription.storageGB} GB)`,
+            reason: `Límite de almacenamiento alcanzado (${subscription.storageGB} GB)`,
             current: parseFloat(storageUsedGB.toFixed(2)),
             limit: subscription.storageGB,
           };
@@ -494,7 +494,7 @@ export class SubscriptionService {
 
     if (psychologistsCount > newPlanLimits.seatsIncluded) {
       errors.push(
-        `You have ${psychologistsCount} active psychologists. The new plan allows only ${newPlanLimits.seatsIncluded}. Please deactivate ${psychologistsCount - newPlanLimits.seatsIncluded} psychologist(s).`,
+        `Tiene ${psychologistsCount} psicólogos activos. El nuevo plan solo permite ${newPlanLimits.seatsIncluded}. Por favor desactive ${psychologistsCount - newPlanLimits.seatsIncluded} psicólogo(s).`,
       );
     }
 
@@ -505,7 +505,7 @@ export class SubscriptionService {
 
     if (activePatientsCount > newPlanLimits.maxActivePatients) {
       errors.push(
-        `You have ${activePatientsCount} active patients. The new plan allows only ${newPlanLimits.maxActivePatients}.`,
+        `Tiene ${activePatientsCount} pacientes activos. El nuevo plan solo permite ${newPlanLimits.maxActivePatients}.`,
       );
     }
 
@@ -519,7 +519,7 @@ export class SubscriptionService {
 
       if (storageUsedGB > newPlanLimits.storageGB) {
         errors.push(
-          `Your storage usage (${storageUsedGB.toFixed(2)} GB) exceeds the new plan limit (${newPlanLimits.storageGB} GB).`,
+          `Su uso de almacenamiento (${storageUsedGB.toFixed(2)} GB) excede el límite del nuevo plan (${newPlanLimits.storageGB} GB).`,
         );
       }
 
@@ -527,17 +527,17 @@ export class SubscriptionService {
       const newFeatures = this.getPlanFeatures(newPlanLimits.planType);
 
       if (subscription.featureAdvancedAnalytics && !newFeatures.featureAdvancedAnalytics) {
-        warnings.push('You will lose access to Advanced Analytics');
+        warnings.push('Perderá acceso a Analíticas Avanzadas');
       }
       if (subscription.featureVideoConsultation && !newFeatures.featureVideoConsultation) {
-        warnings.push('Video Consultation integration will be disabled');
+        warnings.push('La integración de Video Consulta será deshabilitada');
       }
       if (
         subscription.featureClinicalNotesEncryption &&
         !newFeatures.featureClinicalNotesEncryption
       ) {
         warnings.push(
-          'Clinical notes encryption will be disabled (existing notes remain encrypted)',
+          'El cifrado de notas clínicas será deshabilitado (las notas existentes permanecen cifradas)',
         );
       }
     }
@@ -695,19 +695,19 @@ export class SubscriptionService {
     const warnings: string[] = [];
 
     if (metrics.psychologistsCount / metrics.seatsPsychologistsMax >= 0.8) {
-      warnings.push('You are approaching your psychologist seat limit');
+      warnings.push('Se está acercando al límite de asientos para psicólogos');
     }
 
     if (metrics.activePatientsCount / metrics.maxActivePatients >= 0.9) {
-      warnings.push('You are approaching your patient limit');
+      warnings.push('Se está acercando al límite de pacientes');
     }
 
     if (metrics.storageGB > 0 && metrics.storageUsedGB / metrics.storageGB >= 0.85) {
-      warnings.push('You are approaching your storage limit');
+      warnings.push('Se está acercando al límite de almacenamiento');
     }
 
     if (metrics.notificationsThisMonth / metrics.monthlyNotificationsLimit >= 0.9) {
-      warnings.push('You are approaching your monthly notification limit');
+      warnings.push('Se está acercando al límite mensual de notificaciones');
     }
 
     return warnings;

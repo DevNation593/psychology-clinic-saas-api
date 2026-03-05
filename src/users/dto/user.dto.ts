@@ -72,6 +72,11 @@ export class InviteUserDto {
   @IsEnum(['PSYCHOLOGIST', 'ASSISTANT'])
   @IsNotEmpty()
   role: 'PSYCHOLOGIST' | 'ASSISTANT';
+
+  @ApiPropertyOptional({ example: 'Lic. en Psicología', description: 'Título profesional' })
+  @IsString()
+  @IsOptional()
+  professionalTitle?: string;
 }
 
 export class UpdateUserDto extends PartialType(CreateUserDto) {

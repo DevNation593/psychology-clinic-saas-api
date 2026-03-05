@@ -15,7 +15,7 @@ export class NextSessionPlansService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient not found');
+      throw new NotFoundException('Paciente no encontrado');
     }
 
     // Check if plan already exists for this patient
@@ -25,7 +25,7 @@ export class NextSessionPlansService {
 
     if (existing) {
       throw new ConflictException(
-        'A session plan already exists for this patient. Use update instead.',
+        'Ya existe un plan de sesión para este paciente. Use actualizar en su lugar.',
       );
     }
 
@@ -111,7 +111,7 @@ export class NextSessionPlansService {
     });
 
     if (!plan) {
-      throw new NotFoundException('Session plan not found');
+      throw new NotFoundException('Plan de sesión no encontrado');
     }
 
     return this.prisma.nextSessionPlan.update({
@@ -133,13 +133,13 @@ export class NextSessionPlansService {
     });
 
     if (!plan) {
-      throw new NotFoundException('Session plan not found');
+      throw new NotFoundException('Plan de sesión no encontrado');
     }
 
     await this.prisma.nextSessionPlan.delete({
       where: { id: plan.id },
     });
 
-    return { message: 'Session plan deleted successfully' };
+    return { message: 'Plan de sesión eliminado exitosamente' };
   }
 }

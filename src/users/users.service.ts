@@ -32,7 +32,7 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already in use in this tenant');
+      throw new ConflictException('Este email ya está registrado en esta clínica');
     }
 
     // SEAT ENFORCEMENT: Check if we can add a PSYCHOLOGIST
@@ -93,7 +93,7 @@ export class UsersService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email already in use in this tenant');
+      throw new ConflictException('Este email ya está registrado en esta clínica');
     }
 
     // SEAT ENFORCEMENT: Check if we can add a PSYCHOLOGIST
@@ -150,14 +150,14 @@ export class UsersService {
     });
 
     if (!subscription) {
-      throw new ForbiddenException('No subscription found for this tenant');
+      throw new ForbiddenException('No se encontró suscripción para esta clínica');
     }
 
     // Check subscription status
     if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING') {
       throw new ForbiddenException({
         error: 'SUBSCRIPTION_INACTIVE',
-        message: 'Cannot invite users. Your subscription is not active.',
+        message: 'No se pueden invitar usuarios. Tu suscripción no está activa.',
         status: subscription.status,
       });
     }
@@ -166,7 +166,7 @@ export class UsersService {
     if (subscription.seatsPsychologistsUsed >= subscription.seatsPsychologistsMax) {
       throw new ForbiddenException({
         error: 'SEAT_LIMIT_REACHED',
-        message: `Seat limit reached. Current plan (${subscription.planType}) allows ${subscription.seatsPsychologistsMax} psychologist(s). Please upgrade your plan.`,
+        message: `Límite de asientos alcanzado. El plan actual (${subscription.planType}) permite ${subscription.seatsPsychologistsMax} psicólogo(s). Por favor actualiza tu plan.`,
         details: {
           seatsPsychologistsMax: subscription.seatsPsychologistsMax,
           seatsPsychologistsUsed: subscription.seatsPsychologistsUsed,
@@ -234,7 +234,7 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
     return user;
@@ -246,7 +246,7 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
     const nextRole = updateUserDto.role || user.role;
@@ -311,11 +311,11 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
     if (!user.isActive) {
-      return { message: 'User already inactive' };
+      return { message: 'El usuario ya está inactivo' };
     }
 
     // Deactivate user and free up seat if active PSYCHOLOGIST
@@ -342,7 +342,7 @@ export class UsersService {
       }
     });
 
-    return { message: 'User deactivated successfully' };
+    return { message: 'Usuario desactivado exitosamente' };
   }
 
   async activate(tenantId: string, userId: string, password: string) {
@@ -351,7 +351,7 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
     const hashedPassword = await this.authService.hashPassword(password);
@@ -409,14 +409,14 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
     // Verify current password
     const bcrypt = await import('bcrypt');
     const isValid = await bcrypt.compare(currentPassword, user.password);
     if (!isValid) {
-      throw new BadRequestException('Current password is incorrect');
+      throw new BadRequestException('La contraseña actual es incorrecta');
     }
 
     // Hash and update new password
@@ -427,7 +427,7 @@ export class UsersService {
       data: { password: hashedNewPassword },
     });
 
-    return { message: 'Password changed successfully' };
+    return { message: 'Contraseña cambiada exitosamente' };
   }
 
   async uploadAvatar(
@@ -442,16 +442,16 @@ export class UsersService {
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new NotFoundException('Usuario no encontrado');
     }
 
     // Only tenant admins or the same user can change the avatar.
     if (currentUserRole !== 'TENANT_ADMIN' && currentUserId !== userId) {
-      throw new ForbiddenException('You can only update your own avatar');
+      throw new ForbiddenException('Solo puedes actualizar tu propio avatar');
     }
 
     if (!file.mimetype?.startsWith('image/')) {
-      throw new BadRequestException('Only image files are allowed');
+      throw new BadRequestException('Solo se permiten archivos de imagen');
     }
 
     const avatarUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
@@ -499,7 +499,7 @@ export class UsersService {
         body: JSON.stringify({
           to: email,
           template: 'user-invitation',
-          subject: 'You have been invited to Psychology Clinic SaaS',
+          subject: 'Has sido invitado a Psychology Clinic SaaS',
           variables: {
             activationLink,
             tenantId,

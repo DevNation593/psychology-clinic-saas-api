@@ -15,7 +15,7 @@ export class ClinicalNotesService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient not found');
+      throw new NotFoundException('Paciente no encontrado');
     }
 
     // If appointmentId provided, verify it exists and belongs to this psychologist
@@ -30,7 +30,7 @@ export class ClinicalNotesService {
       });
 
       if (!appointment) {
-        throw new NotFoundException('Appointment not found or not authorized');
+        throw new NotFoundException('Cita no encontrada o no autorizada');
       }
     }
 
@@ -123,12 +123,12 @@ export class ClinicalNotesService {
     });
 
     if (!note) {
-      throw new NotFoundException('Clinical note not found');
+      throw new NotFoundException('Nota clínica no encontrada');
     }
 
     // Only the psychologist who created it or TENANT_ADMIN can read
     if (userRole !== 'TENANT_ADMIN' && note.psychologistId !== userId) {
-      throw new ForbiddenException('You can only access your own clinical notes');
+      throw new ForbiddenException('Solo puedes acceder a tus propias notas clínicas');
     }
 
     // Create audit log entry for reading
@@ -149,12 +149,12 @@ export class ClinicalNotesService {
     });
 
     if (!note) {
-      throw new NotFoundException('Clinical note not found');
+      throw new NotFoundException('Nota clínica no encontrada');
     }
 
     // Only the psychologist who created it can edit
     if (note.psychologistId !== userId && userRole !== 'TENANT_ADMIN') {
-      throw new ForbiddenException('You can only edit your own clinical notes');
+      throw new ForbiddenException('Solo puedes editar tus propias notas clínicas');
     }
 
     const updated = await this.prisma.clinicalNote.update({
@@ -178,12 +178,12 @@ export class ClinicalNotesService {
     });
 
     if (!note) {
-      throw new NotFoundException('Clinical note not found');
+      throw new NotFoundException('Nota clínica no encontrada');
     }
 
     // Only TENANT_ADMIN can delete
     if (userRole !== 'TENANT_ADMIN') {
-      throw new ForbiddenException('Only administrators can delete clinical notes');
+      throw new ForbiddenException('Solo los administradores pueden eliminar notas clínicas');
     }
 
     await this.prisma.clinicalNote.delete({
@@ -193,7 +193,7 @@ export class ClinicalNotesService {
     // Create audit log
     await this.createAuditLog(tenantId, userId, 'DELETE', noteId);
 
-    return { message: 'Clinical note deleted successfully' };
+    return { message: 'Nota clínica eliminada exitosamente' };
   }
 
   private async createAuditLog(

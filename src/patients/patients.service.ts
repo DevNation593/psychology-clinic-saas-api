@@ -136,7 +136,7 @@ export class PatientsService {
       if (updated.count === 0) {
         throw new ForbiddenException({
           error: 'PATIENT_LIMIT_REACHED',
-          message: `Patient limit reached. Current plan (${subscription.planType}) allows ${subscription.maxActivePatients} active patient(s). Please upgrade your plan.`,
+          message: `Límite de pacientes alcanzado. El plan actual (${subscription.planType}) permite ${subscription.maxActivePatients} paciente(s) activo(s). Por favor actualiza tu plan.`,
           details: {
             maxActivePatients: subscription.maxActivePatients,
             activePatientsCount: subscription.activePatientsCount,
@@ -152,14 +152,14 @@ export class PatientsService {
 
   private assertCanCreatePatient(tenantId: string, subscription: any) {
     if (!subscription) {
-      throw new ForbiddenException('No subscription found for this tenant');
+      throw new ForbiddenException('No se encontró suscripción para esta clínica');
     }
 
     // Check subscription status
     if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING') {
       throw new ForbiddenException({
         error: 'SUBSCRIPTION_INACTIVE',
-        message: 'Cannot create patients. Your subscription is not active.',
+        message: 'No se pueden crear pacientes. Tu suscripción no está activa.',
         status: subscription.status,
       });
     }
@@ -168,7 +168,7 @@ export class PatientsService {
     if (subscription.activePatientsCount >= subscription.maxActivePatients) {
       throw new ForbiddenException({
         error: 'PATIENT_LIMIT_REACHED',
-        message: `Patient limit reached. Current plan (${subscription.planType}) allows ${subscription.maxActivePatients} active patient(s). Please upgrade your plan.`,
+        message: `Límite de pacientes alcanzado. El plan actual (${subscription.planType}) permite ${subscription.maxActivePatients} paciente(s) activo(s). Por favor actualiza tu plan.`,
         details: {
           maxActivePatients: subscription.maxActivePatients,
           activePatientsCount: subscription.activePatientsCount,
@@ -210,6 +210,17 @@ export class PatientsService {
         deletedAt: null,
       },
       include: {
+        assignedPsychologist: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            avatarUrl: true,
+            role: true,
+          },
+        },
         appointments: {
           where: { status: { not: 'CANCELLED' } },
           orderBy: { startTime: 'desc' },
@@ -226,7 +237,7 @@ export class PatientsService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient not found');
+      throw new NotFoundException('Paciente no encontrado');
     }
 
     return patient;
@@ -238,7 +249,7 @@ export class PatientsService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient not found');
+      throw new NotFoundException('Paciente no encontrado');
     }
 
     return this.prisma.patient.update({
@@ -253,11 +264,11 @@ export class PatientsService {
     });
 
     if (!patient) {
-      throw new NotFoundException('Patient not found');
+      throw new NotFoundException('Paciente no encontrado');
     }
 
     if (!patient.isActive || patient.deletedAt) {
-      return { success: true, message: 'Patient already deactivated' };
+      return { success: true, message: 'El paciente ya está desactivado' };
     }
 
     // Update patient and decrement counter in a transaction

@@ -30,7 +30,7 @@ export class SubscriptionGuard implements CanActivate {
     });
 
     if (!subscription) {
-      throw new ForbiddenException('No subscription found');
+      throw new ForbiddenException('Suscripción no encontrada');
     }
 
     // Allow access in ACTIVE and TRIALING status
@@ -47,7 +47,7 @@ export class SubscriptionGuard implements CanActivate {
       throw new ForbiddenException({
         error: 'SUBSCRIPTION_PAST_DUE',
         message:
-          'Your payment is past due. Please update your payment method to restore full access.',
+          'Su pago está vencido. Por favor actualice su método de pago para restaurar el acceso completo.',
         readOnlyMode: true,
       });
     }
@@ -55,7 +55,7 @@ export class SubscriptionGuard implements CanActivate {
     // CANCELED or UNPAID: Block all access except data export
     throw new ForbiddenException({
       error: 'SUBSCRIPTION_INACTIVE',
-      message: 'Your subscription is not active. Please contact support.',
+      message: 'Su suscripción no está activa. Por favor contacte a soporte.',
       status: subscription.status,
     });
   }
