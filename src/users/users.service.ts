@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { TenantType, UserRole } from '@prisma/client';
 import { CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
 import { AuthService } from '../auth/auth.service';
 
@@ -36,13 +37,14 @@ export class UsersService {
     }
 
     // SEAT ENFORCEMENT: Check if we can add a PSICOLOGO
-    if (role === 'PSICOLOGO') {
+    if (role === UserRole.PSICOLOGO) {
       await this.checkSeatAvailability(tenantId);
     }
 
     // Check if access in clinics requires provider management
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
-    const isManagedByProvider = role === 'PSICOLOGO' && tenant?.tenantType === 'CLINIC';
+    const isManagedByProvider =
+      role === UserRole.PSICOLOGO && tenant?.tenantType === TenantType.CLINIC;
 
     // Hash password
     const hashedPassword = password
@@ -70,7 +72,7 @@ export class UsersService {
       });
 
       // Increment seat count if PSICOLOGO
-      if (role === 'PSICOLOGO') {
+      if (role === UserRole.PSICOLOGO) {
         await tx.tenantSubscription.update({
           where: { tenantId },
           data: { seatsPsychologistsUsed: { increment: 1 } },
@@ -102,13 +104,14 @@ export class UsersService {
     }
 
     // SEAT ENFORCEMENT: Check if we can add a PSICOLOGO
-    if (role === 'PSICOLOGO') {
+    if (role === UserRole.PSICOLOGO) {
       await this.checkSeatAvailability(tenantId);
     }
 
     // Check if psychologist in clinic requires provider management
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
-    const isManagedByProvider = role === 'PSICOLOGO' && tenant?.tenantType === 'CLINIC';
+    const isManagedByProvider =
+      role === UserRole.PSICOLOGO && tenant?.tenantType === TenantType.CLINIC;
 
     // Generate temporary password
     const tempPassword = await this.authService.hashPassword(Math.random().toString(36).slice(-12));
@@ -135,7 +138,7 @@ export class UsersService {
       });
 
       // Increment seat count if PSICOLOGO
-      if (role === 'PSICOLOGO') {
+      if (role === UserRole.PSICOLOGO) {
         await tx.tenantSubscription.update({
           where: { tenantId },
           data: { seatsPsychologistsUsed: { increment: 1 } },
@@ -566,7 +569,7 @@ export class UsersService {
   async listPendingPsychologists() {
     return this.prisma.user.findMany({
       where: {
-        role: 'PSICOLOGO',
+        role: UserRole.PSICOLOGO,
         managedByProvider: true,
         isActive: false,
       },

@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PlanType, SubscriptionStatus, TenantType } from '@prisma/client';
+import { PlanType, SubscriptionStatus, TenantType, UserRole } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { ModuleName } from './dto/customize-features.dto';
 
@@ -168,7 +168,7 @@ export class SubscriptionService {
       this.prisma.user.count({
         where: {
           tenantId,
-          role: 'PSICOLOGO',
+          role: UserRole.PSICOLOGO,
           isActive: true,
         },
       }),
@@ -710,7 +710,7 @@ export class SubscriptionService {
 
     // Check seats
     const psychologistsCount = await this.prisma.user.count({
-      where: { tenantId, role: 'PSICOLOGO', isActive: true },
+      where: { tenantId, role: UserRole.PSICOLOGO, isActive: true },
     });
 
     if (psychologistsCount > newPlanLimits.seatsIncluded) {
