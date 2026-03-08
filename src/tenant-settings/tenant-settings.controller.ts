@@ -22,7 +22,7 @@ export class TenantSettingsController {
     return this.tenantSettingsService.findOne(tenantId);
   }
 
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Patch()
   @ApiOperation({
     summary: 'Update tenant settings - Admin only',

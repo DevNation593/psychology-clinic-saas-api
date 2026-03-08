@@ -11,7 +11,7 @@ export class TenantsService {
   ) {}
 
   async create(createTenantDto: CreateTenantDto) {
-    const { slug, email, adminEmail, adminPassword, adminFirstName, adminLastName, ...tenantData } =
+    const { slug, email, adminEmail, adminPassword, adminFirstName, adminLastName, tenantType, ...tenantData } =
       createTenantDto;
 
     // Check if slug already exists
@@ -43,6 +43,7 @@ export class TenantsService {
           ...tenantData,
           slug,
           email,
+          tenantType: tenantType || 'PERSONAL',
         },
       });
 
@@ -56,14 +57,15 @@ export class TenantsService {
       });
 
       // Create tenant subscription (trial mode)
+      const isClinic = (tenantType || 'PERSONAL') === 'CLINIC';
       await tx.tenantSubscription.create({
         data: {
           tenantId: newTenant.id,
           planType: 'TRIAL',
           status: 'TRIALING',
-          seatsPsychologistsMax: 1,
+          seatsPsychologistsMax: isClinic ? 3 : 1,
           seatsPsychologistsUsed: 0,
-          maxActivePatients: 10,
+          maxActivePatients: isClinic ? 20 : 10,
           storageGB: 0,
           monthlyNotificationsLimit: 100,
           trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days trial
@@ -81,7 +83,7 @@ export class TenantsService {
           password: hashedPassword,
           firstName: adminFirstName,
           lastName: adminLastName,
-          role: 'TENANT_ADMIN',
+          role: 'CLIENTE',
           isActive: true,
           emailVerified: true,
           activatedAt: new Date(),

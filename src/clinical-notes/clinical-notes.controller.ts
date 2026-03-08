@@ -13,7 +13,7 @@ import { RequireFeature } from '../common/decorators/require-feature.decorator';
 export class ClinicalNotesController {
   constructor(private readonly clinicalNotesService: ClinicalNotesService) {}
 
-  @Roles('PSYCHOLOGIST')
+  @Roles('PSICOLOGO')
   @Post()
   @ApiOperation({
     summary: 'Create clinical note - Psychologist only',
@@ -28,7 +28,7 @@ export class ClinicalNotesController {
     return this.clinicalNotesService.create(tenantId, user.userId, createDto);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Get()
   @ApiOperation({ summary: 'List clinical notes with filters' })
   @ApiQuery({ name: 'patientId', required: false })
@@ -48,7 +48,7 @@ export class ClinicalNotesController {
     );
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Get(':noteId')
   @ApiOperation({
     summary: 'Get clinical note - Restricted access',
@@ -64,7 +64,7 @@ export class ClinicalNotesController {
     return this.clinicalNotesService.findOne(tenantId, noteId, user.userId, user.role);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('PSICOLOGO')
   @Patch(':noteId')
   @ApiOperation({
     summary: 'Update clinical note',
@@ -81,7 +81,7 @@ export class ClinicalNotesController {
     return this.clinicalNotesService.update(tenantId, noteId, user.userId, user.role, updateDto);
   }
 
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Delete(':noteId')
   @ApiOperation({
     summary: 'Delete clinical note - Admin only',

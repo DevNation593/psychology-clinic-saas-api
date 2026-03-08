@@ -30,7 +30,7 @@ export class TenantsController {
   }
 
   @ApiBearerAuth('access-token')
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Patch(':tenantId')
   @ApiOperation({ summary: 'Update tenant - Admin only' })
   @ApiResponse({ status: 200, description: 'Tenant updated' })
@@ -39,7 +39,7 @@ export class TenantsController {
   }
 
   @ApiBearerAuth('access-token')
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Post(':tenantId/complete-onboarding')
   @ApiOperation({ summary: 'Mark onboarding as completed - Admin only' })
   @ApiResponse({ status: 200, description: 'Onboarding completed' })

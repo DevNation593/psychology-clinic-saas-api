@@ -21,7 +21,7 @@ export class UsersService {
 
   /**
    * Create a new user (with password) - Used by admins
-   * Enforces seat limits for PSYCHOLOGIST role
+   * Enforces seat limits for PSICOLOGO role
    */
   async create(createUserDto: CreateUserDto, createdBy: string) {
     const { tenantId, email, password, role, ...userData } = createUserDto;
@@ -35,10 +35,14 @@ export class UsersService {
       throw new ConflictException('Este email ya está registrado en esta clínica');
     }
 
-    // SEAT ENFORCEMENT: Check if we can add a PSYCHOLOGIST
-    if (role === 'PSYCHOLOGIST') {
+    // SEAT ENFORCEMENT: Check if we can add a PSICOLOGO
+    if (role === 'PSICOLOGO') {
       await this.checkSeatAvailability(tenantId);
     }
+
+    // Check if access in clinics requires provider management
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const isManagedByProvider = role === 'PSICOLOGO' && tenant?.tenantType === 'CLINIC';
 
     // Hash password
     const hashedPassword = password
@@ -58,14 +62,15 @@ export class UsersService {
           lastName: userData.lastName,
           phone: userData.phone,
           role,
-          isActive: true,
+          isActive: !isManagedByProvider, // Psychologists in clinics start inactive until provider grants access
+          managedByProvider: isManagedByProvider,
           emailVerified: password ? true : false,
-          activatedAt: password ? new Date() : null,
+          activatedAt: password && !isManagedByProvider ? new Date() : null,
         },
       });
 
-      // Increment seat count if PSYCHOLOGIST
-      if (role === 'PSYCHOLOGIST') {
+      // Increment seat count if PSICOLOGO
+      if (role === 'PSICOLOGO') {
         await tx.tenantSubscription.update({
           where: { tenantId },
           data: { seatsPsychologistsUsed: { increment: 1 } },
@@ -82,7 +87,7 @@ export class UsersService {
 
   /**
    * Invite a user (without password) - Sends invite, user sets password later
-   * Enforces seat limits for PSYCHOLOGIST role
+   * Enforces seat limits for PSICOLOGO role
    */
   async invite(tenantId: string, inviteUserDto: InviteUserDto, invitedBy: string) {
     const { email, role, ...userData } = inviteUserDto;
@@ -96,10 +101,14 @@ export class UsersService {
       throw new ConflictException('Este email ya está registrado en esta clínica');
     }
 
-    // SEAT ENFORCEMENT: Check if we can add a PSYCHOLOGIST
-    if (role === 'PSYCHOLOGIST') {
+    // SEAT ENFORCEMENT: Check if we can add a PSICOLOGO
+    if (role === 'PSICOLOGO') {
       await this.checkSeatAvailability(tenantId);
     }
+
+    // Check if psychologist in clinic requires provider management
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const isManagedByProvider = role === 'PSICOLOGO' && tenant?.tenantType === 'CLINIC';
 
     // Generate temporary password
     const tempPassword = await this.authService.hashPassword(Math.random().toString(36).slice(-12));
@@ -118,14 +127,15 @@ export class UsersService {
           phone: userData.phone,
           role,
           isActive: false,
+          managedByProvider: isManagedByProvider,
           emailVerified: false,
           invitedAt: new Date(),
           invitedBy,
         },
       });
 
-      // Increment seat count if PSYCHOLOGIST
-      if (role === 'PSYCHOLOGIST') {
+      // Increment seat count if PSICOLOGO
+      if (role === 'PSICOLOGO') {
         await tx.tenantSubscription.update({
           where: { tenantId },
           data: { seatsPsychologistsUsed: { increment: 1 } },
@@ -251,8 +261,8 @@ export class UsersService {
 
     const nextRole = updateUserDto.role || user.role;
     const nextIsActive = updateUserDto.isActive ?? user.isActive;
-    const currentUsesSeat = user.role === 'PSYCHOLOGIST' && user.isActive;
-    const nextUsesSeat = nextRole === 'PSYCHOLOGIST' && nextIsActive;
+    const currentUsesSeat = user.role === 'PSICOLOGO' && user.isActive;
+    const nextUsesSeat = nextRole === 'PSICOLOGO' && nextIsActive;
 
     if (!currentUsesSeat && nextUsesSeat) {
       await this.checkSeatAvailability(tenantId);
@@ -318,7 +328,7 @@ export class UsersService {
       return { message: 'El usuario ya está inactivo' };
     }
 
-    // Deactivate user and free up seat if active PSYCHOLOGIST
+    // Deactivate user and free up seat if active PSICOLOGO
     await this.prisma.$transaction(async (tx) => {
       await this.prisma.applyRlsContext(tx, { tenantId });
 
@@ -327,7 +337,7 @@ export class UsersService {
         data: { isActive: false },
       });
 
-      if (user.role === 'PSYCHOLOGIST') {
+      if (user.role === 'PSICOLOGO') {
         await tx.tenantSubscription.updateMany({
           where: {
             tenantId,
@@ -358,8 +368,8 @@ export class UsersService {
 
     // Invited psychologists already reserve a seat at invitation time.
     const seatReservedAtInvite =
-      user.role === 'PSYCHOLOGIST' && !!user.invitedAt && !user.activatedAt;
-    const needsSeatNow = user.role === 'PSYCHOLOGIST' && !user.isActive && !seatReservedAtInvite;
+      user.role === 'PSICOLOGO' && !!user.invitedAt && !user.activatedAt;
+    const needsSeatNow = user.role === 'PSICOLOGO' && !user.isActive && !seatReservedAtInvite;
 
     if (needsSeatNow) {
       await this.checkSeatAvailability(tenantId);
@@ -445,8 +455,8 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Only tenant admins or the same user can change the avatar.
-    if (currentUserRole !== 'TENANT_ADMIN' && currentUserId !== userId) {
+    // Only the same user, CLIENTE (admin) or SOPORTE can change the avatar.
+    if (currentUserRole !== 'SOPORTE' && currentUserRole !== 'CLIENTE' && currentUserId !== userId) {
       throw new ForbiddenException('Solo puedes actualizar tu propio avatar');
     }
 
@@ -473,6 +483,113 @@ export class UsersService {
         createdAt: true,
         updatedAt: true,
       },
+    });
+  }
+
+  /**
+   * Grant access to a user in a clinic (SOPORTE only)
+   * Only applicable to managedByProvider users in CLINIC tenants
+   */
+  async grantPsychologistAccess(tenantId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (!user.managedByProvider) {
+      throw new BadRequestException('Este usuario no es gestionado por el proveedor');
+    }
+
+    if (user.isActive) {
+      return { message: 'El usuario ya tiene acceso activo' };
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        isActive: true,
+        activatedAt: new Date(),
+      },
+    });
+
+    return { message: 'Acceso concedido exitosamente' };
+  }
+
+  /**
+   * Revoke access from a user in a clinic (SOPORTE only)
+   * Only applicable to managedByProvider users in CLINIC tenants
+   */
+  async revokePsychologistAccess(tenantId: string, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (!user.managedByProvider) {
+      throw new BadRequestException('Este usuario no es gestionado por el proveedor');
+    }
+
+    if (!user.isActive) {
+      return { message: 'El usuario ya está inactivo' };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { isActive: false },
+      });
+
+      // Free up the seat
+      await tx.tenantSubscription.updateMany({
+        where: {
+          tenantId,
+          seatsPsychologistsUsed: { gt: 0 },
+        },
+        data: {
+          seatsPsychologistsUsed: { decrement: 1 },
+        },
+      });
+    });
+
+    return { message: 'Acceso del usuario revocado exitosamente' };
+  }
+
+  /**
+   * List all users pending provider approval across all tenants (SOPORTE only)
+   */
+  async listPendingPsychologists() {
+    return this.prisma.user.findMany({
+      where: {
+        role: 'PSICOLOGO',
+        managedByProvider: true,
+        isActive: false,
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        role: true,
+        isActive: true,
+        managedByProvider: true,
+        createdAt: true,
+        tenant: {
+          select: {
+            name: true,
+            slug: true,
+            tenantType: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 

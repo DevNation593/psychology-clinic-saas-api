@@ -41,10 +41,10 @@ export class CreateUserDto {
   @IsOptional()
   phone?: string;
 
-  @ApiProperty({ enum: ['TENANT_ADMIN', 'PSYCHOLOGIST', 'ASSISTANT'], example: 'PSYCHOLOGIST' })
-  @IsEnum(['TENANT_ADMIN', 'PSYCHOLOGIST', 'ASSISTANT'])
+  @ApiProperty({ enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'], example: 'CLIENTE' })
+  @IsEnum(['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'])
   @IsNotEmpty()
-  role: 'TENANT_ADMIN' | 'PSYCHOLOGIST' | 'ASSISTANT';
+  role: 'CLIENTE' | 'PSICOLOGO' | 'SOPORTE' | 'PACIENTE';
 }
 
 export class InviteUserDto {
@@ -68,10 +68,10 @@ export class InviteUserDto {
   @IsOptional()
   phone?: string;
 
-  @ApiProperty({ enum: ['PSYCHOLOGIST', 'ASSISTANT'], example: 'PSYCHOLOGIST' })
-  @IsEnum(['PSYCHOLOGIST', 'ASSISTANT'])
+  @ApiProperty({ enum: ['PSICOLOGO', 'PACIENTE'], example: 'PSICOLOGO' })
+  @IsEnum(['PSICOLOGO', 'PACIENTE'])
   @IsNotEmpty()
-  role: 'PSYCHOLOGIST' | 'ASSISTANT';
+  role: 'PSICOLOGO' | 'PACIENTE';
 
   @ApiPropertyOptional({ example: 'Lic. en Psicología', description: 'Título profesional' })
   @IsString()

@@ -11,7 +11,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST', 'ASSISTANT')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Post()
   @ApiOperation({ summary: 'Create new patient' })
   @ApiResponse({ status: 201, description: 'Patient created' })
@@ -39,7 +39,7 @@ export class PatientsController {
     return this.patientsService.findOne(tenantId, patientId);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST', 'ASSISTANT')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Patch(':patientId')
   @ApiOperation({ summary: 'Update patient' })
   @ApiResponse({ status: 200, description: 'Patient updated' })
@@ -51,9 +51,9 @@ export class PatientsController {
     return this.patientsService.update(tenantId, patientId, updatePatientDto);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('CLIENTE')
   @Delete(':patientId')
-  @ApiOperation({ summary: 'Soft delete patient' })
+  @ApiOperation({ summary: 'Soft delete patient - Admin only' })
   @ApiResponse({ status: 200, description: 'Patient deleted' })
   async remove(
     @Param('tenantId') tenantId: string,
