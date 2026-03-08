@@ -37,6 +37,17 @@ export class TenantGuard implements CanActivate {
       throw new ForbiddenException('Contexto del tenant no encontrado');
     }
 
+    // SOPORTE can access any tenant's resources
+    if (user.role === 'SOPORTE') {
+      request.tenantId = request.params?.tenantId || user.tenantId;
+      this.rlsContext.set({
+        tenantId: request.tenantId,
+        userId: user.userId,
+        role: user.role,
+      });
+      return true;
+    }
+
     // Check tenantId in params (e.g., /tenants/:tenantId/users)
     const tenantIdFromParams = request.params?.tenantId;
 

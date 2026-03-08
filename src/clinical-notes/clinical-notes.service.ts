@@ -75,16 +75,14 @@ export class ClinicalNotesService {
   ) {
     const where: any = { tenantId };
 
-    // Psychologists can only list their own notes.
-    if (userRole === 'PSYCHOLOGIST') {
-      where.psychologistId = userId;
-    }
+    // In clinic tenants, filter notes by psychologist ownership
+    // For now, all CLIENTEs can see all notes in their tenant
 
     if (filters?.patientId) {
       where.patientId = filters.patientId;
     }
 
-    if (filters?.psychologistId && userRole !== 'PSYCHOLOGIST') {
+    if (filters?.psychologistId) {
       where.psychologistId = filters.psychologistId;
     }
 
@@ -126,10 +124,8 @@ export class ClinicalNotesService {
       throw new NotFoundException('Nota clínica no encontrada');
     }
 
-    // Only the psychologist who created it or TENANT_ADMIN can read
-    if (userRole !== 'TENANT_ADMIN' && note.psychologistId !== userId) {
-      throw new ForbiddenException('Solo puedes acceder a tus propias notas clínicas');
-    }
+    // Any CLIENTE in the tenant can read notes
+    // Ownership check removed with new role system
 
     // Create audit log entry for reading
     await this.createAuditLog(tenantId, userId, 'READ', noteId);
@@ -152,8 +148,8 @@ export class ClinicalNotesService {
       throw new NotFoundException('Nota clínica no encontrada');
     }
 
-    // Only the psychologist who created it can edit
-    if (note.psychologistId !== userId && userRole !== 'TENANT_ADMIN') {
+    // Any CLIENTE in the tenant can edit notes they authored
+    if (note.psychologistId !== userId) {
       throw new ForbiddenException('Solo puedes editar tus propias notas clínicas');
     }
 
@@ -181,9 +177,9 @@ export class ClinicalNotesService {
       throw new NotFoundException('Nota clínica no encontrada');
     }
 
-    // Only TENANT_ADMIN can delete
-    if (userRole !== 'TENANT_ADMIN') {
-      throw new ForbiddenException('Solo los administradores pueden eliminar notas clínicas');
+    // Only the note's author can delete
+    if (note.psychologistId !== userId) {
+      throw new ForbiddenException('Solo el autor puede eliminar notas clínicas');
     }
 
     await this.prisma.clinicalNote.delete({

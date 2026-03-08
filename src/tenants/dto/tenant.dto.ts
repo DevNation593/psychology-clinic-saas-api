@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsEmail, IsNotEmpty, IsOptional, MinLength, IsBoolean } from 'class-validator';
+import { IsString, IsEmail, IsNotEmpty, IsOptional, MinLength, IsBoolean, IsEnum } from 'class-validator';
+import { TenantType } from '@prisma/client';
 
 export class CreateTenantDto {
   @ApiProperty({ example: 'Mi Clínica de Psicología' })
@@ -26,6 +27,11 @@ export class CreateTenantDto {
   @IsString()
   @IsOptional()
   address?: string;
+
+  @ApiProperty({ enum: TenantType, example: 'PERSONAL', description: 'Tipo de cuenta: PERSONAL (psicólogo individual) o CLINIC (clínica)' })
+  @IsEnum(TenantType)
+  @IsNotEmpty()
+  tenantType: TenantType;
 
   // Admin user data
   @ApiProperty({ example: 'Juan' })

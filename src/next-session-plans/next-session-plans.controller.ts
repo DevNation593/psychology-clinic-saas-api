@@ -11,7 +11,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class NextSessionPlansController {
   constructor(private readonly nextSessionPlansService: NextSessionPlansService) {}
 
-  @Roles('PSYCHOLOGIST')
+  @Roles('PSICOLOGO')
   @Post()
   @ApiOperation({ summary: 'Create next session plan for patient' })
   @ApiResponse({ status: 201, description: 'Plan created' })
@@ -24,7 +24,7 @@ export class NextSessionPlansController {
     return this.nextSessionPlansService.create(tenantId, user.userId, createDto);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Get()
   @ApiOperation({ summary: 'List all session plans' })
   @ApiQuery({ name: 'psychologistId', required: false })
@@ -36,7 +36,7 @@ export class NextSessionPlansController {
     return this.nextSessionPlansService.findAll(tenantId, psychologistId);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Get('patient/:patientId')
   @ApiOperation({ summary: 'Get session plan for specific patient' })
   @ApiResponse({ status: 200, description: 'Plan found' })
@@ -45,7 +45,7 @@ export class NextSessionPlansController {
     return this.nextSessionPlansService.findByPatient(tenantId, patientId);
   }
 
-  @Roles('PSYCHOLOGIST')
+  @Roles('PSICOLOGO')
   @Patch('patient/:patientId')
   @ApiOperation({ summary: 'Update session plan for patient' })
   @ApiResponse({ status: 200, description: 'Plan updated' })
@@ -58,7 +58,7 @@ export class NextSessionPlansController {
     return this.nextSessionPlansService.update(tenantId, patientId, user.userId, updateDto);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Delete('patient/:patientId')
   @ApiOperation({ summary: 'Delete session plan' })
   @ApiResponse({ status: 200, description: 'Plan deleted' })

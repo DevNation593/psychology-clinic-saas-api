@@ -30,7 +30,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Post()
   @ApiOperation({
     summary: 'Create user with password - Admin only',
@@ -62,7 +62,7 @@ export class UsersController {
     return this.usersService.create({ ...createUserDto, tenantId }, user.userId);
   }
 
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Post('invite')
   @ApiOperation({
     summary: 'Invite user (without password) - Admin only',
@@ -80,7 +80,7 @@ export class UsersController {
 
   @Get()
   @ApiOperation({ summary: 'List all users in tenant' })
-  @ApiQuery({ name: 'role', required: false, enum: ['TENANT_ADMIN', 'PSYCHOLOGIST', 'ASSISTANT'] })
+  @ApiQuery({ name: 'role', required: false, enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'] })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
   @ApiResponse({ status: 200, description: 'Users list' })
   async findAll(
@@ -103,7 +103,7 @@ export class UsersController {
     return this.usersService.findOne(tenantId, userId);
   }
 
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Patch(':userId')
   @ApiOperation({ summary: 'Update user - Admin only' })
   @ApiResponse({ status: 200, description: 'User updated' })
@@ -115,7 +115,7 @@ export class UsersController {
     return this.usersService.update(tenantId, userId, updateUserDto);
   }
 
-  @Roles('TENANT_ADMIN')
+  @Roles('CLIENTE')
   @Delete(':userId')
   @ApiOperation({ summary: 'Deactivate user - Admin only (soft delete)' })
   @ApiResponse({ status: 200, description: 'User deactivated and seat freed' })
@@ -179,5 +179,35 @@ export class UsersController {
       changePasswordDto.currentPassword,
       changePasswordDto.newPassword,
     );
+  }
+
+  @Roles('SOPORTE')
+  @Post(':userId/grant-access')
+  @ApiOperation({
+    summary: 'Grant psychologist access (Provider/OWNER only)',
+    description: 'Activates a psychologist in a clinic tenant. Only for provider-managed users.',
+  })
+  @ApiResponse({ status: 200, description: 'Access granted' })
+  @ApiResponse({ status: 400, description: 'User is not managed by provider' })
+  async grantAccess(
+    @Param('tenantId') tenantId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.usersService.grantPsychologistAccess(tenantId, userId);
+  }
+
+  @Roles('SOPORTE')
+  @Post(':userId/revoke-access')
+  @ApiOperation({
+    summary: 'Revoke psychologist access (Provider/OWNER only)',
+    description: 'Deactivates a psychologist in a clinic tenant. Only for provider-managed users.',
+  })
+  @ApiResponse({ status: 200, description: 'Access revoked' })
+  @ApiResponse({ status: 400, description: 'User is not managed by provider' })
+  async revokeAccess(
+    @Param('tenantId') tenantId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.usersService.revokePsychologistAccess(tenantId, userId);
   }
 }

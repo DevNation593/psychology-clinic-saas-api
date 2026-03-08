@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import helmet from 'helmet';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -59,6 +60,9 @@ async function bootstrap() {
       },
     }),
   );
+
+  // Add security headers with Helmet
+  app.use(helmet());
 
   // Swagger documentation
   const config = new DocumentBuilder()
