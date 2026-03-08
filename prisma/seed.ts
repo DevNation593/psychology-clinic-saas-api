@@ -36,6 +36,7 @@ async function seedMainTenant(hashedPassword: string) {
       email: 'contacto@demopsicologia.com',
       phone: '+593999000001',
       address: 'Av. Principal 123, Quito',
+      tenantType: 'CLINIC',
       isActive: true,
       onboardingCompleted: true,
     },
@@ -59,7 +60,7 @@ async function seedMainTenant(hashedPassword: string) {
   await prisma.tenantSubscription.create({
     data: {
       tenantId: tenant.id,
-      planType: 'PRO',
+      planType: 'CLINIC_PRO',
       status: 'ACTIVE',
       startDate: daysFromNow(-45),
       currentPeriodStart: daysFromNow(-5),
@@ -102,7 +103,7 @@ async function seedMainTenant(hashedPassword: string) {
       firstName: 'Daniela',
       lastName: 'Mendoza',
       phone: '+593999000010',
-      role: 'TENANT_ADMIN',
+      role: 'CLIENTE',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-45),
@@ -118,7 +119,8 @@ async function seedMainTenant(hashedPassword: string) {
       firstName: 'Ana',
       lastName: 'Vega',
       phone: '+593999000011',
-      role: 'PSYCHOLOGIST',
+      role: 'PSICOLOGO',
+      managedByProvider: true,
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-40),
@@ -134,7 +136,8 @@ async function seedMainTenant(hashedPassword: string) {
       firstName: 'Luis',
       lastName: 'Paredes',
       phone: '+593999000012',
-      role: 'PSYCHOLOGIST',
+      role: 'PSICOLOGO',
+      managedByProvider: true,
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-30),
@@ -150,7 +153,7 @@ async function seedMainTenant(hashedPassword: string) {
       firstName: 'Mariana',
       lastName: 'Rojas',
       phone: '+593999000013',
-      role: 'ASSISTANT',
+      role: 'PSICOLOGO',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-20),
@@ -415,7 +418,7 @@ async function seedMainTenant(hashedPassword: string) {
         eventType: 'TRIAL_ENDED',
         previousPlan: 'TRIAL',
         previousStatus: 'TRIALING',
-        newPlan: 'BASIC',
+        newPlan: 'CLINIC_BASIC',
         newStatus: 'ACTIVE',
         reason: 'Fin de trial y activacion inicial',
         createdAt: daysFromNow(-31),
@@ -423,8 +426,8 @@ async function seedMainTenant(hashedPassword: string) {
       {
         tenantId: tenant.id,
         eventType: 'PLAN_UPGRADED',
-        previousPlan: 'BASIC',
-        newPlan: 'PRO',
+        previousPlan: 'CLINIC_BASIC',
+        newPlan: 'CLINIC_PRO',
         previousStatus: 'ACTIVE',
         newStatus: 'ACTIVE',
         reason: 'Upgrade para habilitar analiticas avanzadas',
@@ -480,10 +483,11 @@ async function seedMainTenant(hashedPassword: string) {
 async function seedSecondaryTenant(hashedPassword: string) {
   const tenant = await prisma.tenant.create({
     data: {
-      name: 'Demo Centro en Trial',
-      slug: 'demo-trial',
-      email: 'contacto@demotrial.com',
+      name: 'Demo Consultorio Personal',
+      slug: 'demo-personal',
+      email: 'contacto@demopersonal.com',
       phone: '+593999200001',
+      tenantType: 'PERSONAL',
       isActive: true,
       onboardingCompleted: false,
     },
@@ -527,7 +531,7 @@ async function seedSecondaryTenant(hashedPassword: string) {
       storageUsedBytes: BigInt(50 * 1024 * 1024),
       monthlyNotificationsSent: 8,
       lastNotificationReset: daysFromNow(-4),
-      scheduledPlanChange: 'BASIC',
+      scheduledPlanChange: 'PERSONAL_BASIC',
       scheduledPlanChangeAt: daysFromNow(10),
     },
   });
@@ -539,7 +543,7 @@ async function seedSecondaryTenant(hashedPassword: string) {
       password: hashedPassword,
       firstName: 'Carla',
       lastName: 'Noboa',
-      role: 'TENANT_ADMIN',
+      role: 'CLIENTE',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-4),
@@ -553,7 +557,7 @@ async function seedSecondaryTenant(hashedPassword: string) {
       password: hashedPassword,
       firstName: 'Miguel',
       lastName: 'Arias',
-      role: 'PSYCHOLOGIST',
+      role: 'PSICOLOGO',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-4),
@@ -574,28 +578,113 @@ async function seedSecondaryTenant(hashedPassword: string) {
   return { tenant, admin };
 }
 
+async function seedOwnerTenant(hashedPassword: string) {
+  const tenant = await prisma.tenant.create({
+    data: {
+      name: 'Proveedor del Sistema',
+      slug: 'system-provider',
+      email: 'admin@psic.com',
+      phone: '+593999000000',
+      tenantType: 'CLINIC',
+      isActive: true,
+      onboardingCompleted: true,
+    },
+  });
+
+  await prisma.tenantSettings.create({
+    data: {
+      tenantId: tenant.id,
+      workingHoursStart: '08:00',
+      workingHoursEnd: '18:00',
+      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+      defaultAppointmentDuration: 60,
+      reminderEnabled: false,
+      timezone: 'America/Guayaquil',
+      locale: 'es-EC',
+    },
+  });
+
+  await prisma.tenantSubscription.create({
+    data: {
+      tenantId: tenant.id,
+      planType: 'CLINIC_ENTERPRISE',
+      status: 'ACTIVE',
+      startDate: daysFromNow(-90),
+      currentPeriodStart: daysFromNow(-5),
+      currentPeriodEnd: daysFromNow(25),
+      basePrice: 0,
+      pricePerSeat: 0,
+      currency: 'USD',
+      seatsPsychologistsMax: 9999,
+      seatsPsychologistsUsed: 0,
+      maxActivePatients: 99999,
+      storageGB: 100,
+      monthlyNotificationsLimit: 99999,
+      featureClinicalNotes: true,
+      featureClinicalNotesEncryption: true,
+      featureAttachments: true,
+      featureTasks: true,
+      featurePsychologicalTests: true,
+      featureWebPush: true,
+      featureFCMPush: true,
+      featureAdvancedAnalytics: true,
+      featureVideoConsultation: true,
+      featureCalendarSync: true,
+      featureOnlineSchedulingWidget: true,
+      featureCustomReports: true,
+      featureAPIAccess: true,
+      featureWhatsAppIntegration: true,
+      featureSSO: true,
+      activePatientsCount: 0,
+      storageUsedBytes: BigInt(0),
+      monthlyNotificationsSent: 0,
+      lastNotificationReset: daysFromNow(-5),
+    },
+  });
+
+  const owner = await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      email: 'owner@psic.com',
+      password: hashedPassword,
+      firstName: 'Sistema',
+      lastName: 'Proveedor',
+      role: 'SOPORTE',
+      isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-90),
+    },
+  });
+
+  return { tenant, owner };
+}
+
 async function main() {
   console.log('🌱 Starting deterministic demo seed...');
   await clearDatabase();
 
   const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const ownerTenant = await seedOwnerTenant(hashedPassword);
   const mainTenant = await seedMainTenant(hashedPassword);
-  const trialTenant = await seedSecondaryTenant(hashedPassword);
+  const personalTenant = await seedSecondaryTenant(hashedPassword);
 
   console.log('✅ Seed completed successfully.');
   console.log('');
   console.log('Login credentials (all users):');
   console.log(`  Password: ${DEMO_PASSWORD}`);
   console.log('');
-  console.log(`Main tenant: ${mainTenant.tenant.name} (${mainTenant.tenant.slug})`);
-  console.log('  admin.demo@psic.com (TENANT_ADMIN)');
-  console.log('  psic.ana@psic.com (PSYCHOLOGIST)');
-  console.log('  psic.luis@psic.com (PSYCHOLOGIST)');
-  console.log('  asistente.demo@psic.com (ASSISTANT)');
+  console.log(`Owner tenant: ${ownerTenant.tenant.name} (${ownerTenant.tenant.slug})`);
+  console.log('  owner@psic.com (SOPORTE)');
   console.log('');
-  console.log(`Trial tenant: ${trialTenant.tenant.name} (${trialTenant.tenant.slug})`);
-  console.log('  admin.trial@psic.com (TENANT_ADMIN)');
-  console.log('  psic.trial@psic.com (PSYCHOLOGIST)');
+  console.log(`Clinic tenant: ${mainTenant.tenant.name} (${mainTenant.tenant.slug})`);
+  console.log('  admin.demo@psic.com (CLIENTE)');
+  console.log('  psic.ana@psic.com (PSICOLOGO)');
+  console.log('  psic.luis@psic.com (PSICOLOGO)');
+  console.log('  asistente.demo@psic.com (PSICOLOGO)');
+  console.log('');
+  console.log(`Personal tenant: ${personalTenant.tenant.name} (${personalTenant.tenant.slug})`);
+  console.log('  admin.trial@psic.com (CLIENTE)');
+  console.log('  psic.trial@psic.com (PSICOLOGO)');
 }
 
 main()

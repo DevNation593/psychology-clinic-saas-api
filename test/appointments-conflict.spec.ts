@@ -53,7 +53,7 @@ describe('Appointments - Conflict Detection', () => {
       mockPrismaService.user.findFirst.mockResolvedValue({
         id: 'psych-1',
         tenantId,
-        role: 'PSYCHOLOGIST',
+        role: 'PSICOLOGO',
         isActive: true,
       });
       mockPrismaService.tenantSettings.findUnique.mockResolvedValue({
@@ -88,7 +88,7 @@ describe('Appointments - Conflict Detection', () => {
       mockPrismaService.user.findFirst.mockResolvedValue({
         id: 'psych-1',
         tenantId,
-        role: 'PSYCHOLOGIST',
+        role: 'PSICOLOGO',
         isActive: true,
       });
       mockPrismaService.tenantSettings.findUnique.mockResolvedValue({
@@ -130,7 +130,7 @@ describe('Appointments - Conflict Detection', () => {
       mockPrismaService.user.findFirst.mockResolvedValue({
         id: 'psych-1',
         tenantId,
-        role: 'PSYCHOLOGIST',
+        role: 'PSICOLOGO',
         isActive: true,
       });
       mockPrismaService.tenantSettings.findUnique.mockResolvedValue({

@@ -15,16 +15,24 @@ datasource db {
 // ============================================
 
 enum UserRole {
-  TENANT_ADMIN
-  PSYCHOLOGIST
-  ASSISTANT
+  CLIENTE        // Cliente/Administrador que adquiere el servicio
+  PSICOLOGO      // Psicólogo que trabaja en una clínica
+  SOPORTE        // Soporte técnico con acceso a todos los módulos
+  PACIENTE       // Paciente de un cliente
+}
+
+enum TenantType {
+  PERSONAL       // Psicólogo individual
+  CLINIC         // Clínica con múltiples psicólogos
 }
 
 enum PlanType {
-  TRIAL
-  BASIC
-  PRO
-  CUSTOM
+  TRIAL               // Trial 14 días (personal o clínica)
+  PERSONAL_BASIC      // Psicólogo individual - básico
+  PERSONAL_PRO        // Psicólogo individual - profesional
+  CLINIC_BASIC        // Clínica - básico (cupo limitado)
+  CLINIC_PRO          // Clínica - profesional (más cupo y módulos)
+  CLINIC_ENTERPRISE   // Clínica - enterprise (custom)
 }
 
 enum SubscriptionStatus {
@@ -121,6 +129,7 @@ model Tenant {
   phone             String?
   address           String?
   logoUrl           String?
+  tenantType        TenantType          @default(PERSONAL)
   isActive          Boolean             @default(true)
   onboardingCompleted Boolean           @default(false)
   createdAt         DateTime            @default(now())
@@ -313,6 +322,10 @@ model User {
   role              UserRole
   isActive          Boolean   @default(true)
   emailVerified     Boolean   @default(false)
+
+  // Provider-managed access (for PSYCHOLOGIST role in CLINIC tenants)
+  // When true, only the system provider (OWNER) can grant/revoke access
+  managedByProvider Boolean   @default(false)
 
   // Push notifications
   fcmToken          String?   // Firebase Cloud Messaging token

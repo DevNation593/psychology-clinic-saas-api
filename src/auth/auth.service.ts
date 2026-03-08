@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { LoginDto, AuthResponseDto } from './dto/auth.dto';
+import type { StringValue } from 'ms';
 
 @Injectable()
 export class AuthService {
@@ -168,7 +169,7 @@ export class AuthService {
         secret:
           this.configService.get<string>('JWT_RESET_SECRET') ||
           this.configService.get<string>('JWT_ACCESS_SECRET'),
-        expiresIn: this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h',
+        expiresIn: (this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h') as StringValue,
       },
     );
 
@@ -236,12 +237,12 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_ACCESS_EXPIRATION') || '15m',
+      expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRATION') || '15m') as StringValue,
     });
 
     const refreshToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_REFRESH_EXPIRATION') || '7d',
+      expiresIn: (this.configService.get<string>('JWT_REFRESH_EXPIRATION') || '7d') as StringValue,
     });
 
     // Store refresh token with family tracking

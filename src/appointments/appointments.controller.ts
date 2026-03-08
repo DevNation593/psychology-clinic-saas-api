@@ -15,7 +15,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST', 'ASSISTANT')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Post()
   @ApiOperation({
     summary: 'Create appointment with conflict detection',
@@ -84,7 +84,7 @@ export class AppointmentsController {
     return this.appointmentsService.findOne(tenantId, appointmentId);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST', 'ASSISTANT')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Patch(':appointmentId')
   @ApiOperation({ summary: 'Update appointment (checks conflicts if time changed)' })
   @ApiResponse({ status: 200, description: 'Appointment updated' })
@@ -97,7 +97,7 @@ export class AppointmentsController {
     return this.appointmentsService.update(tenantId, appointmentId, updateAppointmentDto);
   }
 
-  @Roles('TENANT_ADMIN', 'PSYCHOLOGIST')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Post(':appointmentId/cancel')
   @ApiOperation({ summary: 'Cancel appointment' })
   @ApiResponse({ status: 200, description: 'Appointment cancelled' })

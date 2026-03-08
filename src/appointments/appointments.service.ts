@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAppointmentDto, UpdateAppointmentDto } from './dto/appointment.dto';
 
@@ -23,7 +24,7 @@ export class AppointmentsService {
 
   private async assertPsychologistBelongsToTenant(tenantId: string, psychologistId: string) {
     const psychologist = await this.prisma.user.findFirst({
-      where: { id: psychologistId, tenantId, role: 'PSYCHOLOGIST', isActive: true },
+      where: { id: psychologistId, tenantId, role: UserRole.PSICOLOGO, isActive: true },
     });
 
     if (!psychologist) {

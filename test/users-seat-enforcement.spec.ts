@@ -42,8 +42,8 @@ describe('Users - Seat Enforcement', () => {
     jest.clearAllMocks();
   });
 
-  describe('create user with PSYCHOLOGIST role', () => {
-    it('should allow creating PSYCHOLOGIST when seats are available', async () => {
+  describe('create user with CLIENTE role', () => {
+    it('should allow creating CLIENTE when seats are available', async () => {
       const tenantId = 'tenant-1';
       const createUserDto = {
         tenantId,
@@ -51,7 +51,7 @@ describe('Users - Seat Enforcement', () => {
         password: 'password123',
         firstName: 'John',
         lastName: 'Doe',
-        role: 'PSYCHOLOGIST' as const,
+        role: 'PSICOLOGO' as const,
       };
 
       mockPrismaService.user.findUnique.mockResolvedValue(null);
@@ -86,7 +86,7 @@ describe('Users - Seat Enforcement', () => {
         password: 'password123',
         firstName: 'John',
         lastName: 'Doe',
-        role: 'PSYCHOLOGIST' as const,
+        role: 'PSICOLOGO' as const,
       };
 
       mockPrismaService.user.findUnique.mockResolvedValue(null);
@@ -106,7 +106,7 @@ describe('Users - Seat Enforcement', () => {
       expect(mockPrismaService.user.create).not.toHaveBeenCalled();
     });
 
-    it('should allow creating ASSISTANT without checking seats', async () => {
+    it('should allow creating PACIENTE without checking seats', async () => {
       const tenantId = 'tenant-1';
       const createUserDto = {
         tenantId,
@@ -114,7 +114,7 @@ describe('Users - Seat Enforcement', () => {
         password: 'password123',
         firstName: 'Jane',
         lastName: 'Smith',
-        role: 'ASSISTANT' as const,
+        role: 'PACIENTE' as const,
       };
 
       mockPrismaService.user.findUnique.mockResolvedValue(null);
@@ -128,7 +128,7 @@ describe('Users - Seat Enforcement', () => {
 
       expect(result).toBeDefined();
       expect(result.email).toBe('assistant@test.com');
-      // Should NOT increment seat count for ASSISTANT
+      // Should NOT increment seat count for PACIENTE
       expect(mockPrismaService.tenantSubscription.update).not.toHaveBeenCalled();
     });
   });

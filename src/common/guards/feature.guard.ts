@@ -24,6 +24,11 @@ export class FeatureGuard implements CanActivate {
       return false;
     }
 
+    // SOPORTE bypasses feature checks
+    if (user.role === 'SOPORTE') {
+      return true;
+    }
+
     const subscription = await this.prisma.tenantSubscription.findUnique({
       where: { tenantId: user.tenantId },
     });

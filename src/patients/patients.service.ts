@@ -82,11 +82,11 @@ export class PatientsService {
       });
 
       // Some RLS policies only allow admins to read subscription details.
-      if (!subscription && currentUserRole !== 'TENANT_ADMIN') {
+      if (!subscription && currentUserRole !== 'CLIENTE') {
         await this.prisma.applyRlsContext(tx, {
           tenantId,
           userId: currentUserId,
-          role: 'TENANT_ADMIN',
+          role: 'CLIENTE',
         });
         subscription = await tx.tenantSubscription.findUnique({
           where: { tenantId },
@@ -118,11 +118,11 @@ export class PatientsService {
         data: { activePatientsCount: { increment: 1 } },
       });
 
-      if (updated.count === 0 && currentUserRole !== 'TENANT_ADMIN') {
+      if (updated.count === 0 && currentUserRole !== 'CLIENTE') {
         await this.prisma.applyRlsContext(tx, {
           tenantId,
           userId: currentUserId,
-          role: 'TENANT_ADMIN',
+          role: 'CLIENTE',
         });
         updated = await tx.tenantSubscription.updateMany({
           where: {
@@ -294,11 +294,11 @@ export class PatientsService {
 
       let subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
 
-      if (!subscription && currentUserRole !== 'TENANT_ADMIN') {
+      if (!subscription && currentUserRole !== 'CLIENTE') {
         await this.prisma.applyRlsContext(tx, {
           tenantId,
           userId: currentUserId,
-          role: 'TENANT_ADMIN',
+          role: 'CLIENTE',
         });
         subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
       }

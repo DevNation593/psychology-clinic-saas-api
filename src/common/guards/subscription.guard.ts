@@ -25,6 +25,11 @@ export class SubscriptionGuard implements CanActivate {
       return true; // Let JwtAuthGuard handle this
     }
 
+    // SOPORTE bypasses subscription checks
+    if (user.role === 'SOPORTE') {
+      return true;
+    }
+
     const subscription = await this.prisma.tenantSubscription.findUnique({
       where: { tenantId: user.tenantId },
     });

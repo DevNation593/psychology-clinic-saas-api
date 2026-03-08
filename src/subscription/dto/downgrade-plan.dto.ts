@@ -5,7 +5,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export class DowngradePlanDto {
   @ApiProperty({
     description: 'New plan type to downgrade to',
-    enum: ['TRIAL', 'BASIC', 'PRO'],
+    enum: ['TRIAL', 'PERSONAL_BASIC', 'CLINIC_BASIC', 'CLINIC_PRO'],
   })
   @IsEnum(PlanType)
   newPlan: PlanType;
