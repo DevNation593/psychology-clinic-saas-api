@@ -23,9 +23,13 @@ export class UsersService {
   /**
    * Create a new user (with password) - Used by admins
    * Enforces seat limits for PSICOLOGO role
+   * Blocks user creation for individual/personal plans
    */
   async create(createUserDto: CreateUserDto, createdBy: string) {
     const { tenantId, email, password, role, ...userData } = createUserDto;
+
+    // PLAN ENFORCEMENT: Personal plans cannot add team members
+    await this.ensureClinicPlan(tenantId);
 
     // Check if email already exists in this tenant
     const existingUser = await this.prisma.user.findUnique({
@@ -90,9 +94,13 @@ export class UsersService {
   /**
    * Invite a user (without password) - Sends invite, user sets password later
    * Enforces seat limits for PSICOLOGO role
+   * Blocks invitations for individual/personal plans
    */
   async invite(tenantId: string, inviteUserDto: InviteUserDto, invitedBy: string) {
     const { email, role, ...userData } = inviteUserDto;
+
+    // PLAN ENFORCEMENT: Personal plans cannot invite team members
+    await this.ensureClinicPlan(tenantId);
 
     // Check if email already exists in this tenant
     const existingUser = await this.prisma.user.findUnique({
@@ -151,6 +159,30 @@ export class UsersService {
     const { password: _, ...userWithoutPassword } = user;
     await this.sendInvitationEmail(tenantId, userWithoutPassword.id, userWithoutPassword.email);
     return userWithoutPassword;
+  }
+
+  /**
+   * Ensures the tenant has a clinic plan (not personal/individual).
+   * Personal plans only have the owner user and cannot add team members.
+   */
+  private async ensureClinicPlan(tenantId: string) {
+    const subscription = await this.prisma.tenantSubscription.findUnique({
+      where: { tenantId },
+    });
+
+    if (!subscription) {
+      throw new ForbiddenException('No se encontró suscripción para esta clínica');
+    }
+
+    const personalPlans = ['TRIAL', 'PERSONAL_BASIC', 'PERSONAL_PRO'];
+    if (personalPlans.includes(subscription.planType)) {
+      throw new ForbiddenException({
+        error: 'TEAM_NOT_AVAILABLE',
+        message: 'El módulo de equipo no está disponible en planes individuales. Actualiza a un plan de clínica para gestionar múltiples usuarios.',
+        currentPlan: subscription.planType,
+        upgradeUrl: `/tenants/${tenantId}/subscription/upgrade?reason=team`,
+      });
+    }
   }
 
   /**

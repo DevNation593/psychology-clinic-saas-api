@@ -197,6 +197,18 @@ export class PatientsService {
     const patients = await this.prisma.patient.findMany({
       where,
       orderBy: { lastName: 'asc' },
+      include: {
+        assignedPsychologist: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            avatarUrl: true,
+            role: true,
+          },
+        },
+      },
     });
 
     return patients;
