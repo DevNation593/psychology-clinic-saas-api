@@ -33,6 +33,11 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Rol de usuario no encontrado');
     }
 
+    // SOPORTE bypasses all role checks (full system access for support/debugging)
+    if (user.role === 'SOPORTE') {
+      return true;
+    }
+
     const hasRole = requiredRoles.some((role) => user.role === role);
 
     if (!hasRole) {
