@@ -11,7 +11,7 @@ export class BillingService {
     private readonly fakturClient: FakturClient,
   ) {}
 
-  async createInvoice(tenantId: string, dto: CreateInvoiceDto) {
+  async createInvoice(tenantId: string, issuerId: string, dto: CreateInvoiceDto) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       include: { subscription: true, billingSettings: true },
@@ -19,6 +19,13 @@ export class BillingService {
 
     if (!tenant) {
       throw new NotFoundException('Tenant no encontrado');
+    }
+    const issuer = await this.prisma.user.findFirst({
+      where: { id: issuerId, tenantId, isActive: true, role: { in: ['CLIENTE', 'PSICOLOGO'] } },
+      select: { id: true },
+    });
+    if (!issuer) {
+      throw new BadRequestException('El emisor no pertenece al tenant o no puede facturar');
     }
     if (!tenant.taxIdentificationType || !tenant.taxIdentificationNumber) {
       throw new BadRequestException('Completa los datos fiscales del tenant antes de facturar');
@@ -56,6 +63,7 @@ export class BillingService {
       data: {
         tenantId,
         subscriptionId: tenant.subscription?.id,
+        issuerId,
         status: InvoiceStatus.PENDING,
         subtotal: new Prisma.Decimal(dto.subtotal),
         tax: new Prisma.Decimal(tax),
@@ -127,12 +135,16 @@ export class BillingService {
   listInvoices(tenantId: string) {
     return this.prisma.invoice.findMany({
       where: { tenantId },
+      include: { issuer: { select: { id: true, firstName: true, lastName: true, role: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async getInvoice(tenantId: string, invoiceId: string) {
-    const invoice = await this.prisma.invoice.findFirst({ where: { id: invoiceId, tenantId } });
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId },
+      include: { issuer: { select: { id: true, firstName: true, lastName: true, role: true } } },
+    });
     if (!invoice) {
       throw new NotFoundException('Comprobante no encontrado');
     }
