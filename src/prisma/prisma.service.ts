@@ -60,6 +60,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'subscriptionEvent',
       'usageMetrics',
       'invoice',
+      'specialtyRecord',
       'user',
       'refreshToken',
       'patient',
@@ -120,6 +121,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     const orderedModels = [
       'auditLog',
+      'specialtyRecord',
       'notificationLog',
       'nextSessionPlan',
       'task',
@@ -131,6 +133,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'subscriptionEvent',
       'usageMetrics',
       'invoice',
+      'specialtyRecord',
       'tenantSubscription',
       'tenantSettings',
       'billingSettings',

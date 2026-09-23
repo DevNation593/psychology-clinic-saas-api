@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UpdateModuleDto } from './dto/update-module.dto';
+import { UpdateTenantSpecialtiesDto } from './dto/update-specialties.dto';
 import { SpecialtiesService } from './specialties.service';
 
 @ApiTags('specialties')
@@ -14,6 +16,17 @@ export class SpecialtiesController {
   @ApiOperation({ summary: 'List the specialties enabled for a practice' })
   listSpecialties(@Param('tenantId') tenantId: string) {
     return this.specialtiesService.listForTenant(tenantId);
+  }
+
+  @Post('specialties')
+  @Roles('CLIENTE')
+  @ApiOperation({ summary: 'Select specialties for the tenant' })
+  setSpecialties(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: UpdateTenantSpecialtiesDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.specialtiesService.setForTenant(tenantId, dto.specialtyCodes, user.userId);
   }
 
   @Get('modules')

@@ -155,6 +155,7 @@ model Tenant {
   subscription       TenantSubscription?
   users              User[]
   patients           Patient[]
+  specialtyRecords   SpecialtyRecord[]
   appointments       Appointment[]
   clinicalNotes      ClinicalNote[]
   tasks              Task[]
@@ -286,6 +287,9 @@ model TenantSubscription {
   maxActivePatients         Int @default(10)
   storageGB                 Int @default(0) // 0 = unlimited
   monthlyNotificationsLimit Int @default(100)
+  includedSpecialties       Int @default(1)
+  specialtyPrice            Decimal @default(15) @db.Decimal(10, 2)
+  monthlyElectronicInvoicesLimit Int @default(50)
 
   // Feature Flags (boolean)
   featureClinicalNotes           Boolean @default(true)
@@ -309,6 +313,8 @@ model TenantSubscription {
   storageUsedBytes         BigInt   @default(0)
   monthlyNotificationsSent Int      @default(0)
   lastNotificationReset    DateTime @default(now())
+  monthlyElectronicInvoicesUsed Int  @default(0)
+  lastInvoiceReset          DateTime @default(now())
 
   // Scheduled changes
   scheduledPlanChange   PlanType?
@@ -432,6 +438,7 @@ model User {
   auditLogs               AuditLog[]
   subscriptionEvents      SubscriptionEvent[]
   professionalSpecialties ProfessionalSpecialty[]
+  specialtyRecords        SpecialtyRecord[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -497,6 +504,7 @@ model Patient {
   clinicalNotes    ClinicalNote[]
   tasks            Task[]
   nextSessionPlans NextSessionPlan[]
+  specialtyRecords SpecialtyRecord[]
 
   @@index([tenantId])
   @@index([tenantId, isActive])
@@ -524,6 +532,31 @@ model Specialty {
   clinicalNotes           ClinicalNote[]
   sessionPlans            NextSessionPlan[]
   subscriptionSpecialties SubscriptionSpecialty[]
+  records                 SpecialtyRecord[]
+}
+
+model SpecialtyRecord {
+  id             String       @id @default(cuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId      String
+  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  professionalId String
+  professional   User         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  specialtyId    String
+  specialty      Specialty    @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  appointmentId  String?
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  moduleKey      String
+  recordDate     DateTime     @default(now())
+  data           Json
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([tenantId, patientId, recordDate])
+  @@index([tenantId, specialtyId, moduleKey])
+  @@index([appointmentId])
 }
 
 model TenantSpecialty {
@@ -642,6 +675,7 @@ model Appointment {
 
   // Relations
   clinicalNotes ClinicalNote[]
+  specialtyRecords SpecialtyRecord[]
 
   @@index([tenantId])
   @@index([patientId])

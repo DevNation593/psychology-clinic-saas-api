@@ -111,23 +111,17 @@ export class TenantSettingsService {
       fakturEnabled,
       ...settingsData
     } = updateDto;
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const updatedSettings = await tx.tenantSettings.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tenantSettings.update({
         where: { tenantId },
         data: settingsData,
       });
 
-      const tenant = await tx.tenant.update({
+      await tx.tenant.update({
         where: { id: tenantId },
         data: { legalName, taxIdentificationType, taxIdentificationNumber },
-        select: {
-          legalName: true,
-          taxIdentificationType: true,
-          taxIdentificationNumber: true,
-        },
       });
 
-      const currentBilling = await tx.billingSettings.findUnique({ where: { tenantId } });
       await tx.billingSettings.upsert({
         where: { tenantId },
         create: {
@@ -163,9 +157,8 @@ export class TenantSettingsService {
         },
       });
 
-      return { ...updatedSettings, ...tenant, billingSettings: currentBilling };
     });
 
-    return updated;
+    return this.findOne(tenantId);
   }
 }
