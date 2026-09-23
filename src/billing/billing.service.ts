@@ -27,6 +27,23 @@ export class BillingService {
       throw new BadRequestException('La facturación electrónica está desactivada en la configuración');
     }
 
+    const periodStart = new Date();
+    periodStart.setDate(1);
+    periodStart.setHours(0, 0, 0, 0);
+    const invoicesThisMonth = await this.prisma.invoice.count({
+      where: {
+        tenantId,
+        status: InvoiceStatus.ISSUED,
+        issueDate: { gte: periodStart },
+      },
+    });
+    const invoiceLimit = tenant.subscription?.monthlyElectronicInvoicesLimit ?? 50;
+    if (invoicesThisMonth >= invoiceLimit) {
+      throw new BadRequestException(
+        `Límite mensual de facturación alcanzado: ${invoiceLimit} facturas electrónicas.`,
+      );
+    }
+
     const tax = dto.tax ?? 0;
     const total = Number((dto.subtotal + tax).toFixed(2));
     const idempotencyKey = dto.idempotencyKey || `${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -77,7 +94,7 @@ export class BillingService {
         nextSequential: tenant.billingSettings.nextSequential,
       } : undefined);
 
-      return await this.prisma.invoice.update({
+      const issuedInvoice = await this.prisma.invoice.update({
         where: { id: invoice.id },
         data: {
           status: InvoiceStatus.ISSUED,
@@ -90,6 +107,11 @@ export class BillingService {
           errorMessage: null,
         },
       });
+      await this.prisma.tenantSubscription.update({
+        where: { tenantId },
+        data: { monthlyElectronicInvoicesUsed: { increment: 1 } },
+      });
+      return issuedInvoice;
     } catch (error) {
       await this.prisma.invoice.update({
         where: { id: invoice.id },

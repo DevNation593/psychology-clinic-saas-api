@@ -68,6 +68,9 @@ function daysFromNow(days: number): Date {
 }
 
 async function clearDatabase() {
+  await prisma.specialtyRecord.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.billingSettings.deleteMany();
   await prisma.tenantModule.deleteMany();
   await prisma.subscriptionSpecialty.deleteMany();
   await prisma.planSpecialty.deleteMany();
@@ -112,7 +115,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       workingHoursStart: '08:30',
       workingHoursEnd: '18:30',
       workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-      defaultAppointmentDuration: 50,
+      defaultAppointmentDuration: 60,
       allowDoubleBooking: false,
       reminderEnabled: true,
       reminderRules: ['24h', '2h'],
@@ -129,7 +132,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       startDate: daysFromNow(-45),
       currentPeriodStart: daysFromNow(-5),
       currentPeriodEnd: daysFromNow(25),
-      basePrice: 149,
+      basePrice: 214,
       pricePerSeat: 29,
       currency: 'USD',
       seatsPsychologistsMax: 10,
@@ -137,6 +140,9 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       maxActivePatients: 500,
       storageGB: 5,
       monthlyNotificationsLimit: 5000,
+      includedSpecialties: 3,
+      specialtyPrice: 15,
+      monthlyElectronicInvoicesLimit: 50,
       featureClinicalNotes: true,
       featureClinicalNotesEncryption: true,
       featureAttachments: true,
@@ -159,11 +165,28 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
     },
   });
 
+  await prisma.billingSettings.create({
+    data: {
+      tenantId: tenant.id,
+      provider: 'FAKTUR',
+      apiUrl: 'https://api.faktur.ec',
+      invoicePath: '/invoices',
+      environment: 'TEST',
+      establishment: '001',
+      emissionPoint: '001',
+      nextSequential: 1,
+      businessName: 'Demo Consultorio Integral S.A.',
+      businessAddress: 'Av. Principal 123, Quito',
+      isEnabled: false,
+    },
+  });
+
   await prisma.tenantSpecialty.createMany({
     data: [
       { tenantId: tenant.id, specialtyId: catalog.psychology.id },
       { tenantId: tenant.id, specialtyId: catalog.nutrition.id },
       { tenantId: tenant.id, specialtyId: catalog.physiotherapy.id },
+      { tenantId: tenant.id, specialtyId: catalog.dentistry.id },
     ],
   });
 
@@ -172,6 +195,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       { tenantSubscriptionId: subscription.id, specialtyId: catalog.psychology.id },
       { tenantSubscriptionId: subscription.id, specialtyId: catalog.nutrition.id },
       { tenantSubscriptionId: subscription.id, specialtyId: catalog.physiotherapy.id },
+      { tenantSubscriptionId: subscription.id, specialtyId: catalog.dentistry.id },
     ],
   });
 
@@ -185,6 +209,9 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       { tenantId: tenant.id, moduleKey: 'nutrition.assessments' },
       { tenantId: tenant.id, moduleKey: 'nutrition.diet-plans' },
       { tenantId: tenant.id, moduleKey: 'physiotherapy.evolution' },
+      { tenantId: tenant.id, moduleKey: 'physiotherapy.exercise-plans' },
+      { tenantId: tenant.id, moduleKey: 'dentistry.treatments' },
+      { tenantId: tenant.id, moduleKey: 'dentistry.odontogram' },
     ],
   });
 
@@ -329,8 +356,8 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       title: 'Sesion de seguimiento ansiedad',
       description: 'Revision de avances y ajuste de tecnicas',
       startTime: daysFromNow(-3),
-      endTime: new Date(daysFromNow(-3).getTime() + 50 * 60 * 1000),
-      duration: 50,
+      endTime: new Date(daysFromNow(-3).getTime() + 60 * 60 * 1000),
+      duration: 60,
       status: 'COMPLETED',
       location: 'Consultorio 2',
       isOnline: false,
@@ -362,8 +389,8 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       specialtyId: catalog.nutrition.id,
       title: 'Evaluacion inicial',
       startTime: daysFromNow(2),
-      endTime: new Date(daysFromNow(2).getTime() + 50 * 60 * 1000),
-      duration: 50,
+      endTime: new Date(daysFromNow(2).getTime() + 60 * 60 * 1000),
+      duration: 60,
       status: 'SCHEDULED',
       location: 'Consultorio 1',
       isOnline: false,
@@ -378,8 +405,8 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       specialtyId: catalog.nutrition.id,
       title: 'Consulta cancelada',
       startTime: daysFromNow(-1),
-      endTime: new Date(daysFromNow(-1).getTime() + 50 * 60 * 1000),
-      duration: 50,
+      endTime: new Date(daysFromNow(-1).getTime() + 60 * 60 * 1000),
+      duration: 60,
       status: 'CANCELLED',
       cancellationReason: 'Paciente reprogramo por viaje',
       cancelledAt: daysFromNow(-1),
@@ -402,8 +429,45 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       treatment: 'Terapia cognitivo conductual con exposicion gradual.',
       observations: 'Mantener frecuencia semanal por 4 sesiones adicionales.',
       sessionDate: daysFromNow(-3),
-      sessionDuration: 50,
+      sessionDuration: 60,
     },
+  });
+
+  await prisma.specialtyRecord.createMany({
+    data: [
+      {
+        tenantId: tenant.id,
+        patientId: patient1.id,
+        professionalId: psych1.id,
+        specialtyId: catalog.psychology.id,
+        moduleKey: 'psychology.assessments',
+        data: {
+          testName: 'PHQ-9',
+          score: 8,
+          interpretation: 'Síntomas depresivos leves; continuar seguimiento.',
+        },
+        notes: 'Repetir evaluación en cuatro semanas.',
+        recordDate: daysFromNow(-3),
+      },
+      {
+        tenantId: tenant.id,
+        patientId: patient3.id,
+        professionalId: psych2.id,
+        specialtyId: catalog.nutrition.id,
+        moduleKey: 'nutrition.assessments',
+        data: { weightKg: 68, heightCm: 165, bmi: 25, dietaryGoals: 'Mejorar composición corporal.' },
+        notes: 'Control nutricional mensual.',
+      },
+      {
+        tenantId: tenant.id,
+        patientId: patient4.id,
+        professionalId: psych2.id,
+        specialtyId: catalog.physiotherapy.id,
+        moduleKey: 'physiotherapy.evolution',
+        data: { painLevel: 4, mobility: 'Flexión de rodilla limitada', progress: 'Mejora funcional moderada.' },
+        notes: 'Continuar ejercicios de movilidad.',
+      },
+    ],
   });
 
   await prisma.task.createMany({
@@ -633,6 +697,9 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
       maxActivePatients: 10,
       storageGB: 0,
       monthlyNotificationsLimit: 100,
+      includedSpecialties: 1,
+      specialtyPrice: 15,
+      monthlyElectronicInvoicesLimit: 50,
       featureClinicalNotes: true,
       featureAttachments: false,
       featureTasks: false,
@@ -642,6 +709,21 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
       lastNotificationReset: daysFromNow(-4),
       scheduledPlanChange: 'PERSONAL_BASIC',
       scheduledPlanChangeAt: daysFromNow(10),
+    },
+  });
+
+  await prisma.billingSettings.create({
+    data: {
+      tenantId: tenant.id,
+      provider: 'FAKTUR',
+      apiUrl: 'https://api.faktur.ec',
+      invoicePath: '/invoices',
+      environment: 'TEST',
+      establishment: '001',
+      emissionPoint: '001',
+      nextSequential: 1,
+      businessName: 'Demo Consultorio Personal',
+      isEnabled: false,
     },
   });
 
@@ -748,6 +830,9 @@ async function seedOwnerTenant(hashedPassword: string) {
       maxActivePatients: 99999,
       storageGB: 100,
       monthlyNotificationsLimit: 99999,
+      includedSpecialties: 999,
+      specialtyPrice: 15,
+      monthlyElectronicInvoicesLimit: 50,
       featureClinicalNotes: true,
       featureClinicalNotesEncryption: true,
       featureAttachments: true,
@@ -767,6 +852,21 @@ async function seedOwnerTenant(hashedPassword: string) {
       storageUsedBytes: BigInt(0),
       monthlyNotificationsSent: 0,
       lastNotificationReset: daysFromNow(-5),
+    },
+  });
+
+  await prisma.billingSettings.create({
+    data: {
+      tenantId: tenant.id,
+      provider: 'FAKTUR',
+      apiUrl: 'https://api.faktur.ec',
+      invoicePath: '/invoices',
+      environment: 'TEST',
+      establishment: '001',
+      emissionPoint: '001',
+      nextSequential: 1,
+      businessName: 'Proveedor del Sistema S.A.',
+      isEnabled: false,
     },
   });
 
