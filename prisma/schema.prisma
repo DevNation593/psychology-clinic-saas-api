@@ -201,6 +201,8 @@ model Invoice {
   tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   subscriptionId String?
   subscription   TenantSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  issuerId       String
+  issuer         User               @relation("IssuedInvoices", fields: [issuerId], references: [id], onDelete: Restrict)
 
   documentType InvoiceDocumentType @default(INVOICE)
   status       InvoiceStatus       @default(PENDING)
@@ -228,6 +230,7 @@ model Invoice {
   @@index([tenantId, createdAt])
   @@index([status])
   @@index([externalId])
+  @@index([tenantId, issuerId, createdAt])
 }
 
 model TenantSettings {
@@ -439,6 +442,7 @@ model User {
   subscriptionEvents      SubscriptionEvent[]
   professionalSpecialties ProfessionalSpecialty[]
   specialtyRecords        SpecialtyRecord[]
+  issuedInvoices           Invoice[]             @relation("IssuedInvoices")
 
   @@unique([tenantId, email])
   @@index([tenantId])
