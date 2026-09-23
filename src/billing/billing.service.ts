@@ -14,7 +14,7 @@ export class BillingService {
   async createInvoice(tenantId: string, dto: CreateInvoiceDto) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      include: { subscription: true },
+      include: { subscription: true, billingSettings: true },
     });
 
     if (!tenant) {
@@ -22,6 +22,9 @@ export class BillingService {
     }
     if (!tenant.taxIdentificationType || !tenant.taxIdentificationNumber) {
       throw new BadRequestException('Completa los datos fiscales del tenant antes de facturar');
+    }
+    if (tenant.billingSettings && !tenant.billingSettings.isEnabled) {
+      throw new BadRequestException('La facturación electrónica está desactivada en la configuración');
     }
 
     const tax = dto.tax ?? 0;
@@ -64,7 +67,15 @@ export class BillingService {
         tax: Number(invoice.tax),
         total: Number(invoice.total),
         currency: invoice.currency,
-      });
+      }, tenant.billingSettings?.apiKey ? {
+        apiKey: tenant.billingSettings.apiKey,
+        apiUrl: tenant.billingSettings.apiUrl || undefined,
+        invoicePath: tenant.billingSettings.invoicePath,
+        environment: tenant.billingSettings.environment,
+        establishment: tenant.billingSettings.establishment || undefined,
+        emissionPoint: tenant.billingSettings.emissionPoint || undefined,
+        nextSequential: tenant.billingSettings.nextSequential,
+      } : undefined);
 
       return await this.prisma.invoice.update({
         where: { id: invoice.id },
