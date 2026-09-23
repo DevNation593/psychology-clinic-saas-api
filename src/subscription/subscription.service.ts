@@ -54,6 +54,17 @@ const ALL_MODULES: ModuleName[] = [
   'apiAccess', 'whatsAppIntegration', 'sso',
 ];
 
+const PLAN_SPECIALTY_LIMITS: Record<PlanType, number> = {
+  TRIAL: 1,
+  PERSONAL_BASIC: 1,
+  PERSONAL_PRO: 2,
+  CLINIC_BASIC: 2,
+  CLINIC_PRO: 3,
+  CLINIC_ENTERPRISE: 999,
+};
+
+const SPECIALTY_PRICE_PER_MONTH = 15;
+
 function moduleToDbKey(mod: ModuleName): string {
   return `feature${mod.charAt(0).toUpperCase()}${mod.slice(1)}`;
 }
@@ -69,6 +80,9 @@ export class SubscriptionService {
     const subscription = await this.prisma.tenantSubscription.findUnique({
       where: { tenantId },
       include: {
+        specialties: {
+          include: { specialty: { select: { code: true, name: true } } },
+        },
         tenant: {
           select: {
             name: true,
@@ -106,6 +120,10 @@ export class SubscriptionService {
         basePrice: subscription.basePrice,
         pricePerSeat: subscription.pricePerSeat,
         currency: subscription.currency,
+        includedSpecialties: subscription.includedSpecialties,
+        specialtyPrice: subscription.specialtyPrice,
+        monthlyElectronicInvoicesLimit: subscription.monthlyElectronicInvoicesLimit,
+        monthlyElectronicInvoicesUsed: subscription.monthlyElectronicInvoicesUsed,
 
         // Dates
         startDate: subscription.startDate,
@@ -130,6 +148,7 @@ export class SubscriptionService {
 
         // Features
         features: this.extractFeatures(subscription),
+        specialties: subscription.specialties.map(({ specialty }) => specialty),
 
         // Scheduled changes
         scheduledChange: subscription.scheduledPlanChange
@@ -340,6 +359,9 @@ export class SubscriptionService {
           maxActivePatients: newPlanLimits.maxActivePatients,
           storageGB: newPlanLimits.storageGB,
           monthlyNotificationsLimit: newPlanLimits.monthlyNotificationsLimit,
+          includedSpecialties: newPlanLimits.includedSpecialties,
+          specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
+          monthlyElectronicInvoicesLimit: 50,
 
           // Update feature flags
           ...this.getPlanFeatures(newPlan),
@@ -611,6 +633,10 @@ export class SubscriptionService {
           availableAddons: ALL_MODULES
             .filter((m) => !includedModules.includes(m))
             .map((m) => ({ module: m, pricePerMonth: MODULE_PRICING[m] })),
+          specialtyPolicy: 'Cualquier especialidad disponible',
+          includedSpecialties: PLAN_SPECIALTY_LIMITS[planType],
+          specialtyPricePerMonth: SPECIALTY_PRICE_PER_MONTH,
+          electronicInvoicesPerMonth: 50,
         };
       });
 
@@ -784,6 +810,9 @@ export class SubscriptionService {
         maxActivePatients: 10,
         storageGB: 0,
         monthlyNotificationsLimit: 100,
+        includedSpecialties: PLAN_SPECIALTY_LIMITS.TRIAL,
+        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
+        monthlyElectronicInvoicesLimit: 50,
       },
       PERSONAL_BASIC: {
         planType: 'PERSONAL_BASIC' as PlanType,
@@ -794,6 +823,9 @@ export class SubscriptionService {
         maxActivePatients: 50,
         storageGB: 0,
         monthlyNotificationsLimit: 300,
+        includedSpecialties: PLAN_SPECIALTY_LIMITS.PERSONAL_BASIC,
+        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
+        monthlyElectronicInvoicesLimit: 50,
       },
       PERSONAL_PRO: {
         planType: 'PERSONAL_PRO' as PlanType,
@@ -804,6 +836,9 @@ export class SubscriptionService {
         maxActivePatients: 200,
         storageGB: 1,
         monthlyNotificationsLimit: 1000,
+        includedSpecialties: PLAN_SPECIALTY_LIMITS.PERSONAL_PRO,
+        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
+        monthlyElectronicInvoicesLimit: 50,
       },
       CLINIC_BASIC: {
         planType: 'CLINIC_BASIC' as PlanType,
@@ -814,6 +849,9 @@ export class SubscriptionService {
         maxActivePatients: 150,
         storageGB: 1,
         monthlyNotificationsLimit: 500,
+        includedSpecialties: PLAN_SPECIALTY_LIMITS.CLINIC_BASIC,
+        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
+        monthlyElectronicInvoicesLimit: 50,
       },
       CLINIC_PRO: {
         planType: 'CLINIC_PRO' as PlanType,
@@ -824,6 +862,9 @@ export class SubscriptionService {
         maxActivePatients: 500,
         storageGB: 5,
         monthlyNotificationsLimit: 2000,
+        includedSpecialties: PLAN_SPECIALTY_LIMITS.CLINIC_PRO,
+        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
+        monthlyElectronicInvoicesLimit: 50,
       },
       CLINIC_ENTERPRISE: {
         planType: 'CLINIC_ENTERPRISE' as PlanType,
@@ -834,6 +875,9 @@ export class SubscriptionService {
         maxActivePatients: 999999,
         storageGB: 100,
         monthlyNotificationsLimit: 999999,
+        includedSpecialties: PLAN_SPECIALTY_LIMITS.CLINIC_ENTERPRISE,
+        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
+        monthlyElectronicInvoicesLimit: 50,
       },
     };
 
