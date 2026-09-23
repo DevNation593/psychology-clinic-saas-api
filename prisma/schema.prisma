@@ -151,6 +151,7 @@ model Tenant {
 
   // Relations
   settings           TenantSettings?
+  billingSettings    BillingSettings?
   subscription       TenantSubscription?
   users              User[]
   patients           Patient[]
@@ -167,6 +168,30 @@ model Tenant {
   enabledModules     TenantModule[]
 
   @@index([isActive])
+}
+
+model BillingSettings {
+  id                   String   @id @default(cuid())
+  tenantId             String   @unique
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider             String   @default("FAKTUR")
+  apiUrl               String?
+  invoicePath          String   @default("/invoices")
+  apiKey               String?
+  environment         String   @default("TEST") // TEST or PRODUCTION
+  establishment        String?
+  emissionPoint        String?
+  nextSequential       Int      @default(1)
+  businessName         String?
+  businessAddress      String?
+  specialTaxpayer      Boolean  @default(false)
+  accountingRequired   Boolean  @default(false)
+  withholdingAgent     Boolean  @default(false)
+  isEnabled            Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([tenantId, isEnabled])
 }
 
 model Invoice {

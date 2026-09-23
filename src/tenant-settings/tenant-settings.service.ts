@@ -18,6 +18,7 @@ export class TenantSettingsService {
             legalName: true,
             taxIdentificationType: true,
             taxIdentificationNumber: true,
+            billingSettings: true,
           },
         },
       },
@@ -33,6 +34,21 @@ export class TenantSettingsService {
       taxIdentificationType: settings.tenant.taxIdentificationType,
       taxIdentificationNumber: settings.tenant.taxIdentificationNumber,
       tenant: undefined,
+      fakturApiKey: settings.tenant.billingSettings?.apiKey
+        ? `********${settings.tenant.billingSettings.apiKey.slice(-4)}`
+        : '',
+      fakturApiUrl: settings.tenant.billingSettings?.apiUrl ?? '',
+      fakturInvoicePath: settings.tenant.billingSettings?.invoicePath ?? '/invoices',
+      fakturEnvironment: settings.tenant.billingSettings?.environment ?? 'TEST',
+      fakturEstablishment: settings.tenant.billingSettings?.establishment ?? '',
+      fakturEmissionPoint: settings.tenant.billingSettings?.emissionPoint ?? '',
+      fakturNextSequential: settings.tenant.billingSettings?.nextSequential ?? 1,
+      fakturBusinessName: settings.tenant.billingSettings?.businessName ?? '',
+      fakturBusinessAddress: settings.tenant.billingSettings?.businessAddress ?? '',
+      fakturSpecialTaxpayer: settings.tenant.billingSettings?.specialTaxpayer ?? false,
+      fakturAccountingRequired: settings.tenant.billingSettings?.accountingRequired ?? false,
+      fakturWithholdingAgent: settings.tenant.billingSettings?.withholdingAgent ?? false,
+      fakturEnabled: settings.tenant.billingSettings?.isEnabled ?? false,
     };
   }
 
@@ -76,7 +92,25 @@ export class TenantSettingsService {
       }
     }
 
-    const { legalName, taxIdentificationType, taxIdentificationNumber, ...settingsData } = updateDto;
+    const {
+      legalName,
+      taxIdentificationType,
+      taxIdentificationNumber,
+      fakturApiKey,
+      fakturApiUrl,
+      fakturInvoicePath,
+      fakturEnvironment,
+      fakturEstablishment,
+      fakturEmissionPoint,
+      fakturNextSequential,
+      fakturBusinessName,
+      fakturBusinessAddress,
+      fakturSpecialTaxpayer,
+      fakturAccountingRequired,
+      fakturWithholdingAgent,
+      fakturEnabled,
+      ...settingsData
+    } = updateDto;
     const updated = await this.prisma.$transaction(async (tx) => {
       const updatedSettings = await tx.tenantSettings.update({
         where: { tenantId },
@@ -93,7 +127,43 @@ export class TenantSettingsService {
         },
       });
 
-      return { ...updatedSettings, ...tenant };
+      const currentBilling = await tx.billingSettings.findUnique({ where: { tenantId } });
+      await tx.billingSettings.upsert({
+        where: { tenantId },
+        create: {
+          tenantId,
+          apiKey: fakturApiKey || null,
+          apiUrl: fakturApiUrl,
+          invoicePath: fakturInvoicePath ?? '/invoices',
+          environment: fakturEnvironment ?? 'TEST',
+          establishment: fakturEstablishment,
+          emissionPoint: fakturEmissionPoint,
+          nextSequential: fakturNextSequential ?? 1,
+          businessName: fakturBusinessName,
+          businessAddress: fakturBusinessAddress,
+          specialTaxpayer: fakturSpecialTaxpayer ?? false,
+          accountingRequired: fakturAccountingRequired ?? false,
+          withholdingAgent: fakturWithholdingAgent ?? false,
+          isEnabled: fakturEnabled ?? false,
+        },
+        update: {
+          ...(fakturApiKey && !fakturApiKey.startsWith('********') ? { apiKey: fakturApiKey } : {}),
+          apiUrl: fakturApiUrl,
+          invoicePath: fakturInvoicePath,
+          environment: fakturEnvironment,
+          establishment: fakturEstablishment,
+          emissionPoint: fakturEmissionPoint,
+          nextSequential: fakturNextSequential,
+          businessName: fakturBusinessName,
+          businessAddress: fakturBusinessAddress,
+          specialTaxpayer: fakturSpecialTaxpayer,
+          accountingRequired: fakturAccountingRequired,
+          withholdingAgent: fakturWithholdingAgent,
+          isEnabled: fakturEnabled,
+        },
+      });
+
+      return { ...updatedSettings, ...tenant, billingSettings: currentBilling };
     });
 
     return updated;
