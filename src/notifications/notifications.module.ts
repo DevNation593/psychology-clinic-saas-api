@@ -4,7 +4,7 @@ import { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 import { ReminderProcessor } from './processors/reminder.processor';
 
-const isRedisEnabled = process.env.REDIS_ENABLED === 'true';
+const isRedisEnabled = Boolean(process.env.REDIS_URL);
 
 @Module({
   imports: [

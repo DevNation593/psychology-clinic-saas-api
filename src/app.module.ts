@@ -19,7 +19,8 @@ import { TenantSettingsModule } from './tenant-settings/tenant-settings.module';
 import { HealthController } from './health.controller';
 import './common/utils/bigint-json';
 
-const isRedisEnabled = process.env.REDIS_ENABLED === 'true';
+const redisUrl = process.env.REDIS_URL;
+const isRedisEnabled = Boolean(redisUrl);
 const throttleTtlRaw = parseInt(process.env.THROTTLE_TTL || '60', 10);
 const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTtlRaw;
 
@@ -44,11 +45,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     ...(isRedisEnabled
       ? [
           BullModule.forRoot({
-            redis: {
-              host: process.env.REDIS_HOST || 'localhost',
-              port: parseInt(process.env.REDIS_PORT) || 6379,
-              password: process.env.REDIS_PASSWORD || undefined,
-            },
+            redis: redisUrl,
           }),
         ]
       : []),

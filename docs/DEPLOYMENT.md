@@ -40,10 +40,7 @@ PORT=3000
 DATABASE_URL="postgresql://user:password@production-db-host:5432/dbname?schema=public&connection_limit=10"
 
 # Redis
-REDIS_HOST=production-redis-host
-REDIS_PORT=6379
-REDIS_PASSWORD=strong-redis-password
-REDIS_TLS=true
+REDIS_URL=redis://:strong-redis-password@production-redis-host:6379
 
 # JWT
 JWT_ACCESS_SECRET=<generate-with-openssl-rand-base64-32>
@@ -107,9 +104,7 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL}
-      - REDIS_HOST=${REDIS_HOST}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_URL=${REDIS_URL}
       - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - FCM_PROJECT_ID=${FCM_PROJECT_ID}
