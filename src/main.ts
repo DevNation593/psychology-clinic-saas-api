@@ -90,6 +90,7 @@ async function bootstrap() {
     .addTag('next-session-plans', 'Treatment plans')
     .addTag('notifications', 'Notification system')
     .addTag('health', 'Health checks')
+    .addTag('billing', 'Electronic invoicing')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

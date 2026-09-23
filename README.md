@@ -50,6 +50,23 @@ npm run start:dev
 - Invitation emails use optional webhook:
   - `EMAIL_API_URL`
   - `EMAIL_API_KEY`
+- Electronic invoicing uses Faktur:
+  - `FAKTUR_API_URL`: base URL supplied by Faktur
+  - `FAKTUR_API_KEY`: API credential supplied by Faktur
+  - `FAKTUR_INVOICE_PATH`: invoice resource path, defaults to `/invoices`
+  - `FAKTUR_TIMEOUT_MS`: request timeout, defaults to `15000`
+
+Before issuing an invoice, save `legalName`, `taxIdentificationType` and
+`taxIdentificationNumber` on the tenant. The billing endpoint sends the
+customer, totals and `X-Idempotency-Key` to Faktur and stores the provider
+response and PDF/XML links returned by the provider.
+
+Billing endpoints:
+- `POST /api/v1/tenants/:tenantId/billing/invoices`
+- `GET /api/v1/tenants/:tenantId/billing/invoices`
+- `GET /api/v1/tenants/:tenantId/billing/invoices/:invoiceId`
+
+After deploying the migration, apply it with `npx prisma migrate deploy`.
 
 ## Scripts
 
