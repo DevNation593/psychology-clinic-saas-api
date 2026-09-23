@@ -25,7 +25,7 @@ export class HealthController {
       timestamp: new Date().toISOString(),
       services: {
         database: dbStatus,
-        redis: process.env.REDIS_ENABLED === 'true' ? 'configured' : 'disabled',
+        redis: process.env.REDIS_URL ? 'configured' : 'disabled',
       },
     };
   }

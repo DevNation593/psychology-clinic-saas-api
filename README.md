@@ -45,7 +45,7 @@ npm run start:dev
 ## Environment notes
 
 - `THROTTLE_TTL` accepts seconds by default (e.g. `60`).
-- `REDIS_ENABLED=true` enables scheduler + queue workers.
+- `REDIS_URL` enables scheduler + queue workers and configures their Redis connection.
 - CORS accepts `CORS_ORIGINS` (comma-separated), fallback is `FRONTEND_URL`.
 - Invitation emails use optional webhook:
   - `EMAIL_API_URL`
