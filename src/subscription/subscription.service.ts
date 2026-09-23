@@ -72,7 +72,6 @@ export class SubscriptionService {
         tenant: {
           select: {
             name: true,
-            slug: true,
             email: true,
           },
         },

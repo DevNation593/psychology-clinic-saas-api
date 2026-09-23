@@ -8,11 +8,6 @@ export class CreateTenantDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ example: 'mi-clinica' })
-  @IsString()
-  @IsNotEmpty()
-  slug: string;
-
   @ApiProperty({ example: 'contacto@miclinica.com' })
   @IsEmail()
   @IsNotEmpty()

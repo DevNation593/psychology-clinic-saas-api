@@ -11,6 +11,8 @@ interface JwtPayload {
   role: string;
 }
 
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
@@ -42,6 +44,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (!user || !user.isActive || !user.tenant.isActive) {
       throw new UnauthorizedException('User or tenant is inactive');
     }
+
+    if (user.lastActivityAt && Date.now() - user.lastActivityAt.getTime() > INACTIVITY_TIMEOUT_MS) {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, isRevoked: false },
+        data: { isRevoked: true },
+      });
+      throw new UnauthorizedException('La sesión expiró por inactividad');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastActivityAt: new Date() },
+    });
 
     return {
       userId: payload.sub,

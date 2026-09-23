@@ -2,7 +2,6 @@ import { Controller, Get, Post, Body, Patch, Param, UseGuards } from '@nestjs/co
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto, UpdateTenantDto, CompleteOnboardingDto } from './dto/tenant.dto';
-import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -11,11 +10,11 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
 
-  @Public()
+  @Roles('SOPORTE')
   @Post()
-  @ApiOperation({ summary: 'Create new tenant (clinic) - Public endpoint for signup' })
+  @ApiOperation({ summary: 'Create new tenant (clinic) - System admin only' })
   @ApiResponse({ status: 201, description: 'Tenant created successfully' })
-  @ApiResponse({ status: 409, description: 'Tenant slug or email already exists' })
+  @ApiResponse({ status: 409, description: 'Tenant email already exists' })
   async create(@Body() createTenantDto: CreateTenantDto) {
     return this.tenantsService.create(createTenantDto);
   }

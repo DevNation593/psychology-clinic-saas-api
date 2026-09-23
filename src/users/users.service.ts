@@ -619,7 +619,6 @@ export class UsersService {
         tenant: {
           select: {
             name: true,
-            slug: true,
             tenantType: true,
           },
         },
