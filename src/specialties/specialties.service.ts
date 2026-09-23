@@ -76,6 +76,13 @@ export class SpecialtiesService {
         data: specialtyModules.map((moduleKey) => ({ tenantId, moduleKey, enabled: true })),
         skipDuplicates: true,
       });
+      await tx.tenantModule.deleteMany({
+        where: {
+          tenantId,
+          moduleKey: { contains: '.' },
+          NOT: { moduleKey: { in: specialtyModules } },
+        },
+      });
       await tx.tenantSubscription.update({
         where: { tenantId },
         data: {
