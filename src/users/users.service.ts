@@ -26,7 +26,7 @@ export class UsersService {
    * Blocks user creation for individual/personal plans
    */
   async create(createUserDto: CreateUserDto, createdBy: string) {
-    const { tenantId, email, password, role, ...userData } = createUserDto;
+    const { tenantId, email, password, role, specialtyIds = [], ...userData } = createUserDto;
 
     // PLAN ENFORCEMENT: Personal plans cannot add team members
     await this.ensureClinicPlan(tenantId);
@@ -46,7 +46,9 @@ export class UsersService {
     }
 
     // Check if access in clinics requires provider management
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const tenant = role === UserRole.PSICOLOGO && this.prisma.tenant
+      ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
+      : null;
     const isManagedByProvider =
       role === UserRole.PSICOLOGO && tenant?.tenantType === TenantType.CLINIC;
 
@@ -68,6 +70,11 @@ export class UsersService {
           lastName: userData.lastName,
           phone: userData.phone,
           role,
+          professionalTitle: userData.professionalTitle,
+          licenseNumber: userData.licenseNumber,
+          professionalSpecialties: specialtyIds.length
+            ? { create: specialtyIds.map((specialtyId) => ({ specialtyId })) }
+            : undefined,
           isActive: !isManagedByProvider, // Psychologists in clinics start inactive until provider grants access
           managedByProvider: isManagedByProvider,
           emailVerified: password ? true : false,
@@ -97,7 +104,7 @@ export class UsersService {
    * Blocks invitations for individual/personal plans
    */
   async invite(tenantId: string, inviteUserDto: InviteUserDto, invitedBy: string) {
-    const { email, role, ...userData } = inviteUserDto;
+    const { email, role, specialtyIds = [], ...userData } = inviteUserDto;
 
     // PLAN ENFORCEMENT: Personal plans cannot invite team members
     await this.ensureClinicPlan(tenantId);
@@ -117,7 +124,9 @@ export class UsersService {
     }
 
     // Check if psychologist in clinic requires provider management
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const tenant = role === UserRole.PSICOLOGO && this.prisma.tenant
+      ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
+      : null;
     const isManagedByProvider =
       role === UserRole.PSICOLOGO && tenant?.tenantType === TenantType.CLINIC;
 
@@ -137,6 +146,11 @@ export class UsersService {
           lastName: userData.lastName,
           phone: userData.phone,
           role,
+          professionalTitle: userData.professionalTitle,
+          licenseNumber: userData.licenseNumber,
+          professionalSpecialties: specialtyIds.length
+            ? { create: specialtyIds.map((specialtyId) => ({ specialtyId })) }
+            : undefined,
           isActive: false,
           managedByProvider: isManagedByProvider,
           emailVerified: false,

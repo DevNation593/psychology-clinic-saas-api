@@ -12,6 +12,21 @@ import {
 } from 'class-validator';
 
 export class UpdateTenantSettingsDto {
+  @ApiPropertyOptional({ example: 'Clínica Integral S.A.' })
+  @IsString()
+  @IsOptional()
+  legalName?: string;
+
+  @ApiPropertyOptional({ example: 'RUC', enum: ['RUC', 'CEDULA', 'PASSPORT'] })
+  @IsString()
+  @IsOptional()
+  taxIdentificationType?: string;
+
+  @ApiPropertyOptional({ example: '1790012345001' })
+  @IsString()
+  @IsOptional()
+  taxIdentificationNumber?: string;
+
   // Working hours
   @ApiPropertyOptional({
     example: '09:00',

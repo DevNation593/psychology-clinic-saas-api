@@ -12,13 +12,28 @@ export class TenantSettingsService {
   async findOne(tenantId: string) {
     const settings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
+      include: {
+        tenant: {
+          select: {
+            legalName: true,
+            taxIdentificationType: true,
+            taxIdentificationNumber: true,
+          },
+        },
+      },
     });
 
     if (!settings) {
       throw new NotFoundException('Configuración del tenant no encontrada');
     }
 
-    return settings;
+    return {
+      ...settings,
+      legalName: settings.tenant.legalName,
+      taxIdentificationType: settings.tenant.taxIdentificationType,
+      taxIdentificationNumber: settings.tenant.taxIdentificationNumber,
+      tenant: undefined,
+    };
   }
 
   /**
@@ -61,9 +76,24 @@ export class TenantSettingsService {
       }
     }
 
-    const updated = await this.prisma.tenantSettings.update({
-      where: { tenantId },
-      data: updateDto,
+    const { legalName, taxIdentificationType, taxIdentificationNumber, ...settingsData } = updateDto;
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedSettings = await tx.tenantSettings.update({
+        where: { tenantId },
+        data: settingsData,
+      });
+
+      const tenant = await tx.tenant.update({
+        where: { id: tenantId },
+        data: { legalName, taxIdentificationType, taxIdentificationNumber },
+        select: {
+          legalName: true,
+          taxIdentificationType: true,
+          taxIdentificationNumber: true,
+        },
+      });
+
+      return { ...updatedSettings, ...tenant };
     });
 
     return updated;

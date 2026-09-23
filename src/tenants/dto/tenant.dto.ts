@@ -23,6 +23,21 @@ export class CreateTenantDto {
   @IsOptional()
   address?: string;
 
+  @ApiPropertyOptional({ example: 'Clínica Integral S.A.' })
+  @IsString()
+  @IsOptional()
+  legalName?: string;
+
+  @ApiPropertyOptional({ example: 'RUC' })
+  @IsString()
+  @IsOptional()
+  taxIdentificationType?: string;
+
+  @ApiPropertyOptional({ example: '1790012345001' })
+  @IsString()
+  @IsOptional()
+  taxIdentificationNumber?: string;
+
   @ApiProperty({ enum: TenantType, example: 'PERSONAL', description: 'Tipo de cuenta: PERSONAL (psicólogo individual) o CLINIC (clínica)' })
   @IsEnum(TenantType)
   @IsNotEmpty()
@@ -71,6 +86,21 @@ export class UpdateTenantDto {
   @IsString()
   @IsOptional()
   address?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  legalName?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  taxIdentificationType?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  taxIdentificationNumber?: string;
 
   @ApiPropertyOptional()
   @IsString()
