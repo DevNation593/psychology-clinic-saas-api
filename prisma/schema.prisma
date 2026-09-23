@@ -124,7 +124,6 @@ enum AuditEntity {
 model Tenant {
   id                String              @id @default(cuid())
   name              String
-  slug              String              @unique
   email             String
   phone             String?
   address           String?
@@ -149,7 +148,6 @@ model Tenant {
   usageMetrics      UsageMetrics[]
   subscriptionEvents SubscriptionEvent[]
 
-  @@index([slug])
   @@index([isActive])
 }
 
@@ -334,6 +332,7 @@ model User {
   invitedAt         DateTime?
   invitedBy         String?   // userId who sent the invite
   activatedAt       DateTime?
+  lastActivityAt    DateTime  @default(now())
 
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt

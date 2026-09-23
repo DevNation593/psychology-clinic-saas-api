@@ -52,6 +52,11 @@ export class AuthService {
 
     const user = matchingUsers[0];
 
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastActivityAt: new Date() },
+    });
+
     // Generate tokens
     const tokens = await this.generateTokens(user);
 
@@ -105,6 +110,19 @@ export class AuthService {
           if (!user.isActive || !user.tenant.isActive) {
             throw new UnauthorizedException('Usuario o tenant inactivo');
           }
+
+          if (user.lastActivityAt && Date.now() - user.lastActivityAt.getTime() > 60 * 60 * 1000) {
+            await this.prisma.refreshToken.updateMany({
+              where: { userId: user.id, isRevoked: false },
+              data: { isRevoked: true },
+            });
+            throw new UnauthorizedException('La sesión expiró por inactividad');
+          }
+
+          await this.prisma.user.update({
+            where: { id: user.id },
+            data: { lastActivityAt: new Date() },
+          });
 
           // Revoke old refresh token
           await this.prisma.refreshToken.update({
