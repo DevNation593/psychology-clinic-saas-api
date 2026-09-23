@@ -1,3 +1,31 @@
+## Billing
+
+All billing routes require a JWT and the `CLIENTE` role (or `SOPORTE`). The
+tenant must have fiscal data before an invoice can be issued.
+
+### Issue invoice
+
+`POST /api/v1/tenants/:tenantId/billing/invoices`
+
+```json
+{
+  "subtotal": 149.99,
+  "tax": 17.99,
+  "description": "Suscripción Clinic Pro - septiembre 2026",
+  "idempotencyKey": "subscription-tenant-period-2026-09"
+}
+```
+
+The API creates a `PENDING` invoice, sends it to Faktur, and stores it as
+`ISSUED` or `FAILED`. Reusing `idempotencyKey` returns the existing invoice.
+
+### List invoices
+
+`GET /api/v1/tenants/:tenantId/billing/invoices`
+
+### Get invoice
+
+`GET /api/v1/tenants/:tenantId/billing/invoices/:invoiceId`
 # API Endpoints Reference
 
 Base URL: `http://localhost:3000/api/v1`

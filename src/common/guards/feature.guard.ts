@@ -37,6 +37,29 @@ export class FeatureGuard implements CanActivate {
       return false;
     }
 
+    const configuredModules = await this.prisma.tenantModule.findMany({
+      where: {
+        tenantId: user.tenantId,
+        moduleKey: { in: [requiredFeature, `core.${requiredFeature}`] },
+      },
+      select: { enabled: true },
+    });
+
+    // New modular tenants override legacy subscription flags. Tenants without
+    // a module row continue using the existing subscription feature flags.
+    if (configuredModules.length > 0) {
+      if (!configuredModules.some(({ enabled }) => enabled)) {
+        throw new ForbiddenException({
+          error: 'MODULE_NOT_AVAILABLE',
+          message: 'Este módulo no está habilitado para el consultorio.',
+          feature: requiredFeature,
+          currentPlan: subscription.planType,
+        });
+      }
+
+      return true;
+    }
+
     const featureKey =
       `feature${requiredFeature.charAt(0).toUpperCase()}${requiredFeature.slice(1)}` as keyof typeof subscription;
     const hasFeature = subscription[featureKey] === true;

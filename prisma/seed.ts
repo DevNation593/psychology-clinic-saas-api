@@ -5,6 +5,62 @@ const prisma = new PrismaClient();
 
 const DEMO_PASSWORD = 'Password123!';
 
+type SpecialtyCatalog = Record<'psychology' | 'nutrition' | 'physiotherapy' | 'dentistry', { id: string }>;
+
+async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
+  const specialties = await Promise.all([
+    prisma.specialty.upsert({
+      where: { code: 'PSYCHOLOGY' },
+      update: { name: 'Psicología', isActive: true },
+      create: { code: 'PSYCHOLOGY', name: 'Psicología', description: 'Atención psicológica y psicoterapia.' },
+    }),
+    prisma.specialty.upsert({
+      where: { code: 'NUTRITION' },
+      update: { name: 'Nutrición', isActive: true },
+      create: { code: 'NUTRITION', name: 'Nutrición', description: 'Evaluación nutricional y planes alimenticios.' },
+    }),
+    prisma.specialty.upsert({
+      where: { code: 'PHYSIOTHERAPY' },
+      update: { name: 'Fisioterapia', isActive: true },
+      create: { code: 'PHYSIOTHERAPY', name: 'Fisioterapia', description: 'Evaluación funcional y rehabilitación.' },
+    }),
+    prisma.specialty.upsert({
+      where: { code: 'DENTISTRY' },
+      update: { name: 'Odontología', isActive: true },
+      create: { code: 'DENTISTRY', name: 'Odontología', description: 'Prevención y atención odontológica.' },
+    }),
+  ]);
+
+  const [psychology, nutrition, physiotherapy, dentistry] = specialties;
+  await prisma.specialtyModule.createMany({
+    data: [
+      { specialtyId: psychology.id, moduleKey: 'psychology.session-notes' },
+      { specialtyId: psychology.id, moduleKey: 'psychology.assessments' },
+      { specialtyId: nutrition.id, moduleKey: 'nutrition.assessments' },
+      { specialtyId: nutrition.id, moduleKey: 'nutrition.diet-plans' },
+      { specialtyId: physiotherapy.id, moduleKey: 'physiotherapy.evolution' },
+      { specialtyId: physiotherapy.id, moduleKey: 'physiotherapy.exercise-plans' },
+      { specialtyId: dentistry.id, moduleKey: 'dentistry.treatments' },
+      { specialtyId: dentistry.id, moduleKey: 'dentistry.odontogram' },
+    ],
+    skipDuplicates: true,
+  });
+
+  await prisma.planSpecialty.createMany({
+    data: specialties.flatMap((specialty) => [
+      { planType: 'TRIAL', specialtyId: specialty.id },
+      { planType: 'PERSONAL_BASIC', specialtyId: specialty.id },
+      { planType: 'PERSONAL_PRO', specialtyId: specialty.id },
+      { planType: 'CLINIC_BASIC', specialtyId: specialty.id },
+      { planType: 'CLINIC_PRO', specialtyId: specialty.id },
+      { planType: 'CLINIC_ENTERPRISE', specialtyId: specialty.id },
+    ]),
+    skipDuplicates: true,
+  });
+
+  return { psychology, nutrition, physiotherapy, dentistry };
+}
+
 function daysFromNow(days: number): Date {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -12,6 +68,12 @@ function daysFromNow(days: number): Date {
 }
 
 async function clearDatabase() {
+  await prisma.tenantModule.deleteMany();
+  await prisma.subscriptionSpecialty.deleteMany();
+  await prisma.planSpecialty.deleteMany();
+  await prisma.specialtyModule.deleteMany();
+  await prisma.professionalSpecialty.deleteMany();
+  await prisma.tenantSpecialty.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();
   await prisma.nextSessionPlan.deleteMany();
@@ -28,13 +90,16 @@ async function clearDatabase() {
   await prisma.tenant.deleteMany();
 }
 
-async function seedMainTenant(hashedPassword: string) {
+async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog) {
   const tenant = await prisma.tenant.create({
     data: {
-      name: 'Demo Psicologia Integral',
+      name: 'Demo Consultorio Integral',
       email: 'contacto@demopsicologia.com',
       phone: '+593999000001',
       address: 'Av. Principal 123, Quito',
+      legalName: 'Demo Consultorio Integral S.A.',
+      taxIdentificationType: 'RUC',
+      taxIdentificationNumber: '1790012345001',
       tenantType: 'CLINIC',
       isActive: true,
       onboardingCompleted: true,
@@ -56,7 +121,7 @@ async function seedMainTenant(hashedPassword: string) {
     },
   });
 
-  await prisma.tenantSubscription.create({
+  const subscription = await prisma.tenantSubscription.create({
     data: {
       tenantId: tenant.id,
       planType: 'CLINIC_PRO',
@@ -94,6 +159,35 @@ async function seedMainTenant(hashedPassword: string) {
     },
   });
 
+  await prisma.tenantSpecialty.createMany({
+    data: [
+      { tenantId: tenant.id, specialtyId: catalog.psychology.id },
+      { tenantId: tenant.id, specialtyId: catalog.nutrition.id },
+      { tenantId: tenant.id, specialtyId: catalog.physiotherapy.id },
+    ],
+  });
+
+  await prisma.subscriptionSpecialty.createMany({
+    data: [
+      { tenantSubscriptionId: subscription.id, specialtyId: catalog.psychology.id },
+      { tenantSubscriptionId: subscription.id, specialtyId: catalog.nutrition.id },
+      { tenantSubscriptionId: subscription.id, specialtyId: catalog.physiotherapy.id },
+    ],
+  });
+
+  await prisma.tenantModule.createMany({
+    data: [
+      { tenantId: tenant.id, moduleKey: 'core.clinicalNotes' },
+      { tenantId: tenant.id, moduleKey: 'core.tasks' },
+      { tenantId: tenant.id, moduleKey: 'core.team' },
+      { tenantId: tenant.id, moduleKey: 'psychology.session-notes' },
+      { tenantId: tenant.id, moduleKey: 'psychology.assessments' },
+      { tenantId: tenant.id, moduleKey: 'nutrition.assessments' },
+      { tenantId: tenant.id, moduleKey: 'nutrition.diet-plans' },
+      { tenantId: tenant.id, moduleKey: 'physiotherapy.evolution' },
+    ],
+  });
+
   const admin = await prisma.user.create({
     data: {
       tenantId: tenant.id,
@@ -124,6 +218,10 @@ async function seedMainTenant(hashedPassword: string) {
       emailVerified: true,
       activatedAt: daysFromNow(-40),
       avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Ana%20Vega',
+      professionalTitle: 'Psicóloga clínica',
+      professionalSpecialties: {
+        create: { specialtyId: catalog.psychology.id, isPrimary: true },
+      },
     },
   });
 
@@ -141,6 +239,10 @@ async function seedMainTenant(hashedPassword: string) {
       emailVerified: true,
       activatedAt: daysFromNow(-30),
       avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Luis%20Paredes',
+      professionalTitle: 'Nutricionista',
+      professionalSpecialties: {
+        create: { specialtyId: catalog.nutrition.id, isPrimary: true },
+      },
     },
   });
 
@@ -223,6 +325,7 @@ async function seedMainTenant(hashedPassword: string) {
       tenantId: tenant.id,
       patientId: patient1.id,
       psychologistId: psych1.id,
+      specialtyId: catalog.psychology.id,
       title: 'Sesion de seguimiento ansiedad',
       description: 'Revision de avances y ajuste de tecnicas',
       startTime: daysFromNow(-3),
@@ -239,6 +342,7 @@ async function seedMainTenant(hashedPassword: string) {
       tenantId: tenant.id,
       patientId: patient2.id,
       psychologistId: psych1.id,
+      specialtyId: catalog.psychology.id,
       title: 'TCC - gestion de estres',
       startTime: daysFromNow(1),
       endTime: new Date(daysFromNow(1).getTime() + 60 * 60 * 1000),
@@ -255,6 +359,7 @@ async function seedMainTenant(hashedPassword: string) {
       tenantId: tenant.id,
       patientId: patient3.id,
       psychologistId: psych2.id,
+      specialtyId: catalog.nutrition.id,
       title: 'Evaluacion inicial',
       startTime: daysFromNow(2),
       endTime: new Date(daysFromNow(2).getTime() + 50 * 60 * 1000),
@@ -270,6 +375,7 @@ async function seedMainTenant(hashedPassword: string) {
       tenantId: tenant.id,
       patientId: patient4.id,
       psychologistId: psych2.id,
+      specialtyId: catalog.nutrition.id,
       title: 'Consulta cancelada',
       startTime: daysFromNow(-1),
       endTime: new Date(daysFromNow(-1).getTime() + 50 * 60 * 1000),
@@ -288,6 +394,7 @@ async function seedMainTenant(hashedPassword: string) {
       tenantId: tenant.id,
       patientId: patient1.id,
       psychologistId: psych1.id,
+      specialtyId: catalog.psychology.id,
       appointmentId: completedAppointment.id,
       content:
         'Paciente muestra menor evitacion social. Se reforzaron tecnicas de respiracion y registro de pensamientos automaticos.',
@@ -350,6 +457,7 @@ async function seedMainTenant(hashedPassword: string) {
       tenantId: tenant.id,
       patientId: patient1.id,
       psychologistId: psych1.id,
+      specialtyId: catalog.psychology.id,
       objectives: 'Consolidar exposicion en contextos laborales.',
       techniques: 'Reestructuracion cognitiva y role-play.',
       homework: 'Registro ABC 3 veces por semana.',
@@ -479,13 +587,16 @@ async function seedMainTenant(hashedPassword: string) {
   };
 }
 
-async function seedSecondaryTenant(hashedPassword: string) {
+async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCatalog) {
   const tenant = await prisma.tenant.create({
     data: {
       name: 'Demo Consultorio Personal',
       email: 'contacto@demopersonal.com',
       phone: '+593999200001',
       tenantType: 'PERSONAL',
+      legalName: 'Demo Consultorio Personal',
+      taxIdentificationType: 'RUC',
+      taxIdentificationNumber: '1790012345002',
       isActive: true,
       onboardingCompleted: false,
     },
@@ -505,7 +616,7 @@ async function seedSecondaryTenant(hashedPassword: string) {
     },
   });
 
-  await prisma.tenantSubscription.create({
+  const subscription = await prisma.tenantSubscription.create({
     data: {
       tenantId: tenant.id,
       planType: 'TRIAL',
@@ -534,6 +645,19 @@ async function seedSecondaryTenant(hashedPassword: string) {
     },
   });
 
+  await prisma.tenantSpecialty.create({
+    data: { tenantId: tenant.id, specialtyId: catalog.psychology.id },
+  });
+  await prisma.subscriptionSpecialty.create({
+    data: { tenantSubscriptionId: subscription.id, specialtyId: catalog.psychology.id },
+  });
+  await prisma.tenantModule.createMany({
+    data: [
+      { tenantId: tenant.id, moduleKey: 'core.clinicalNotes' },
+      { tenantId: tenant.id, moduleKey: 'psychology.session-notes' },
+    ],
+  });
+
   const admin = await prisma.user.create({
     data: {
       tenantId: tenant.id,
@@ -559,6 +683,10 @@ async function seedSecondaryTenant(hashedPassword: string) {
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-4),
+      professionalTitle: 'Psicólogo clínico',
+      professionalSpecialties: {
+        create: { specialtyId: catalog.psychology.id, isPrimary: true },
+      },
     },
   });
 
@@ -582,6 +710,9 @@ async function seedOwnerTenant(hashedPassword: string) {
       name: 'Proveedor del Sistema',
       email: 'admin@psic.com',
       phone: '+593999000000',
+      legalName: 'Proveedor del Sistema S.A.',
+      taxIdentificationType: 'RUC',
+      taxIdentificationNumber: '1790012345003',
       tenantType: 'CLINIC',
       isActive: true,
       onboardingCompleted: true,
@@ -661,9 +792,10 @@ async function main() {
   await clearDatabase();
 
   const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const specialtyCatalog = await seedSpecialtyCatalog();
   const ownerTenant = await seedOwnerTenant(hashedPassword);
-  const mainTenant = await seedMainTenant(hashedPassword);
-  const personalTenant = await seedSecondaryTenant(hashedPassword);
+  const mainTenant = await seedMainTenant(hashedPassword, specialtyCatalog);
+  const personalTenant = await seedSecondaryTenant(hashedPassword, specialtyCatalog);
 
   console.log('✅ Seed completed successfully.');
   console.log('');

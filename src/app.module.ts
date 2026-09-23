@@ -16,6 +16,8 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { SchedulerModule } from './common/scheduler/scheduler.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { TenantSettingsModule } from './tenant-settings/tenant-settings.module';
+import { SpecialtiesModule } from './specialties/specialties.module';
+import { BillingModule } from './billing/billing.module';
 import { HealthController } from './health.controller';
 import './common/utils/bigint-json';
 
@@ -69,6 +71,8 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     AuditLogModule,
     SubscriptionModule,
     TenantSettingsModule,
+    SpecialtiesModule,
+    BillingModule,
   ],
 })
 export class AppModule {}

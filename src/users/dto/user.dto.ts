@@ -7,6 +7,7 @@ import {
   IsEnum,
   MinLength,
   IsBoolean,
+  IsArray,
 } from 'class-validator';
 
 export class CreateUserDto {
@@ -41,6 +42,22 @@ export class CreateUserDto {
   @IsOptional()
   phone?: string;
 
+  @ApiPropertyOptional({ example: 'Psicóloga clínica' })
+  @IsString()
+  @IsOptional()
+  professionalTitle?: string;
+
+  @ApiPropertyOptional({ example: 'PROF-12345' })
+  @IsString()
+  @IsOptional()
+  licenseNumber?: string;
+
+  @ApiPropertyOptional({ type: [String], example: ['specialty-id'] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  specialtyIds?: string[];
+
   @ApiProperty({ enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'], example: 'CLIENTE' })
   @IsEnum(['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'])
   @IsNotEmpty()
@@ -68,15 +85,27 @@ export class InviteUserDto {
   @IsOptional()
   phone?: string;
 
+  @ApiPropertyOptional({ example: 'Psicóloga clínica' })
+  @IsString()
+  @IsOptional()
+  professionalTitle?: string;
+
+  @ApiPropertyOptional({ example: 'PROF-12345' })
+  @IsString()
+  @IsOptional()
+  licenseNumber?: string;
+
+  @ApiPropertyOptional({ type: [String], example: ['specialty-id'] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  specialtyIds?: string[];
+
   @ApiProperty({ enum: ['PSICOLOGO', 'PACIENTE'], example: 'PSICOLOGO' })
   @IsEnum(['PSICOLOGO', 'PACIENTE'])
   @IsNotEmpty()
   role: 'PSICOLOGO' | 'PACIENTE';
 
-  @ApiPropertyOptional({ example: 'Lic. en Psicología', description: 'Título profesional' })
-  @IsString()
-  @IsOptional()
-  professionalTitle?: string;
 }
 
 export class UpdateUserDto extends PartialType(CreateUserDto) {
