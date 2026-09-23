@@ -11,17 +11,8 @@ export class TenantsService {
   ) {}
 
   async create(createTenantDto: CreateTenantDto) {
-    const { slug, email, adminEmail, adminPassword, adminFirstName, adminLastName, tenantType, ...tenantData } =
+    const { email, adminEmail, adminPassword, adminFirstName, adminLastName, tenantType, ...tenantData } =
       createTenantDto;
-
-    // Check if slug already exists
-    const existingTenant = await this.prisma.tenant.findUnique({
-      where: { slug },
-    });
-
-    if (existingTenant) {
-      throw new ConflictException('Ya existe un tenant con este slug');
-    }
 
     // Check if admin email already exists
     const existingUser = await this.prisma.user.findFirst({
@@ -41,7 +32,6 @@ export class TenantsService {
       const newTenant = await tx.tenant.create({
         data: {
           ...tenantData,
-          slug,
           email,
           tenantType: tenantType || 'PERSONAL',
         },
@@ -99,22 +89,6 @@ export class TenantsService {
   async findOne(id: string) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id },
-      include: {
-        settings: true,
-        subscription: true,
-      },
-    });
-
-    if (!tenant) {
-      throw new NotFoundException('Tenant no encontrado');
-    }
-
-    return tenant;
-  }
-
-  async findBySlug(slug: string) {
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { slug },
       include: {
         settings: true,
         subscription: true,

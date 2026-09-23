@@ -32,7 +32,6 @@ async function seedMainTenant(hashedPassword: string) {
   const tenant = await prisma.tenant.create({
     data: {
       name: 'Demo Psicologia Integral',
-      slug: 'demo-psicologia',
       email: 'contacto@demopsicologia.com',
       phone: '+593999000001',
       address: 'Av. Principal 123, Quito',
@@ -484,7 +483,6 @@ async function seedSecondaryTenant(hashedPassword: string) {
   const tenant = await prisma.tenant.create({
     data: {
       name: 'Demo Consultorio Personal',
-      slug: 'demo-personal',
       email: 'contacto@demopersonal.com',
       phone: '+593999200001',
       tenantType: 'PERSONAL',
@@ -582,7 +580,6 @@ async function seedOwnerTenant(hashedPassword: string) {
   const tenant = await prisma.tenant.create({
     data: {
       name: 'Proveedor del Sistema',
-      slug: 'system-provider',
       email: 'admin@psic.com',
       phone: '+593999000000',
       tenantType: 'CLINIC',
@@ -673,16 +670,16 @@ async function main() {
   console.log('Login credentials (all users):');
   console.log(`  Password: ${DEMO_PASSWORD}`);
   console.log('');
-  console.log(`Owner tenant: ${ownerTenant.tenant.name} (${ownerTenant.tenant.slug})`);
+  console.log(`Owner tenant: ${ownerTenant.tenant.name}`);
   console.log('  owner@psic.com (SOPORTE)');
   console.log('');
-  console.log(`Clinic tenant: ${mainTenant.tenant.name} (${mainTenant.tenant.slug})`);
+  console.log(`Clinic tenant: ${mainTenant.tenant.name}`);
   console.log('  admin.demo@psic.com (CLIENTE)');
   console.log('  psic.ana@psic.com (PSICOLOGO)');
   console.log('  psic.luis@psic.com (PSICOLOGO)');
   console.log('  asistente.demo@psic.com (PSICOLOGO)');
   console.log('');
-  console.log(`Personal tenant: ${personalTenant.tenant.name} (${personalTenant.tenant.slug})`);
+  console.log(`Personal tenant: ${personalTenant.tenant.name}`);
   console.log('  admin.trial@psic.com (CLIENTE)');
   console.log('  psic.trial@psic.com (PSICOLOGO)');
 }

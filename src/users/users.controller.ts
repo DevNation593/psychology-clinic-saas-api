@@ -14,13 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
-import {
-  CreateUserDto,
-  InviteUserDto,
-  UpdateUserDto,
-  ActivateUserDto,
-  ChangePasswordDto,
-} from './dto/user.dto';
+import { UpdateUserDto, ActivateUserDto, ChangePasswordDto } from './dto/user.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -29,54 +23,6 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 @Controller('tenants/:tenantId/users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
-
-  @Roles('CLIENTE')
-  @Post()
-  @ApiOperation({
-    summary: 'Create user with password - Admin only',
-    description: 'Enforces seat limits for PSYCHOLOGIST role',
-  })
-  @ApiResponse({ status: 201, description: 'User created successfully' })
-  @ApiResponse({
-    status: 403,
-    description: 'Seat limit reached',
-    schema: {
-      example: {
-        statusCode: 403,
-        error: 'SEAT_LIMIT_REACHED',
-        message:
-          'Seat limit reached. Current plan allows 1 psychologist(s). Please upgrade your plan.',
-        details: {
-          seatsPsychologistsMax: 1,
-          seatsPsychologistsUsed: 1,
-          planType: 'BASIC',
-        },
-      },
-    },
-  })
-  async create(
-    @Param('tenantId') tenantId: string,
-    @Body() createUserDto: CreateUserDto,
-    @CurrentUser() user: any,
-  ) {
-    return this.usersService.create({ ...createUserDto, tenantId }, user.userId);
-  }
-
-  @Roles('CLIENTE')
-  @Post('invite')
-  @ApiOperation({
-    summary: 'Invite user (without password) - Admin only',
-    description: 'Sends invitation email. User sets password on activation. Enforces seat limits.',
-  })
-  @ApiResponse({ status: 201, description: 'User invited successfully' })
-  @ApiResponse({ status: 403, description: 'Seat limit reached' })
-  async invite(
-    @Param('tenantId') tenantId: string,
-    @Body() inviteUserDto: InviteUserDto,
-    @CurrentUser() user: any,
-  ) {
-    return this.usersService.invite(tenantId, inviteUserDto, user.userId);
-  }
 
   @Get()
   @ApiOperation({ summary: 'List all users in tenant' })
