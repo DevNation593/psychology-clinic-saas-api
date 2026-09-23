@@ -133,6 +133,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'invoice',
       'tenantSubscription',
       'tenantSettings',
+      'billingSettings',
       'tenant',
     ] as const;
 
