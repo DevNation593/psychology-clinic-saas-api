@@ -95,6 +95,7 @@ async function clearDatabase() {
   await prisma.planSpecialty.deleteMany();
   await prisma.specialtyModule.deleteMany();
   await prisma.professionalSpecialty.deleteMany();
+  await prisma.professionalProfile.deleteMany();
   await prisma.tenantSpecialty.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.notificationLog.deleteMany();
@@ -265,6 +266,13 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       activatedAt: daysFromNow(-40),
       avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Ana%20Vega',
       professionalTitle: 'Psicóloga clínica',
+      professionalProfile: {
+        create: {
+          specialtyId: catalog.psychology.id,
+          professionalTitle: 'Psicóloga clínica',
+          isActive: true,
+        },
+      },
       professionalSpecialties: {
         create: { specialtyId: catalog.psychology.id, isPrimary: true },
       },
@@ -286,6 +294,13 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       activatedAt: daysFromNow(-30),
       avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Luis%20Paredes',
       professionalTitle: 'Nutricionista',
+      professionalProfile: {
+        create: {
+          specialtyId: catalog.nutrition.id,
+          professionalTitle: 'Nutricionista',
+          isActive: true,
+        },
+      },
       professionalSpecialties: {
         create: { specialtyId: catalog.nutrition.id, isPrimary: true },
       },
@@ -300,7 +315,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       firstName: 'Mariana',
       lastName: 'Rojas',
       phone: '+593999000013',
-      role: 'PSICOLOGO',
+      role: 'ASISTENTE',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-20),
@@ -794,6 +809,13 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
       emailVerified: true,
       activatedAt: daysFromNow(-4),
       professionalTitle: 'Psicólogo clínico',
+      professionalProfile: {
+        create: {
+          specialtyId: catalog.psychology.id,
+          professionalTitle: 'Psicólogo clínico',
+          isActive: true,
+        },
+      },
       professionalSpecialties: {
         create: { specialtyId: catalog.psychology.id, isPrimary: true },
       },
@@ -937,7 +959,7 @@ async function main() {
   console.log('  admin.demo@psic.com (CLIENTE)');
   console.log('  psic.ana@psic.com (PSICOLOGO)');
   console.log('  psic.luis@psic.com (PSICOLOGO)');
-  console.log('  asistente.demo@psic.com (PSICOLOGO)');
+  console.log('  asistente.demo@psic.com (ASISTENTE)');
   console.log('');
   console.log(`Personal tenant: ${personalTenant.tenant.name}`);
   console.log('  admin.trial@psic.com (CLIENTE)');
