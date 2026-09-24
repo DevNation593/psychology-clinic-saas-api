@@ -12,7 +12,10 @@ import {
 } from 'class-validator';
 
 export class UpdateTenantSettingsDto {
-  @ApiPropertyOptional({ example: 'sk_test_xxx', description: 'API key de Faktur. Se almacena en el servidor.' })
+  @ApiPropertyOptional({
+    example: 'sk_test_xxx',
+    description: 'API key de Faktur. Se almacena en el servidor.',
+  })
   @IsString()
   @IsOptional()
   fakturApiKey?: string;

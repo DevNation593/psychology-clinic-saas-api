@@ -59,11 +59,19 @@ export class SpecialtiesService {
     if (specialties.length !== codes.length) {
       throw new NotFoundException('Una o más especialidades no existen o están inactivas');
     }
-    const additionalSpecialties = Math.max(0, specialties.length - subscription.includedSpecialties);
-    const currentAdditionalSpecialties = Math.max(0, currentSelection - subscription.includedSpecialties);
+    const additionalSpecialties = Math.max(
+      0,
+      specialties.length - subscription.includedSpecialties,
+    );
+    const currentAdditionalSpecialties = Math.max(
+      0,
+      currentSelection - subscription.includedSpecialties,
+    );
 
     const selectedIds = specialties.map((specialty) => specialty.id);
-    const specialtyModules = specialties.flatMap((specialty) => specialty.modules.map((module) => module.moduleKey));
+    const specialtyModules = specialties.flatMap((specialty) =>
+      specialty.modules.map((module) => module.moduleKey),
+    );
     return this.prisma.$transaction(async (tx) => {
       await tx.tenantSpecialty.deleteMany({
         where: { tenantId, specialtyId: { notIn: selectedIds } },
@@ -88,7 +96,8 @@ export class SpecialtiesService {
         data: {
           basePrice: {
             increment: new Decimal(
-              (additionalSpecialties - currentAdditionalSpecialties) * Number(subscription.specialtyPrice),
+              (additionalSpecialties - currentAdditionalSpecialties) *
+                Number(subscription.specialtyPrice),
             ),
           },
         },

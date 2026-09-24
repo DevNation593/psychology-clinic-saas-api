@@ -11,8 +11,15 @@ export class TenantsService {
   ) {}
 
   async create(createTenantDto: CreateTenantDto) {
-    const { email, adminEmail, adminPassword, adminFirstName, adminLastName, tenantType, ...tenantData } =
-      createTenantDto;
+    const {
+      email,
+      adminEmail,
+      adminPassword,
+      adminFirstName,
+      adminLastName,
+      tenantType,
+      ...tenantData
+    } = createTenantDto;
 
     // Check if admin email already exists
     const existingUser = await this.prisma.user.findFirst({

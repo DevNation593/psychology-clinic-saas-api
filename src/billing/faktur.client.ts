@@ -91,7 +91,9 @@ export class FakturClient {
       if (error instanceof BadGatewayException || error instanceof ServiceUnavailableException) {
         throw error;
       }
-      throw new BadGatewayException('No fue posible conectar con Faktur para emitir el comprobante.');
+      throw new BadGatewayException(
+        'No fue posible conectar con Faktur para emitir el comprobante.',
+      );
     } finally {
       clearTimeout(timeout);
     }
