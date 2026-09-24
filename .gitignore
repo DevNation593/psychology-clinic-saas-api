@@ -45,3 +45,6 @@ prisma/migrations/**/migration.sql
 # Other
 .vercel
 *.tsbuildinfo
+
+# Isolated Codex worktrees
+/.worktrees/
