@@ -116,7 +116,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   // Helper method to clean database (for testing)
   // Models ordered so child tables are deleted before parent tables (FK constraints).
   async cleanDatabase() {
-    assertTestDatabaseSafety();
+    assertTestDatabaseSafety(process.env.NODE_ENV, process.env.DATABASE_URL);
 
     const orderedModels = [
       'auditLog',

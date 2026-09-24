@@ -1,8 +1,8 @@
 const TEST_DATABASE_SEGMENT = /(^|[-_])test($|[-_])/i;
 
 export function assertTestDatabaseSafety(
-  nodeEnv = process.env.NODE_ENV,
-  databaseUrl = process.env.DATABASE_URL,
+  nodeEnv: string | undefined,
+  databaseUrl: string | undefined,
 ): void {
   let databaseName = '';
   let isPostgresqlUrl = false;
