@@ -17,6 +17,7 @@ import { UsersService } from './users.service';
 import { UpdateUserDto, ActivateUserDto, ChangePasswordDto } from './dto/user.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { UserRole } from '@prisma/client';
 
 @ApiTags('users')
 @ApiBearerAuth('access-token')
@@ -29,7 +30,7 @@ export class UsersController {
   @ApiQuery({
     name: 'role',
     required: false,
-    enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'],
+    enum: UserRole,
   })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
   @ApiResponse({ status: 200, description: 'Users list' })
@@ -53,7 +54,7 @@ export class UsersController {
     return this.usersService.findOne(tenantId, userId);
   }
 
-  @Roles('CLIENTE')
+  @Roles('ADMIN')
   @Patch(':userId')
   @ApiOperation({ summary: 'Update user - Admin only' })
   @ApiResponse({ status: 200, description: 'User updated' })
@@ -65,7 +66,7 @@ export class UsersController {
     return this.usersService.update(tenantId, userId, updateUserDto);
   }
 
-  @Roles('CLIENTE')
+  @Roles('ADMIN')
   @Delete(':userId')
   @ApiOperation({ summary: 'Deactivate user - Admin only (soft delete)' })
   @ApiResponse({ status: 200, description: 'User deactivated and seat freed' })
