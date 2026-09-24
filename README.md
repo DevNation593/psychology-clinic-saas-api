@@ -40,7 +40,8 @@ npm run start:dev
 - API docs: `GET /api/v1/docs`
 - Health check: `GET /health`
 - Auth login: `POST /api/v1/auth/login`
-  - Requires: `tenantSlug`, `email`, `password`
+  - Requires: `email`, `password`
+  - The tenant is resolved from the user's unique identity.
 
 ## Environment notes
 
