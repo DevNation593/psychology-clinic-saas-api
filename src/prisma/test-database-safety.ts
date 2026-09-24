@@ -5,16 +5,19 @@ export function assertTestDatabaseSafety(
   databaseUrl = process.env.DATABASE_URL,
 ): void {
   let databaseName = '';
+  let isPostgresqlUrl = false;
 
   if (databaseUrl) {
     try {
-      databaseName = decodeURIComponent(new URL(databaseUrl).pathname.replace(/^\//, ''));
+      const parsedUrl = new URL(databaseUrl);
+      isPostgresqlUrl = ['postgres:', 'postgresql:'].includes(parsedUrl.protocol);
+      databaseName = decodeURIComponent(parsedUrl.pathname.replace(/^\//, ''));
     } catch {
       databaseName = '';
     }
   }
 
-  if (nodeEnv !== 'test' || !TEST_DATABASE_SEGMENT.test(databaseName)) {
+  if (nodeEnv !== 'test' || !isPostgresqlUrl || !TEST_DATABASE_SEGMENT.test(databaseName)) {
     throw new Error('Refusing to clean a non-test database');
   }
 }
