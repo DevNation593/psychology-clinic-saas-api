@@ -26,7 +26,11 @@ export class UsersController {
 
   @Get()
   @ApiOperation({ summary: 'List all users in tenant' })
-  @ApiQuery({ name: 'role', required: false, enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'] })
+  @ApiQuery({
+    name: 'role',
+    required: false,
+    enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'],
+  })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
   @ApiResponse({ status: 200, description: 'Users list' })
   async findAll(
@@ -135,10 +139,7 @@ export class UsersController {
   })
   @ApiResponse({ status: 200, description: 'Access granted' })
   @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async grantAccess(
-    @Param('tenantId') tenantId: string,
-    @Param('userId') userId: string,
-  ) {
+  async grantAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
     return this.usersService.grantPsychologistAccess(tenantId, userId);
   }
 
@@ -150,10 +151,7 @@ export class UsersController {
   })
   @ApiResponse({ status: 200, description: 'Access revoked' })
   @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async revokeAccess(
-    @Param('tenantId') tenantId: string,
-    @Param('userId') userId: string,
-  ) {
+  async revokeAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
     return this.usersService.revokePsychologistAccess(tenantId, userId);
   }
 }

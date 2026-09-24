@@ -46,9 +46,10 @@ export class UsersService {
     }
 
     // Check if access in clinics requires provider management
-    const tenant = role === UserRole.PSICOLOGO && this.prisma.tenant
-      ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
-      : null;
+    const tenant =
+      role === UserRole.PSICOLOGO && this.prisma.tenant
+        ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
+        : null;
     const isManagedByProvider =
       role === UserRole.PSICOLOGO && tenant?.tenantType === TenantType.CLINIC;
 
@@ -124,9 +125,10 @@ export class UsersService {
     }
 
     // Check if psychologist in clinic requires provider management
-    const tenant = role === UserRole.PSICOLOGO && this.prisma.tenant
-      ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
-      : null;
+    const tenant =
+      role === UserRole.PSICOLOGO && this.prisma.tenant
+        ? await this.prisma.tenant.findUnique({ where: { id: tenantId } })
+        : null;
     const isManagedByProvider =
       role === UserRole.PSICOLOGO && tenant?.tenantType === TenantType.CLINIC;
 
@@ -192,7 +194,8 @@ export class UsersService {
     if (personalPlans.includes(subscription.planType)) {
       throw new ForbiddenException({
         error: 'TEAM_NOT_AVAILABLE',
-        message: 'El módulo de equipo no está disponible en planes individuales. Actualiza a un plan de clínica para gestionar múltiples usuarios.',
+        message:
+          'El módulo de equipo no está disponible en planes individuales. Actualiza a un plan de clínica para gestionar múltiples usuarios.',
         currentPlan: subscription.planType,
         upgradeUrl: `/tenants/${tenantId}/subscription/upgrade?reason=team`,
       });
@@ -416,8 +419,7 @@ export class UsersService {
     const hashedPassword = await this.authService.hashPassword(password);
 
     // Invited psychologists already reserve a seat at invitation time.
-    const seatReservedAtInvite =
-      user.role === 'PSICOLOGO' && !!user.invitedAt && !user.activatedAt;
+    const seatReservedAtInvite = user.role === 'PSICOLOGO' && !!user.invitedAt && !user.activatedAt;
     const needsSeatNow = user.role === 'PSICOLOGO' && !user.isActive && !seatReservedAtInvite;
 
     if (needsSeatNow) {
@@ -505,7 +507,11 @@ export class UsersService {
     }
 
     // Only the same user, CLIENTE (admin) or SOPORTE can change the avatar.
-    if (currentUserRole !== 'SOPORTE' && currentUserRole !== 'CLIENTE' && currentUserId !== userId) {
+    if (
+      currentUserRole !== 'SOPORTE' &&
+      currentUserRole !== 'CLIENTE' &&
+      currentUserId !== userId
+    ) {
       throw new ForbiddenException('Solo puedes actualizar tu propio avatar');
     }
 

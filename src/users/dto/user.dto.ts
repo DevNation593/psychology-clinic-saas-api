@@ -105,7 +105,6 @@ export class InviteUserDto {
   @IsEnum(['PSICOLOGO', 'PACIENTE'])
   @IsNotEmpty()
   role: 'PSICOLOGO' | 'PACIENTE';
-
 }
 
 export class UpdateUserDto extends PartialType(CreateUserDto) {

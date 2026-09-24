@@ -6,7 +6,7 @@ import { ModuleName } from './dto/customize-features.dto';
 
 // Pricing per module (USD/month)
 const MODULE_PRICING: Record<ModuleName, number> = {
-  clinicalNotes: 0,         // included in all plans
+  clinicalNotes: 0, // included in all plans
   clinicalNotesEncryption: 5,
   attachments: 3,
   tasks: 3,
@@ -28,30 +28,71 @@ const PLAN_INCLUDED_MODULES: Record<string, ModuleName[]> = {
   TRIAL: ['clinicalNotes'],
   PERSONAL_BASIC: ['clinicalNotes', 'attachments', 'tasks', 'fcmPush', 'onlineSchedulingWidget'],
   PERSONAL_PRO: [
-    'clinicalNotes', 'clinicalNotesEncryption', 'attachments', 'tasks',
-    'psychologicalTests', 'webPush', 'fcmPush', 'advancedAnalytics',
-    'videoConsultation', 'calendarSync', 'onlineSchedulingWidget', 'customReports',
+    'clinicalNotes',
+    'clinicalNotesEncryption',
+    'attachments',
+    'tasks',
+    'psychologicalTests',
+    'webPush',
+    'fcmPush',
+    'advancedAnalytics',
+    'videoConsultation',
+    'calendarSync',
+    'onlineSchedulingWidget',
+    'customReports',
   ],
   CLINIC_BASIC: ['clinicalNotes', 'attachments', 'tasks', 'fcmPush', 'onlineSchedulingWidget'],
   CLINIC_PRO: [
-    'clinicalNotes', 'clinicalNotesEncryption', 'attachments', 'tasks',
-    'psychologicalTests', 'webPush', 'fcmPush', 'advancedAnalytics',
-    'videoConsultation', 'calendarSync', 'onlineSchedulingWidget', 'customReports', 'apiAccess',
+    'clinicalNotes',
+    'clinicalNotesEncryption',
+    'attachments',
+    'tasks',
+    'psychologicalTests',
+    'webPush',
+    'fcmPush',
+    'advancedAnalytics',
+    'videoConsultation',
+    'calendarSync',
+    'onlineSchedulingWidget',
+    'customReports',
+    'apiAccess',
   ],
   CLINIC_ENTERPRISE: [
-    'clinicalNotes', 'clinicalNotesEncryption', 'attachments', 'tasks',
-    'psychologicalTests', 'webPush', 'fcmPush', 'advancedAnalytics',
-    'videoConsultation', 'calendarSync', 'onlineSchedulingWidget', 'customReports',
-    'apiAccess', 'whatsAppIntegration', 'sso',
+    'clinicalNotes',
+    'clinicalNotesEncryption',
+    'attachments',
+    'tasks',
+    'psychologicalTests',
+    'webPush',
+    'fcmPush',
+    'advancedAnalytics',
+    'videoConsultation',
+    'calendarSync',
+    'onlineSchedulingWidget',
+    'customReports',
+    'apiAccess',
+    'whatsAppIntegration',
+    'sso',
   ],
 };
 
 // All available module names matching DB column pattern
 const ALL_MODULES: ModuleName[] = [
-  'clinicalNotes', 'clinicalNotesEncryption', 'attachments', 'tasks',
-  'psychologicalTests', 'webPush', 'fcmPush', 'advancedAnalytics',
-  'videoConsultation', 'calendarSync', 'onlineSchedulingWidget', 'customReports',
-  'apiAccess', 'whatsAppIntegration', 'sso',
+  'clinicalNotes',
+  'clinicalNotesEncryption',
+  'attachments',
+  'tasks',
+  'psychologicalTests',
+  'webPush',
+  'fcmPush',
+  'advancedAnalytics',
+  'videoConsultation',
+  'calendarSync',
+  'onlineSchedulingWidget',
+  'customReports',
+  'apiAccess',
+  'whatsAppIntegration',
+  'sso',
 ];
 
 const PLAN_SPECIALTY_LIMITS: Record<PlanType, number> = {
@@ -325,7 +366,9 @@ export class SubscriptionService {
     const isClinicPlan = newPlan.startsWith('CLINIC_');
 
     if (isPersonalPlan && tenant?.tenantType === 'CLINIC') {
-      throw new BadRequestException('No se puede cambiar a un plan personal en una cuenta de clínica.');
+      throw new BadRequestException(
+        'No se puede cambiar a un plan personal en una cuenta de clínica.',
+      );
     }
     if (isClinicPlan && tenant?.tenantType === 'PERSONAL') {
       // Auto-upgrade tenant type to CLINIC when moving to clinic plan
@@ -434,7 +477,9 @@ export class SubscriptionService {
     const isPersonalPlan = newPlan.startsWith('PERSONAL_');
 
     if (isPersonalPlan && tenant?.tenantType === 'CLINIC') {
-      throw new BadRequestException('No se puede degradar a un plan personal en una cuenta de clínica con múltiples psicólogos. Primero desactive los psicólogos adicionales.');
+      throw new BadRequestException(
+        'No se puede degradar a un plan personal en una cuenta de clínica con múltiples psicólogos. Primero desactive los psicólogos adicionales.',
+      );
     }
 
     // Get new plan limits
@@ -608,8 +653,12 @@ export class SubscriptionService {
   // ========================================
   getAvailablePlans(tenantType?: TenantType) {
     const allPlans = [
-      'TRIAL', 'PERSONAL_BASIC', 'PERSONAL_PRO',
-      'CLINIC_BASIC', 'CLINIC_PRO', 'CLINIC_ENTERPRISE',
+      'TRIAL',
+      'PERSONAL_BASIC',
+      'PERSONAL_PRO',
+      'CLINIC_BASIC',
+      'CLINIC_PRO',
+      'CLINIC_ENTERPRISE',
     ] as PlanType[];
 
     const plans = allPlans
@@ -630,9 +679,10 @@ export class SubscriptionService {
           storageGB: limits.storageGB,
           monthlyNotificationsLimit: limits.monthlyNotificationsLimit,
           includedModules,
-          availableAddons: ALL_MODULES
-            .filter((m) => !includedModules.includes(m))
-            .map((m) => ({ module: m, pricePerMonth: MODULE_PRICING[m] })),
+          availableAddons: ALL_MODULES.filter((m) => !includedModules.includes(m)).map((m) => ({
+            module: m,
+            pricePerMonth: MODULE_PRICING[m],
+          })),
           specialtyPolicy: 'Cualquier especialidad disponible',
           includedSpecialties: PLAN_SPECIALTY_LIMITS[planType],
           specialtyPricePerMonth: SPECIALTY_PRICE_PER_MONTH,

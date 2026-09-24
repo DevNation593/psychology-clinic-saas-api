@@ -5,29 +5,48 @@ const prisma = new PrismaClient();
 
 const DEMO_PASSWORD = 'Password123!';
 
-type SpecialtyCatalog = Record<'psychology' | 'nutrition' | 'physiotherapy' | 'dentistry', { id: string }>;
+type SpecialtyCatalog = Record<
+  'psychology' | 'nutrition' | 'physiotherapy' | 'dentistry',
+  { id: string }
+>;
 
 async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
   const specialties = await Promise.all([
     prisma.specialty.upsert({
       where: { code: 'PSYCHOLOGY' },
       update: { name: 'Psicología', isActive: true },
-      create: { code: 'PSYCHOLOGY', name: 'Psicología', description: 'Atención psicológica y psicoterapia.' },
+      create: {
+        code: 'PSYCHOLOGY',
+        name: 'Psicología',
+        description: 'Atención psicológica y psicoterapia.',
+      },
     }),
     prisma.specialty.upsert({
       where: { code: 'NUTRITION' },
       update: { name: 'Nutrición', isActive: true },
-      create: { code: 'NUTRITION', name: 'Nutrición', description: 'Evaluación nutricional y planes alimenticios.' },
+      create: {
+        code: 'NUTRITION',
+        name: 'Nutrición',
+        description: 'Evaluación nutricional y planes alimenticios.',
+      },
     }),
     prisma.specialty.upsert({
       where: { code: 'PHYSIOTHERAPY' },
       update: { name: 'Fisioterapia', isActive: true },
-      create: { code: 'PHYSIOTHERAPY', name: 'Fisioterapia', description: 'Evaluación funcional y rehabilitación.' },
+      create: {
+        code: 'PHYSIOTHERAPY',
+        name: 'Fisioterapia',
+        description: 'Evaluación funcional y rehabilitación.',
+      },
     }),
     prisma.specialty.upsert({
       where: { code: 'DENTISTRY' },
       update: { name: 'Odontología', isActive: true },
-      create: { code: 'DENTISTRY', name: 'Odontología', description: 'Prevención y atención odontológica.' },
+      create: {
+        code: 'DENTISTRY',
+        name: 'Odontología',
+        description: 'Prevención y atención odontológica.',
+      },
     }),
   ]);
 
@@ -455,7 +474,12 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         professionalId: psych2.id,
         specialtyId: catalog.nutrition.id,
         moduleKey: 'nutrition.assessments',
-        data: { weightKg: 68, heightCm: 165, bmi: 25, dietaryGoals: 'Mejorar composición corporal.' },
+        data: {
+          weightKg: 68,
+          heightCm: 165,
+          bmi: 25,
+          dietaryGoals: 'Mejorar composición corporal.',
+        },
         notes: 'Control nutricional mensual.',
       },
       {
@@ -464,7 +488,11 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         professionalId: psych2.id,
         specialtyId: catalog.physiotherapy.id,
         moduleKey: 'physiotherapy.evolution',
-        data: { painLevel: 4, mobility: 'Flexión de rodilla limitada', progress: 'Mejora funcional moderada.' },
+        data: {
+          painLevel: 4,
+          mobility: 'Flexión de rodilla limitada',
+          progress: 'Mejora funcional moderada.',
+        },
         notes: 'Continuar ejercicios de movilidad.',
       },
     ],
