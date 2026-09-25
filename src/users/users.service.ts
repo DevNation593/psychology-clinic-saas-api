@@ -226,15 +226,22 @@ export class UsersService {
     userId: string,
     dto: UpdateUserDto,
     extra: Pick<Prisma.UserUpdateInput, 'password' | 'emailVerified' | 'activatedAt'> = {},
-    requireProvider = false,
+    accessFlow?: 'provider' | 'activation',
   ) {
     const user = await tx.user.findFirst({
       where: { id: userId, tenantId },
       include: { professionalProfile: true },
     });
     if (!user) throw new NotFoundException('Usuario no encontrado');
-    if (requireProvider && !user.managedByProvider)
+    if (accessFlow === 'provider' && !user.managedByProvider)
       throw new BadRequestException('Este usuario no es gestionado por el proveedor');
+    if (
+      user.managedByProvider &&
+      (accessFlow === 'activation' ||
+        (!user.isActive && dto.isActive === true && accessFlow !== 'provider'))
+    ) {
+      throw new ForbiddenException('El acceso de este usuario debe ser concedido por el proveedor');
+    }
 
     const current = user.professionalProfile;
     const remove = dto.professionalProfile === null;
@@ -281,8 +288,8 @@ export class UsersService {
         phone: dto.phone,
         role: dto.role,
         isActive: dto.isActive,
-        professionalTitle: profile?.professionalTitle ?? dto.professionalTitle,
-        licenseNumber: profile?.licenseNumber ?? dto.licenseNumber,
+        professionalTitle: remove ? null : (profile?.professionalTitle ?? dto.professionalTitle),
+        licenseNumber: remove ? null : (profile?.licenseNumber ?? dto.licenseNumber),
         professionalProfile: profile
           ? { upsert: { create: profile, update: profile } }
           : remove && current
@@ -316,6 +323,7 @@ export class UsersService {
         userId,
         { isActive: true },
         { password: hashedPassword, emailVerified: true, activatedAt: new Date() },
+        'activation',
       ),
     );
   }
@@ -415,7 +423,7 @@ export class UsersService {
         userId,
         { isActive: true },
         { activatedAt: new Date() },
-        true,
+        'provider',
       ),
     );
     return { message: 'Acceso concedido exitosamente' };
@@ -423,7 +431,7 @@ export class UsersService {
 
   async revokePsychologistAccess(tenantId: string, userId: string) {
     await this.mutate(tenantId, (tx) =>
-      this.updateInTransaction(tx, tenantId, userId, { isActive: false }, {}, true),
+      this.updateInTransaction(tx, tenantId, userId, { isActive: false }, {}, 'provider'),
     );
     return { message: 'Acceso del usuario revocado exitosamente' };
   }

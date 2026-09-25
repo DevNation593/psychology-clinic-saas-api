@@ -75,8 +75,9 @@ export class UsersController {
   }
 
   @Post(':userId/activate')
-  @ApiOperation({ summary: 'Activate invited user (set password)' })
+  @ApiOperation({ summary: 'Activate invited user not managed by provider (set password)' })
   @ApiResponse({ status: 200, description: 'User activated' })
+  @ApiResponse({ status: 403, description: 'Provider-managed users require provider access grant' })
   async activate(
     @Param('tenantId') tenantId: string,
     @Param('userId') userId: string,

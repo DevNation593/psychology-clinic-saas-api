@@ -181,7 +181,7 @@ describe('Users - profile seat enforcement', () => {
   it('invitation reserves a seat even if the supplied profile is inactive', async () => {
     await service.invite(
       't',
-      dto('PROFESIONAL', { professionalProfile: { specialtyId: 's', isActive: false } }),
+      dto('ADMIN', { professionalProfile: { specialtyId: 's', isActive: false } }),
       'actor',
     );
     expect(users[0]).toMatchObject({ isActive: false, professionalProfile: { isActive: true } });
@@ -202,8 +202,50 @@ describe('Users - profile seat enforcement', () => {
     await service.grantPsychologistAccess('t', 'u');
     expect(subscription.seatsPsychologistsUsed).toBe(1);
   });
+  it('revoked provider access cannot be restored by general activation or update', async () => {
+    seed({ password: 'original', emailVerified: false, activatedAt: null });
+    await service.revokePsychologistAccess('t', 'u');
+    const revoked = structuredClone(users[0]);
+    await expect(service.activate('t', 'u', 'replacement')).rejects.toMatchObject({ status: 403 });
+    await expect(service.update('t', 'u', { isActive: true })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(users[0]).toEqual(revoked);
+    expect(subscription.seatsPsychologistsUsed).toBe(0);
+
+    seed({ id: 'other', role: 'ADMIN', managedByProvider: false });
+    await expect(service.grantPsychologistAccess('t', 'u')).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'PROFESSIONAL_SEAT_LIMIT_REACHED' },
+    });
+    expect(users[0]).toEqual(revoked);
+    await service.deactivate('t', 'other');
+    await service.grantPsychologistAccess('t', 'u');
+    expect(users[0]).toMatchObject({
+      isActive: true,
+      professionalProfile: { isActive: true },
+      password: 'original',
+    });
+    expect(subscription.seatsPsychologistsUsed).toBe(1);
+  });
+  it('provider-managed invitations require provider grant instead of general activation', async () => {
+    await service.invite('t', dto(), 'actor');
+    const pending = structuredClone(users[0]);
+    await expect(service.activate('t', users[0].id, 'password')).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(users[0]).toEqual(pending);
+    expect(subscription.seatsPsychologistsUsed).toBe(1);
+    await service.grantPsychologistAccess('t', users[0].id);
+    expect(users[0].isActive).toBe(true);
+    expect(subscription.seatsPsychologistsUsed).toBe(1);
+  });
   it('reactivation is rejected when another profile took the seat', async () => {
-    seed({ professionalProfile: { specialtyId: 's', isActive: false }, isActive: false });
+    seed({
+      professionalProfile: { specialtyId: 's', isActive: false },
+      isActive: false,
+      managedByProvider: false,
+    });
     seed({ id: 'other', role: 'ADMIN' });
     await expect(service.update('t', 'u', { isActive: true })).rejects.toMatchObject({
       response: { code: 'PROFESSIONAL_SEAT_LIMIT_REACHED' },
@@ -239,9 +281,17 @@ describe('Users - profile seat enforcement', () => {
     ).rejects.toMatchObject({ status: 422, response: { code: 'PROFESSIONAL_SPECIALTY_REQUIRED' } });
   });
   it('allows admin profile removal and frees its seat', async () => {
-    seed({ role: 'ADMIN' });
+    seed({
+      role: 'ADMIN',
+      professionalTitle: 'Clinical title',
+      licenseNumber: 'LICENSE-1',
+      professionalSpecialties: [{ specialtyId: 's', isPrimary: true }],
+    });
     await service.update('t', 'u', { professionalProfile: null } as any);
     expect(users[0].professionalProfile).toBeNull();
+    expect(users[0].professionalSpecialties).toEqual([]);
+    expect(users[0].professionalTitle).toBeNull();
+    expect(users[0].licenseNumber).toBeNull();
     expect(subscription.seatsPsychologistsUsed).toBe(0);
   });
   it('retries serialization conflicts twice and exposes the functional conflict', async () => {
