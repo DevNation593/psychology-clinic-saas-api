@@ -26,7 +26,7 @@ export class AuthService {
         isActive: true,
         tenant: { isActive: true },
       },
-      include: { tenant: true },
+      include: { tenant: true, professionalProfile: { include: { specialty: true } } },
     });
 
     if (users.length === 0) {
@@ -69,6 +69,7 @@ export class AuthService {
         lastName: user.lastName,
         role: user.role,
         tenantId: user.tenantId,
+        professionalProfile: user.professionalProfile ?? undefined,
       },
     };
   }
@@ -89,7 +90,11 @@ export class AuthService {
           // Find refresh token in database
           const storedToken = await this.prisma.refreshToken.findUnique({
             where: { token: refreshToken },
-            include: { user: { include: { tenant: true } } },
+            include: {
+              user: {
+                include: { tenant: true, professionalProfile: { include: { specialty: true } } },
+              },
+            },
           });
 
           if (!storedToken || storedToken.isRevoked) {
@@ -142,6 +147,7 @@ export class AuthService {
               lastName: user.lastName,
               role: user.role,
               tenantId: user.tenantId,
+              professionalProfile: user.professionalProfile ?? undefined,
             },
           };
         },
@@ -258,10 +264,14 @@ export class AuthService {
       expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRATION') || '15m') as StringValue,
     });
 
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
-      expiresIn: (this.configService.get<string>('JWT_REFRESH_EXPIRATION') || '7d') as StringValue,
-    });
+    const refreshToken = this.jwtService.sign(
+      { ...payload, jti: uuidv4() },
+      {
+        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: (this.configService.get<string>('JWT_REFRESH_EXPIRATION') ||
+          '7d') as StringValue,
+      },
+    );
 
     // Store refresh token with family tracking
     const tokenFamilyId = familyId || uuidv4();

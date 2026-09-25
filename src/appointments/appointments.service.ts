@@ -24,7 +24,12 @@ export class AppointmentsService {
 
   private async assertPsychologistBelongsToTenant(tenantId: string, psychologistId: string) {
     const psychologist = await this.prisma.user.findFirst({
-      where: { id: psychologistId, tenantId, role: UserRole.PSICOLOGO, isActive: true },
+      where: {
+        id: psychologistId,
+        tenantId,
+        role: { in: [UserRole.PSICOLOGO, UserRole.PROFESIONAL] },
+        isActive: true,
+      },
     });
 
     if (!psychologist) {

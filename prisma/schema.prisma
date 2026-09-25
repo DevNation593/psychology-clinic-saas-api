@@ -17,6 +17,9 @@ datasource db {
 enum UserRole {
   CLIENTE // Cliente/Administrador que adquiere el servicio
   PSICOLOGO // Psicólogo que trabaja en una clínica
+  ADMIN
+  PROFESIONAL
+  ASISTENTE
   SOPORTE // Soporte técnico con acceso a todos los módulos
   PACIENTE // Paciente de un cliente
 }
@@ -441,6 +444,7 @@ model User {
   auditLogs               AuditLog[]
   subscriptionEvents      SubscriptionEvent[]
   professionalSpecialties ProfessionalSpecialty[]
+  professionalProfile     ProfessionalProfile?
   specialtyRecords        SpecialtyRecord[]
   issuedInvoices           Invoice[]             @relation("IssuedInvoices")
 
@@ -530,6 +534,7 @@ model Specialty {
 
   tenants                 TenantSpecialty[]
   professionals           ProfessionalSpecialty[]
+  professionalProfiles    ProfessionalProfile[]
   modules                 SpecialtyModule[]
   planMappings            PlanSpecialty[]
   appointments            Appointment[]
@@ -584,6 +589,21 @@ model ProfessionalSpecialty {
 
   @@id([userId, specialtyId])
   @@index([specialtyId])
+}
+
+model ProfessionalProfile {
+  userId            String    @id
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialtyId       String
+  specialty         Specialty @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  professionalTitle String?
+  licenseNumber     String?
+  bio               String?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([specialtyId, isActive])
 }
 
 model SpecialtyModule {
