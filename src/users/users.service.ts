@@ -13,6 +13,7 @@ import { AuthService } from '../auth/auth.service';
 import { isAdminRole, isProfessionalRole } from '../common/roles/role-compatibility';
 import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
 import { ProfessionalProfileInputDto } from '../professional-profiles/dto/professional-profile.dto';
+import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
 
 const professionalFields = {
   professionalTitle: true,
@@ -38,6 +39,21 @@ const userSelect = {
   createdAt: true,
   updatedAt: true,
   ...professionalFields,
+} satisfies Prisma.UserSelect;
+
+const selfUserSelect = {
+  id: true,
+  tenantId: true,
+  email: true,
+  firstName: true,
+  lastName: true,
+  phone: true,
+  avatarUrl: true,
+  role: true,
+  isActive: true,
+  professionalTitle: true,
+  licenseNumber: true,
+  professionalProfile: { include: { specialty: true } },
 } satisfies Prisma.UserSelect;
 
 @Injectable()
@@ -218,6 +234,63 @@ export class UsersService {
 
   async update(tenantId: string, userId: string, dto: UpdateUserDto) {
     return this.mutate(tenantId, (tx) => this.updateInTransaction(tx, tenantId, userId, dto));
+  }
+
+  async updateSelf(tenantId: string, userId: string, dto: UpdateSelfProfileDto) {
+    return this.mutate(
+      tenantId,
+      async (tx) => {
+        const user = await tx.user.findFirst({
+          where: { id: userId, tenantId },
+          include: { professionalProfile: true },
+        });
+        if (!user) throw new NotFoundException('Usuario no encontrado');
+
+        const profileInput = dto.professionalProfile;
+        const currentProfile = user.professionalProfile;
+        if (profileInput && !currentProfile) {
+          throw new BadRequestException({
+            statusCode: 400,
+            code: 'PROFESSIONAL_PROFILE_NOT_FOUND',
+            message: 'El usuario no tiene un perfil profesional editable.',
+          });
+        }
+
+        const userData: Prisma.UserUpdateInput = {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          phone: dto.phone,
+        };
+
+        if (profileInput && currentProfile) {
+          const professionalTitle =
+            profileInput.professionalTitle ?? currentProfile.professionalTitle;
+          const licenseNumber = profileInput.licenseNumber ?? currentProfile.licenseNumber;
+          await tx.professionalProfile.update({
+            where: { userId },
+            data: {
+              professionalTitle,
+              licenseNumber,
+              bio: profileInput.bio,
+            },
+          });
+          userData.professionalTitle = professionalTitle;
+          userData.licenseNumber = licenseNumber;
+        }
+
+        const updated = await tx.user.update({
+          where: { id: userId },
+          data: userData,
+          select: selfUserSelect,
+        });
+        if (!updated.professionalProfile) {
+          const { professionalProfile: _profile, ...withoutProfile } = updated;
+          return withoutProfile;
+        }
+        return updated;
+      },
+      userId,
+    );
   }
 
   private async updateInTransaction(

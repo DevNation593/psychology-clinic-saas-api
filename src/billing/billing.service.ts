@@ -21,7 +21,12 @@ export class BillingService {
       throw new NotFoundException('Tenant no encontrado');
     }
     const issuer = await this.prisma.user.findFirst({
-      where: { id: issuerId, tenantId, isActive: true, role: { in: ['CLIENTE', 'PSICOLOGO'] } },
+      where: {
+        id: issuerId,
+        tenantId,
+        isActive: true,
+        role: { in: ['CLIENTE', 'PSICOLOGO', 'ADMIN', 'PROFESIONAL'] },
+      },
       select: { id: true },
     });
     if (!issuer) {

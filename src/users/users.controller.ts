@@ -15,6 +15,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { UpdateUserDto, ActivateUserDto, ChangePasswordDto } from './dto/user.dto';
+import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UserRole } from '@prisma/client';
@@ -52,6 +53,17 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async findOne(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
     return this.usersService.findOne(tenantId, userId);
+  }
+
+  @Patch('me')
+  @ApiOperation({ summary: 'Update the authenticated user profile' })
+  @ApiResponse({ status: 200, description: 'Own profile updated' })
+  async updateSelf(
+    @Param('tenantId') tenantId: string,
+    @CurrentUser() user: any,
+    @Body() updateSelfProfileDto: UpdateSelfProfileDto,
+  ) {
+    return this.usersService.updateSelf(tenantId, user.userId, updateSelfProfileDto);
   }
 
   @Roles('ADMIN')
