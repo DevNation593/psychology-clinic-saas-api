@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, PartialType, OmitType } from '@nestjs/swagger';
 import {
   IsString,
   IsEmail,
@@ -8,7 +8,13 @@ import {
   MinLength,
   IsBoolean,
   IsArray,
+  ArrayMaxSize,
+  ValidateNested,
 } from 'class-validator';
+
+import { UserRole } from '@prisma/client';
+import { Type } from 'class-transformer';
+import { ProfessionalProfileInputDto } from '../../professional-profiles/dto/professional-profile.dto';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'clinic-tenant-id' })
@@ -54,61 +60,34 @@ export class CreateUserDto {
 
   @ApiPropertyOptional({ type: [String], example: ['specialty-id'] })
   @IsArray()
+  @ArrayMaxSize(1)
   @IsString({ each: true })
   @IsOptional()
   specialtyIds?: string[];
 
-  @ApiProperty({ enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'], example: 'CLIENTE' })
-  @IsEnum(['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'])
+  @ApiPropertyOptional()
+  @IsString()
   @IsNotEmpty()
-  role: 'CLIENTE' | 'PSICOLOGO' | 'SOPORTE' | 'PACIENTE';
+  @IsOptional()
+  specialtyId?: string;
+
+  @ApiPropertyOptional({ type: ProfessionalProfileInputDto, nullable: true })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProfessionalProfileInputDto)
+  professionalProfile?: ProfessionalProfileInputDto | null;
+
+  @ApiProperty({ enum: UserRole, example: 'ADMIN' })
+  @IsEnum(UserRole)
+  @IsNotEmpty()
+  role: UserRole;
 }
 
-export class InviteUserDto {
-  @ApiProperty({ example: 'doctor@clinic.com' })
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
+export class InviteUserDto extends OmitType(CreateUserDto, ['tenantId', 'password'] as const) {}
 
-  @ApiProperty({ example: 'María' })
-  @IsString()
-  @IsNotEmpty()
-  firstName: string;
-
-  @ApiProperty({ example: 'González' })
-  @IsString()
-  @IsNotEmpty()
-  lastName: string;
-
-  @ApiPropertyOptional({ example: '+52 555 987 6543' })
-  @IsString()
-  @IsOptional()
-  phone?: string;
-
-  @ApiPropertyOptional({ example: 'Psicóloga clínica' })
-  @IsString()
-  @IsOptional()
-  professionalTitle?: string;
-
-  @ApiPropertyOptional({ example: 'PROF-12345' })
-  @IsString()
-  @IsOptional()
-  licenseNumber?: string;
-
-  @ApiPropertyOptional({ type: [String], example: ['specialty-id'] })
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  specialtyIds?: string[];
-
-  @ApiProperty({ enum: ['PSICOLOGO', 'PACIENTE'], example: 'PSICOLOGO' })
-  @IsEnum(['PSICOLOGO', 'PACIENTE'])
-  @IsNotEmpty()
-  role: 'PSICOLOGO' | 'PACIENTE';
-
-}
-
-export class UpdateUserDto extends PartialType(CreateUserDto) {
+export class UpdateUserDto extends PartialType(
+  OmitType(CreateUserDto, ['tenantId', 'password'] as const),
+) {
   @ApiPropertyOptional()
   @IsBoolean()
   @IsOptional()

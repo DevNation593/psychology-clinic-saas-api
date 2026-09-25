@@ -18,7 +18,11 @@ export class BillingController {
   @Post('invoices')
   @Roles('CLIENTE', 'PSICOLOGO')
   @ApiOperation({ summary: 'Emitir factura electrónica mediante Faktur' })
-  createInvoice(@Param('tenantId') tenantId: string, @CurrentUser() user: { userId: string }, @Body() dto: CreateInvoiceDto) {
+  createInvoice(
+    @Param('tenantId') tenantId: string,
+    @CurrentUser() user: { userId: string },
+    @Body() dto: CreateInvoiceDto,
+  ) {
     return this.billingService.createInvoice(tenantId, user.userId, dto);
   }
 

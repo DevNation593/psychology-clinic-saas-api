@@ -21,7 +21,12 @@ export class BillingService {
       throw new NotFoundException('Tenant no encontrado');
     }
     const issuer = await this.prisma.user.findFirst({
-      where: { id: issuerId, tenantId, isActive: true, role: { in: ['CLIENTE', 'PSICOLOGO'] } },
+      where: {
+        id: issuerId,
+        tenantId,
+        isActive: true,
+        role: { in: ['CLIENTE', 'PSICOLOGO', 'ADMIN', 'PROFESIONAL'] },
+      },
       select: { id: true },
     });
     if (!issuer) {
@@ -31,7 +36,9 @@ export class BillingService {
       throw new BadRequestException('Completa los datos fiscales del tenant antes de facturar');
     }
     if (tenant.billingSettings && !tenant.billingSettings.isEnabled) {
-      throw new BadRequestException('La facturación electrónica está desactivada en la configuración');
+      throw new BadRequestException(
+        'La facturación electrónica está desactivada en la configuración',
+      );
     }
 
     const periodStart = new Date();
@@ -53,7 +60,8 @@ export class BillingService {
 
     const tax = dto.tax ?? 0;
     const total = Number((dto.subtotal + tax).toFixed(2));
-    const idempotencyKey = dto.idempotencyKey || `${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const idempotencyKey =
+      dto.idempotencyKey || `${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const existing = await this.prisma.invoice.findUnique({ where: { idempotencyKey } });
     if (existing) {
       return existing;
@@ -78,29 +86,34 @@ export class BillingService {
     });
 
     try {
-      const providerResponse = await this.fakturClient.issueInvoice({
-        idempotencyKey,
-        customer: {
-          legalName: invoice.customerName,
-          email: invoice.customerEmail,
-          identificationType: invoice.customerTaxIdType,
-          identificationNumber: invoice.customerTaxId,
-          address: tenant.address || undefined,
+      const providerResponse = await this.fakturClient.issueInvoice(
+        {
+          idempotencyKey,
+          customer: {
+            legalName: invoice.customerName,
+            email: invoice.customerEmail,
+            identificationType: invoice.customerTaxIdType,
+            identificationNumber: invoice.customerTaxId,
+            address: tenant.address || undefined,
+          },
+          description: invoice.description,
+          subtotal: Number(invoice.subtotal),
+          tax: Number(invoice.tax),
+          total: Number(invoice.total),
+          currency: invoice.currency,
         },
-        description: invoice.description,
-        subtotal: Number(invoice.subtotal),
-        tax: Number(invoice.tax),
-        total: Number(invoice.total),
-        currency: invoice.currency,
-      }, tenant.billingSettings?.apiKey ? {
-        apiKey: tenant.billingSettings.apiKey,
-        apiUrl: tenant.billingSettings.apiUrl || undefined,
-        invoicePath: tenant.billingSettings.invoicePath,
-        environment: tenant.billingSettings.environment,
-        establishment: tenant.billingSettings.establishment || undefined,
-        emissionPoint: tenant.billingSettings.emissionPoint || undefined,
-        nextSequential: tenant.billingSettings.nextSequential,
-      } : undefined);
+        tenant.billingSettings?.apiKey
+          ? {
+              apiKey: tenant.billingSettings.apiKey,
+              apiUrl: tenant.billingSettings.apiUrl || undefined,
+              invoicePath: tenant.billingSettings.invoicePath,
+              environment: tenant.billingSettings.environment,
+              establishment: tenant.billingSettings.establishment || undefined,
+              emissionPoint: tenant.billingSettings.emissionPoint || undefined,
+              nextSequential: tenant.billingSettings.nextSequential,
+            }
+          : undefined,
+      );
 
       const issuedInvoice = await this.prisma.invoice.update({
         where: { id: invoice.id },
@@ -108,7 +121,11 @@ export class BillingService {
           status: InvoiceStatus.ISSUED,
           externalId: this.readString(providerResponse, 'externalId', 'id'),
           accessKey: this.readString(providerResponse, 'accessKey', 'claveAcceso'),
-          authorizationNumber: this.readString(providerResponse, 'authorizationNumber', 'numeroAutorizacion'),
+          authorizationNumber: this.readString(
+            providerResponse,
+            'authorizationNumber',
+            'numeroAutorizacion',
+          ),
           xmlUrl: this.readString(providerResponse, 'xmlUrl', 'xml'),
           pdfUrl: this.readString(providerResponse, 'pdfUrl', 'pdf'),
           providerResponse: providerResponse as Prisma.InputJsonValue,
@@ -125,7 +142,8 @@ export class BillingService {
         where: { id: invoice.id },
         data: {
           status: InvoiceStatus.FAILED,
-          errorMessage: error instanceof Error ? error.message : 'Error desconocido al emitir en Faktur',
+          errorMessage:
+            error instanceof Error ? error.message : 'Error desconocido al emitir en Faktur',
         },
       });
       throw error;

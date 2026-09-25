@@ -13,7 +13,8 @@ export class ProviderAdminController {
   @Get('pending')
   @ApiOperation({
     summary: 'List all pending psychologists across all clinics (Provider/OWNER only)',
-    description: 'Returns psychologists awaiting provider approval in clinic tenants.',
+    description:
+      'Returns professionals of both role generations awaiting provider approval, including their professional profile and specialty.',
   })
   @ApiResponse({ status: 200, description: 'List of pending psychologists' })
   async listPending() {
@@ -26,6 +27,7 @@ export class ProviderAdminController {
     summary: 'Grant psychologist access from admin panel (Provider/OWNER only)',
   })
   @ApiResponse({ status: 200, description: 'Access granted' })
+  @ApiResponse({ status: 409, description: 'PROFESSIONAL_SEAT_LIMIT_REACHED' })
   async grantAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
     return this.usersService.grantPsychologistAccess(tenantId, userId);
   }

@@ -15,8 +15,10 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { UpdateUserDto, ActivateUserDto, ChangePasswordDto } from './dto/user.dto';
+import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { UserRole } from '@prisma/client';
 
 @ApiTags('users')
 @ApiBearerAuth('access-token')
@@ -26,7 +28,11 @@ export class UsersController {
 
   @Get()
   @ApiOperation({ summary: 'List all users in tenant' })
-  @ApiQuery({ name: 'role', required: false, enum: ['CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'] })
+  @ApiQuery({
+    name: 'role',
+    required: false,
+    enum: UserRole,
+  })
   @ApiQuery({ name: 'isActive', required: false, type: Boolean })
   @ApiResponse({ status: 200, description: 'Users list' })
   async findAll(
@@ -49,7 +55,18 @@ export class UsersController {
     return this.usersService.findOne(tenantId, userId);
   }
 
-  @Roles('CLIENTE')
+  @Patch('me')
+  @ApiOperation({ summary: 'Update the authenticated user profile' })
+  @ApiResponse({ status: 200, description: 'Own profile updated' })
+  async updateSelf(
+    @Param('tenantId') tenantId: string,
+    @CurrentUser() user: any,
+    @Body() updateSelfProfileDto: UpdateSelfProfileDto,
+  ) {
+    return this.usersService.updateSelf(tenantId, user.userId, updateSelfProfileDto);
+  }
+
+  @Roles('ADMIN')
   @Patch(':userId')
   @ApiOperation({ summary: 'Update user - Admin only' })
   @ApiResponse({ status: 200, description: 'User updated' })
@@ -61,7 +78,7 @@ export class UsersController {
     return this.usersService.update(tenantId, userId, updateUserDto);
   }
 
-  @Roles('CLIENTE')
+  @Roles('ADMIN')
   @Delete(':userId')
   @ApiOperation({ summary: 'Deactivate user - Admin only (soft delete)' })
   @ApiResponse({ status: 200, description: 'User deactivated and seat freed' })
@@ -70,8 +87,9 @@ export class UsersController {
   }
 
   @Post(':userId/activate')
-  @ApiOperation({ summary: 'Activate invited user (set password)' })
+  @ApiOperation({ summary: 'Activate invited user not managed by provider (set password)' })
   @ApiResponse({ status: 200, description: 'User activated' })
+  @ApiResponse({ status: 403, description: 'Provider-managed users require provider access grant' })
   async activate(
     @Param('tenantId') tenantId: string,
     @Param('userId') userId: string,
@@ -135,10 +153,7 @@ export class UsersController {
   })
   @ApiResponse({ status: 200, description: 'Access granted' })
   @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async grantAccess(
-    @Param('tenantId') tenantId: string,
-    @Param('userId') userId: string,
-  ) {
+  async grantAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
     return this.usersService.grantPsychologistAccess(tenantId, userId);
   }
 
@@ -150,10 +165,7 @@ export class UsersController {
   })
   @ApiResponse({ status: 200, description: 'Access revoked' })
   @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async revokeAccess(
-    @Param('tenantId') tenantId: string,
-    @Param('userId') userId: string,
-  ) {
+  async revokeAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
     return this.usersService.revokePsychologistAccess(tenantId, userId);
   }
 }

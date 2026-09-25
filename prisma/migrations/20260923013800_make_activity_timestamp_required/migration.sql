@@ -1,0 +1,7 @@
+UPDATE "User"
+SET "lastActivityAt" = CURRENT_TIMESTAMP
+WHERE "lastActivityAt" IS NULL;
+
+-- AlterTable
+ALTER TABLE "User" ALTER COLUMN "lastActivityAt" SET NOT NULL,
+ALTER COLUMN "lastActivityAt" SET DEFAULT CURRENT_TIMESTAMP;
