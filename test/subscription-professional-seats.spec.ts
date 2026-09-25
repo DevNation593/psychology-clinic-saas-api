@@ -44,6 +44,30 @@ describe('Subscription professional seats', () => {
     expect(result.usage.seats).toMatchObject({ used: 2, available: 1 });
   });
 
+  it('reports live active profiles in the legacy current-subscription seat fields', async () => {
+    db.tenantSubscription.findUnique.mockResolvedValue({
+      seatsPsychologistsMax: 3,
+      seatsPsychologistsUsed: 99,
+      specialties: [],
+      tenant: { name: 'Clinic', email: 'clinic@test.invalid' },
+    });
+    // Includes a clinical administrator; there are no PSICOLOGO users.
+    db.professionalProfile.count.mockResolvedValue(2);
+
+    const result = await service.getCurrentSubscription(tenantId);
+
+    expect(result.subscription).toMatchObject({
+      seatsPsychologistsMax: 3,
+      seatsPsychologistsUsed: 2,
+      seatsAvailable: 1,
+    });
+    expect(result.tenant).toEqual({ name: 'Clinic', email: 'clinic@test.invalid' });
+    expect(db.professionalProfile.count).toHaveBeenCalledWith({
+      where: { isActive: true, user: { tenantId } },
+    });
+    expect(db.user.count).not.toHaveBeenCalled();
+  });
+
   it('blocks downgrade when profiles exceed the new professional seat limit', async () => {
     db.professionalProfile.count.mockResolvedValue(2);
     const result = await service['validateDowngrade'](tenantId, {

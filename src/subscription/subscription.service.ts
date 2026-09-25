@@ -137,6 +137,10 @@ export class SubscriptionService {
       throw new BadRequestException('No se encontró suscripción para este tenant');
     }
 
+    const professionalsCount = await this.prisma.professionalProfile.count({
+      where: { isActive: true, user: { tenantId } },
+    });
+
     // Calculate remaining trial days
     const trialDaysRemaining = subscription.trialEndsAt
       ? Math.max(
@@ -177,8 +181,8 @@ export class SubscriptionService {
 
         // Seats
         seatsPsychologistsMax: subscription.seatsPsychologistsMax,
-        seatsPsychologistsUsed: subscription.seatsPsychologistsUsed,
-        seatsAvailable: subscription.seatsPsychologistsMax - subscription.seatsPsychologistsUsed,
+        seatsPsychologistsUsed: professionalsCount,
+        seatsAvailable: subscription.seatsPsychologistsMax - professionalsCount,
 
         // Limits
         limits: {
