@@ -210,6 +210,9 @@ describe('Users - profile seat enforcement', () => {
     await expect(service.update('t', 'u', { isActive: true })).rejects.toMatchObject({
       status: 403,
     });
+    await expect(
+      service.update('t', 'u', { professionalProfile: { specialtyId: 's', isActive: true } }),
+    ).rejects.toMatchObject({ status: 403 });
     expect(users[0]).toEqual(revoked);
     expect(subscription.seatsPsychologistsUsed).toBe(0);
 
@@ -225,6 +228,52 @@ describe('Users - profile seat enforcement', () => {
       isActive: true,
       professionalProfile: { isActive: true },
       password: 'original',
+    });
+    expect(subscription.seatsPsychologistsUsed).toBe(1);
+  });
+  it.each([
+    { professionalProfile: { specialtyId: 's', isActive: true } },
+    { professionalProfile: { specialtyId: 's' } },
+    { specialtyId: 's' },
+    { specialtyIds: ['s'] },
+  ])(
+    'rejects creating an active profile on an inactive provider-managed account: %j',
+    async (input) => {
+      seed({ role: 'ADMIN', isActive: false, professionalProfile: null });
+      subscription.seatsPsychologistsUsed = 0;
+      const inactive = structuredClone(users[0]);
+      await expect(service.update('t', 'u', input)).rejects.toMatchObject({ status: 403 });
+      expect(users[0]).toEqual(inactive);
+      expect(subscription.seatsPsychologistsUsed).toBe(0);
+    },
+  );
+  it('allows non-activating edits, inactive profile creation, and removal on an inactive managed account', async () => {
+    seed({ role: 'ADMIN', isActive: false, professionalProfile: null });
+    await service.update('t', 'u', { professionalProfile: { specialtyId: 's', isActive: false } });
+    await service.update('t', 'u', {
+      professionalProfile: { specialtyId: 'next', professionalTitle: 'Edited' },
+    });
+    expect(users[0]).toMatchObject({
+      isActive: false,
+      professionalProfile: { specialtyId: 'next', professionalTitle: 'Edited', isActive: false },
+    });
+    expect(subscription.seatsPsychologistsUsed).toBe(0);
+    await service.update('t', 'u', { professionalProfile: null });
+    expect(users[0]).toMatchObject({
+      isActive: false,
+      professionalProfile: null,
+      professionalTitle: null,
+      licenseNumber: null,
+      professionalSpecialties: [],
+    });
+    expect(subscription.seatsPsychologistsUsed).toBe(0);
+  });
+  it('preserves an active invitation reservation during non-activating edits', async () => {
+    seed({ isActive: false });
+    await service.update('t', 'u', { professionalTitle: 'Edited' });
+    expect(users[0]).toMatchObject({
+      isActive: false,
+      professionalProfile: { isActive: true, professionalTitle: 'Edited' },
     });
     expect(subscription.seatsPsychologistsUsed).toBe(1);
   });

@@ -235,14 +235,6 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuario no encontrado');
     if (accessFlow === 'provider' && !user.managedByProvider)
       throw new BadRequestException('Este usuario no es gestionado por el proveedor');
-    if (
-      user.managedByProvider &&
-      (accessFlow === 'activation' ||
-        (!user.isActive && dto.isActive === true && accessFlow !== 'provider'))
-    ) {
-      throw new ForbiddenException('El acceso de este usuario debe ser concedido por el proveedor');
-    }
-
     const current = user.professionalProfile;
     const remove = dto.professionalProfile === null;
     const input = this.resolveProfileInput(dto);
@@ -270,6 +262,15 @@ export class UsersService {
         profile.licenseNumber ??= current.licenseNumber ?? undefined;
         profile.bio ??= current.bio ?? undefined;
       }
+    }
+    const activatesUser = !user.isActive && (dto.isActive ?? user.isActive);
+    const activatesProfile = !current?.isActive && profile?.isActive;
+    if (
+      user.managedByProvider &&
+      accessFlow !== 'provider' &&
+      (accessFlow === 'activation' || (!user.isActive && (activatesUser || activatesProfile)))
+    ) {
+      throw new ForbiddenException('El acceso de este usuario debe ser concedido por el proveedor');
     }
     this.profiles.validateRoleProfile(dto.role ?? user.role, profile);
     if (profile) {
