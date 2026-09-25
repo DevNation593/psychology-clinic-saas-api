@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PlanType, SubscriptionStatus, TenantType, UserRole } from '@prisma/client';
+import { PlanType, SubscriptionStatus, TenantType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { ModuleName } from './dto/customize-features.dto';
 
@@ -217,19 +217,15 @@ export class SubscriptionService {
 
     // Get real-time counts
     const [
-      psychologistsCount,
+      professionalsCount,
       activePatientsCount,
       notificationsThisMonth,
       appointmentsThisMonth,
       clinicalNotesTotal,
     ] = await Promise.all([
-      // Users (seats used)
-      this.prisma.user.count({
-        where: {
-          tenantId,
-          role: UserRole.PSICOLOGO,
-          isActive: true,
-        },
+      // Active professional profiles (seats used)
+      this.prisma.professionalProfile.count({
+        where: { isActive: true, user: { tenantId } },
       }),
 
       // Active patients
@@ -277,10 +273,10 @@ export class SubscriptionService {
       usage: {
         // Seats
         seats: {
-          used: psychologistsCount,
+          used: professionalsCount,
           limit: subscription.seatsPsychologistsMax,
-          percentage: (psychologistsCount / subscription.seatsPsychologistsMax) * 100,
-          available: subscription.seatsPsychologistsMax - psychologistsCount,
+          percentage: (professionalsCount / subscription.seatsPsychologistsMax) * 100,
+          available: subscription.seatsPsychologistsMax - professionalsCount,
         },
 
         // Patients
@@ -320,7 +316,7 @@ export class SubscriptionService {
 
       // Warnings
       warnings: this.generateUsageWarnings({
-        psychologistsCount,
+        professionalsCount,
         seatsPsychologistsMax: subscription.seatsPsychologistsMax,
         activePatientsCount,
         maxActivePatients: subscription.maxActivePatients,
@@ -478,7 +474,7 @@ export class SubscriptionService {
 
     if (isPersonalPlan && tenant?.tenantType === 'CLINIC') {
       throw new BadRequestException(
-        'No se puede degradar a un plan personal en una cuenta de clínica con múltiples psicólogos. Primero desactive los psicólogos adicionales.',
+        'No se puede degradar a un plan personal en una cuenta de clínica con múltiples profesionales activos. Primero desactive los perfiles adicionales.',
       );
     }
 
@@ -784,13 +780,13 @@ export class SubscriptionService {
     const warnings: string[] = [];
 
     // Check seats
-    const psychologistsCount = await this.prisma.user.count({
-      where: { tenantId, role: UserRole.PSICOLOGO, isActive: true },
+    const professionalsCount = await this.prisma.professionalProfile.count({
+      where: { isActive: true, user: { tenantId } },
     });
 
-    if (psychologistsCount > newPlanLimits.seatsIncluded) {
+    if (professionalsCount > newPlanLimits.seatsIncluded) {
       errors.push(
-        `Tiene ${psychologistsCount} usuarios activos. El nuevo plan solo permite ${newPlanLimits.seatsIncluded}. Por favor desactive ${psychologistsCount - newPlanLimits.seatsIncluded} usuario(s).`,
+        `Tiene ${professionalsCount} profesionales activos. El nuevo plan solo permite ${newPlanLimits.seatsIncluded}. Por favor desactive ${professionalsCount - newPlanLimits.seatsIncluded} perfil(es).`,
       );
     }
 
@@ -979,8 +975,8 @@ export class SubscriptionService {
   private generateUsageWarnings(metrics: any) {
     const warnings: string[] = [];
 
-    if (metrics.psychologistsCount / metrics.seatsPsychologistsMax >= 0.8) {
-      warnings.push('Se está acercando al límite de asientos para psicólogos');
+    if (metrics.professionalsCount / metrics.seatsPsychologistsMax >= 0.8) {
+      warnings.push('Se está acercando al límite de cupos para profesionales activos');
     }
 
     if (metrics.activePatientsCount / metrics.maxActivePatients >= 0.9) {
