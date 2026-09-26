@@ -63,9 +63,18 @@ describe('OnboardingService', () => {
         const tx = {
           $executeRaw: jest.fn(async () => 1),
           user: {
-            findFirst: jest.fn(
-              async ({ where }) => pending.users.find((u) => u.email === where.email) ?? null,
-            ),
+            findFirst: jest.fn(async ({ where }) => {
+              const filter = where.email;
+              return (
+                pending.users.find((u) => {
+                  if (typeof filter === 'string') return u.email === filter;
+                  if (filter.mode === 'insensitive') {
+                    return u.email.toLowerCase() === filter.equals.toLowerCase();
+                  }
+                  return u.email === filter.equals;
+                }) ?? null
+              );
+            }),
             create: jest.fn(async ({ data, select }) => {
               const row = { id: 'admin-1', ...data };
               pending.users.push(row);
@@ -251,6 +260,18 @@ describe('OnboardingService', () => {
     state.users.push({ email: 'ana@example.com' });
     await expect(service.create(input())).rejects.toMatchObject({ status: 409 });
     expect(state.tenants).toHaveLength(0);
+  });
+
+  it('rejects a legacy support user with a mixed-case version of the administrator email', async () => {
+    state.users.push({ email: 'Ana@Example.com' });
+    await expect(service.create(input())).rejects.toMatchObject({
+      status: 409,
+      response: { message: 'El correo electrónico ya está en uso' },
+    });
+    expect(state.tenants).toHaveLength(0);
+    expect(prisma.lastTx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.lastTx.user.findFirst.mock.invocationCallOrder[0],
+    );
   });
 
   it('maps a database email uniqueness conflict to HTTP 409', async () => {

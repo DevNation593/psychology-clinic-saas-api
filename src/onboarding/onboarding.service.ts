@@ -66,7 +66,7 @@ export class OnboardingService {
             // normalized email before checking it globally, including concurrent requests.
             await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${adminEmail}))`;
             const existing = await tx.user.findFirst({
-              where: { email: adminEmail },
+              where: { email: { equals: adminEmail, mode: 'insensitive' } },
               select: { id: true },
             });
             if (existing) throw new ConflictException('El correo electrónico ya está en uso');
