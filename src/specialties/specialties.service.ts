@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
+import { runSerializableTransaction } from '../prisma/serializable-transaction';
+import {
+  calculateSubscriptionPrice,
+  getSelectedModules,
+} from '../subscription/subscription-pricing';
 
 @Injectable()
 export class SpecialtiesService {
@@ -44,35 +49,28 @@ export class SpecialtiesService {
 
   async setForTenant(tenantId: string, specialtyCodes: string[], userId: string) {
     const codes = [...new Set(specialtyCodes.map((code) => code.toUpperCase()))];
-    const [subscription, specialties, currentSelection] = await Promise.all([
-      this.prisma.tenantSubscription.findUnique({ where: { tenantId } }),
-      this.prisma.specialty.findMany({
-        where: { code: { in: codes }, isActive: true },
-        include: { modules: true },
-      }),
-      this.prisma.tenantSpecialty.count({ where: { tenantId } }),
-    ]);
-
-    if (!subscription) {
-      throw new NotFoundException('Suscripción no encontrada');
-    }
+    const specialties = await this.prisma.specialty.findMany({
+      where: { code: { in: codes }, isActive: true },
+      include: { modules: true },
+    });
     if (specialties.length !== codes.length) {
       throw new NotFoundException('Una o más especialidades no existen o están inactivas');
     }
-    const additionalSpecialties = Math.max(
-      0,
-      specialties.length - subscription.includedSpecialties,
-    );
-    const currentAdditionalSpecialties = Math.max(
-      0,
-      currentSelection - subscription.includedSpecialties,
-    );
 
     const selectedIds = specialties.map((specialty) => specialty.id);
     const specialtyModules = specialties.flatMap((specialty) =>
       specialty.modules.map((module) => module.moduleKey),
     );
-    return this.prisma.$transaction(async (tx) => {
+    return runSerializableTransaction(this.prisma, tenantId, userId, async (tx) => {
+      const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
+      if (!subscription) throw new NotFoundException('Suscripción no encontrada');
+      const pricing = calculateSubscriptionPrice({
+        planType: subscription.planType,
+        selectedModules: getSelectedModules(subscription),
+        specialtyCount: selectedIds.length,
+        specialtyUnitPrice: Number(subscription.specialtyPrice),
+      });
+
       await tx.tenantSpecialty.deleteMany({
         where: { tenantId, specialtyId: { notIn: selectedIds } },
       });
@@ -94,12 +92,7 @@ export class SpecialtiesService {
       await tx.tenantSubscription.update({
         where: { tenantId },
         data: {
-          basePrice: {
-            increment: new Decimal(
-              (additionalSpecialties - currentAdditionalSpecialties) *
-                Number(subscription.specialtyPrice),
-            ),
-          },
+          basePrice: new Decimal(pricing.totalMonthly),
         },
       });
       return { tenantId, specialties: specialties.map(({ code, name }) => ({ code, name })) };

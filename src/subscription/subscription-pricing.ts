@@ -124,7 +124,7 @@ function resolvePlanKey(planType: PlanType): PlanType {
 }
 
 export function getPlanIncludedModules(planType: PlanType): ModuleName[] {
-  return PLAN_INCLUDED_MODULES[resolvePlanKey(planType)] || [];
+  return [...(PLAN_INCLUDED_MODULES[resolvePlanKey(planType)] || [])];
 }
 
 export function getPlanFeatureFlags(planType: PlanType): Record<string, boolean> {

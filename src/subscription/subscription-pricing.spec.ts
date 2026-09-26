@@ -2,6 +2,7 @@ import { TenantSubscription } from '@prisma/client';
 import {
   calculateSubscriptionPrice,
   getPlanFeatureFlags,
+  getPlanIncludedModules,
   getSelectedModules,
 } from './subscription-pricing';
 
@@ -66,5 +67,22 @@ describe('subscription module flags', () => {
       featureAPIAccess: true,
       featureSSO: false,
     });
+  });
+
+  it('does not let callers mutate the canonical included modules', () => {
+    const included = getPlanIncludedModules('CLINIC_BASIC');
+    included.push('sso');
+    try {
+      expect(getPlanIncludedModules('CLINIC_BASIC')).not.toContain('sso');
+      expect(
+        calculateSubscriptionPrice({
+          planType: 'CLINIC_BASIC',
+          selectedModules: ['clinicalNotes', 'sso'],
+          specialtyCount: 2,
+        }).totalMonthly,
+      ).toBe(119);
+    } finally {
+      included.pop();
+    }
   });
 });

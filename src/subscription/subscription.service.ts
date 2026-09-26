@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PlanType, TenantType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { ModuleName } from './dto/customize-features.dto';
+import { runSerializableTransaction } from '../prisma/serializable-transaction';
 import {
   ALL_MODULES,
   MODULE_PRICING,
@@ -12,6 +13,7 @@ import {
   getPlanFeatureFlags,
   getPlanIncludedModules,
   getPlanLimits,
+  getSelectedModules,
   moduleToDbKey,
 } from './subscription-pricing';
 
@@ -241,64 +243,48 @@ export class SubscriptionService {
   // UPGRADE PLAN
   // ========================================
   async upgradePlan(tenantId: string, userId: string, newPlan: PlanType) {
-    const subscription = await this.prisma.tenantSubscription.findUnique({
-      where: { tenantId },
-    });
-
-    if (!subscription) {
-      throw new BadRequestException('Suscripción no encontrada');
-    }
-
-    // Validate upgrade path
-    const planHierarchy: PlanType[] = [
-      'TRIAL',
-      'PERSONAL_BASIC',
-      'PERSONAL_PRO',
-      'CLINIC_BASIC',
-      'CLINIC_PRO',
-      'CLINIC_ENTERPRISE',
-    ];
-    const currentIndex = planHierarchy.indexOf(subscription.planType);
-    const newIndex = planHierarchy.indexOf(newPlan);
-
-    if (newIndex <= currentIndex) {
-      throw new BadRequestException('Esto no es una mejora. Use downgradePlan para degradaciones.');
-    }
-
-    // Validate tenant type compatibility
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
-    const isPersonalPlan = newPlan.startsWith('PERSONAL_');
-    const isClinicPlan = newPlan.startsWith('CLINIC_');
-
-    if (isPersonalPlan && tenant?.tenantType === 'CLINIC') {
-      throw new BadRequestException(
-        'No se puede cambiar a un plan personal en una cuenta de clínica.',
-      );
-    }
-    if (isClinicPlan && tenant?.tenantType === 'PERSONAL') {
-      // Auto-upgrade tenant type to CLINIC when moving to clinic plan
-      await this.prisma.tenant.update({
-        where: { id: tenantId },
-        data: { tenantType: 'CLINIC' },
-      });
-    }
-
-    // Get new plan limits
     const newPlanLimits = getPlanLimits(newPlan);
-    const specialtyCount = await this.prisma.tenantSpecialty.count({ where: { tenantId } });
-    const pricing = calculateSubscriptionPrice({
-      planType: newPlan,
-      selectedModules: getPlanIncludedModules(newPlan),
-      specialtyCount,
-      specialtyUnitPrice: Number(newPlanLimits.specialtyPrice),
-    });
+    return runSerializableTransaction(this.prisma, tenantId, userId, async (tx) => {
+      const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
+      if (!subscription) throw new BadRequestException('Suscripción no encontrada');
 
-    // Calculate prorated pricing
-    const proratedAmount = await this.calculateProratedCharge(subscription, pricing.totalMonthly);
+      const planHierarchy: PlanType[] = [
+        'TRIAL',
+        'PERSONAL_BASIC',
+        'PERSONAL_PRO',
+        'CLINIC_BASIC',
+        'CLINIC_PRO',
+        'CLINIC_ENTERPRISE',
+      ];
+      if (planHierarchy.indexOf(newPlan) <= planHierarchy.indexOf(subscription.planType)) {
+        throw new BadRequestException(
+          'Esto no es una mejora. Use downgradePlan para degradaciones.',
+        );
+      }
 
-    // Update subscription (immediate effect)
-    const updatedSubscription = await this.prisma.$transaction(async (tx) => {
-      await this.prisma.applyRlsContext(tx, { tenantId, userId });
+      const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
+      if (newPlan.startsWith('PERSONAL_') && tenant?.tenantType === 'CLINIC') {
+        throw new BadRequestException(
+          'No se puede cambiar a un plan personal en una cuenta de clínica.',
+        );
+      }
+      if (newPlan.startsWith('CLINIC_') && tenant?.tenantType === 'PERSONAL') {
+        await tx.tenant.update({ where: { id: tenantId }, data: { tenantType: 'CLINIC' } });
+      }
+
+      const selectedModules = [
+        ...new Set([...getPlanIncludedModules(newPlan), ...getSelectedModules(subscription)]),
+      ];
+      const featureFlags = getPlanFeatureFlags(newPlan);
+      for (const mod of selectedModules) featureFlags[moduleToDbKey(mod)] = true;
+      const specialtyCount = await tx.tenantSpecialty.count({ where: { tenantId } });
+      const pricing = calculateSubscriptionPrice({
+        planType: newPlan,
+        selectedModules,
+        specialtyCount,
+        specialtyUnitPrice: Number(newPlanLimits.specialtyPrice),
+      });
+      const proratedAmount = await this.calculateProratedCharge(subscription, pricing.totalMonthly);
 
       const updated = await tx.tenantSubscription.update({
         where: { tenantId },
@@ -316,7 +302,7 @@ export class SubscriptionService {
           monthlyElectronicInvoicesLimit: 50,
 
           // Update feature flags
-          ...getPlanFeatureFlags(newPlan),
+          ...featureFlags,
 
           // Clear scheduled changes
           scheduledPlanChange: null,
@@ -339,18 +325,16 @@ export class SubscriptionService {
         },
       });
 
-      return updated;
+      return {
+        success: true,
+        subscription: updated,
+        billing: {
+          proratedCharge: proratedAmount,
+          nextBillingDate: updated.currentPeriodEnd,
+        },
+        message: `Actualizado exitosamente a ${newPlan}. Todas las funcionalidades están ahora disponibles.`,
+      };
     });
-
-    return {
-      success: true,
-      subscription: updatedSubscription,
-      billing: {
-        proratedCharge: proratedAmount,
-        nextBillingDate: updatedSubscription.currentPeriodEnd,
-      },
-      message: `Actualizado exitosamente a ${newPlan}. Todas las funcionalidades están ahora disponibles.`,
-    };
   }
 
   // ========================================
@@ -471,32 +455,9 @@ export class SubscriptionService {
   // CUSTOMIZE FEATURES (module selection)
   // ========================================
   async customizeFeatures(tenantId: string, userId: string, selectedModules: ModuleName[]) {
-    const subscription = await this.prisma.tenantSubscription.findUnique({
-      where: { tenantId },
-    });
-
-    if (!subscription) {
-      throw new BadRequestException('Suscripción no encontrada');
-    }
-
-    if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING') {
-      throw new ForbiddenException('Solo puede personalizar módulos con una suscripción activa.');
-    }
-
     // clinicalNotes is always required
     if (!selectedModules.includes('clinicalNotes')) {
       selectedModules = ['clinicalNotes', ...selectedModules];
-    }
-
-    const includedModules = getPlanIncludedModules(subscription.planType);
-
-    // Calculate addon cost (only for modules not included in the plan)
-    const addonsDetail: { module: string; price: number }[] = [];
-    for (const mod of new Set(selectedModules)) {
-      if (!includedModules.includes(mod)) {
-        const price = MODULE_PRICING[mod];
-        addonsDetail.push({ module: mod, price });
-      }
     }
 
     // Build feature flags update object
@@ -505,19 +466,30 @@ export class SubscriptionService {
       featureFlags[moduleToDbKey(mod)] = selectedModules.includes(mod);
     }
 
-    const specialtyCount = await this.prisma.tenantSpecialty.count({ where: { tenantId } });
-    const pricing = calculateSubscriptionPrice({
-      planType: subscription.planType,
-      selectedModules,
-      specialtyCount,
-      specialtyUnitPrice: Number(subscription.specialtyPrice),
-    });
-    const addonsCost = pricing.featureAddonsPrice;
+    return runSerializableTransaction(this.prisma, tenantId, userId, async (tx) => {
+      const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
+      if (!subscription) throw new BadRequestException('Suscripción no encontrada');
+      if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING') {
+        throw new ForbiddenException('Solo puede personalizar módulos con una suscripción activa.');
+      }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      await this.prisma.applyRlsContext(tx, { tenantId, userId });
+      const includedModules = getPlanIncludedModules(subscription.planType);
+      const addonsDetail: { module: string; price: number }[] = [];
+      for (const mod of new Set(selectedModules)) {
+        if (!includedModules.includes(mod)) {
+          addonsDetail.push({ module: mod, price: MODULE_PRICING[mod] });
+        }
+      }
+      const specialtyCount = await tx.tenantSpecialty.count({ where: { tenantId } });
+      const pricing = calculateSubscriptionPrice({
+        planType: subscription.planType,
+        selectedModules,
+        specialtyCount,
+        specialtyUnitPrice: Number(subscription.specialtyPrice),
+      });
+      const addonsCost = pricing.featureAddonsPrice;
 
-      const result = await tx.tenantSubscription.update({
+      const updated = await tx.tenantSubscription.update({
         where: { tenantId },
         data: {
           ...featureFlags,
@@ -541,22 +513,20 @@ export class SubscriptionService {
         },
       });
 
-      return result;
+      return {
+        success: true,
+        plan: subscription.planType,
+        selectedModules,
+        includedInPlan: includedModules,
+        addons: addonsDetail,
+        pricing: {
+          ...pricing,
+          addonsCost,
+          currency: subscription.currency,
+        },
+        features: this.extractFeatures(updated),
+      };
     });
-
-    return {
-      success: true,
-      plan: subscription.planType,
-      selectedModules,
-      includedInPlan: includedModules,
-      addons: addonsDetail,
-      pricing: {
-        ...pricing,
-        addonsCost,
-        currency: subscription.currency,
-      },
-      features: this.extractFeatures(updated),
-    };
   }
 
   // ========================================
