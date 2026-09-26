@@ -49,4 +49,32 @@ describe('exact specialty-stage database safety', () => {
       'Specialty stage requires the exact disposable database',
     );
   });
+
+  it.each([
+    '',
+    '?schema=public',
+    '?connection_limit=5',
+    '?schema=public&connection_limit=5&sslmode=require',
+  ])('accepts only the default/public schema with safe query %s', (suffix) => {
+    expect(() =>
+      assertSpecialtyStageDatabaseSafety(connection + 'psic_clinic_specialty_stage_test' + suffix),
+    ).not.toThrow();
+  });
+
+  it.each([
+    '?schema=other',
+    '?schema=',
+    '?schema=PUBLIC',
+    '?schema=public&schema=other',
+    '?schema=public&schema=public',
+    '?Schema=public',
+    '?options=-csearch_path%3Dother',
+    '#fragment',
+    '#',
+    '?schema=public#fragment',
+  ])('rejects non-public, ambiguous or fragmented suffix %s', (suffix) => {
+    expect(() =>
+      assertSpecialtyStageDatabaseSafety(connection + 'psic_clinic_specialty_stage_test' + suffix),
+    ).toThrow('Specialty stage requires the exact disposable database');
+  });
 });
