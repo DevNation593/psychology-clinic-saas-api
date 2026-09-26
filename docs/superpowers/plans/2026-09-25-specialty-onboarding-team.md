@@ -4,7 +4,7 @@
 
 **Goal:** Completar la tercera etapa multiespecialidad con catálogo público, onboarding atómico, selección idempotente de especialidades y administración del equipo bajo control del consultorio.
 
-**Architecture:** La API conserva el esquema actual, separa catálogo global de configuración por tenant y centraliza el precio en funciones puras compartidas por onboarding, suscripción y especialidades. La web consume contratos explícitos y divide los tres flujos grandes en componentes probables de forma aislada. Los endpoints y campos heredados continúan como adaptadores durante una versión.
+**Architecture:** La API conserva el esquema actual, separa catálogo global de configuración por tenant y centraliza el precio en funciones puras compartidas por onboarding, suscripción y especialidades. La web consume contratos explícitos y divide los tres flujos grandes en componentes comprobables de forma aislada. Los endpoints y campos heredados continúan como adaptadores durante una versión.
 
 **Tech Stack:** NestJS, Prisma/PostgreSQL, Jest/Supertest, Next.js 14, React 18, TanStack Query, React Hook Form, Zod, Vitest/Testing Library.
 
@@ -78,8 +78,16 @@ describe('calculateSubscriptionPrice', () => {
       specialtyCount: 2,
       specialtyUnitPrice: 15,
     };
-    expect(calculateSubscriptionPrice(input)).toEqual(calculateSubscriptionPrice(input));
-    expect(calculateSubscriptionPrice(input).totalMonthly).toBe(15);
+    expect(calculateSubscriptionPrice(input)).toEqual({
+      basePlanPrice: 0,
+      featureAddonsPrice: 0,
+      specialtyAddonsPrice: 15,
+      totalMonthly: 15,
+      includedSpecialties: 1,
+      selectedSpecialties: 2,
+      billableSpecialties: 1,
+      specialtyUnitPrice: 15,
+    });
   });
 });
 ```
@@ -132,11 +140,9 @@ export function calculateSubscriptionPrice(
 
 `getSelectedModules(subscription)` must inspect the existing feature booleans using the same `moduleToDbKey` mapping; it always includes `clinicalNotes` when that flag is true.
 
-- [ ] **Step 4: Make subscription mutations use the canonical calculator**
+- [ ] **Step 4: Write the failing subscription-service regression test**
 
-In `customizeFeatures`, count `tenantSpecialty`, calculate from the requested modules and write `new Decimal(pricing.totalMonthly)`. In `upgradePlan`, count specialties, use the new plan's included modules and write the calculated total. Replace private helper calls with imports from `subscription-pricing.ts`.
-
-Add this regression assertion to the subscription test:
+Extend `subscription-professional-seats.spec.ts` with a subscription on `CLINIC_BASIC`, four selected specialties and `advancedAnalytics` enabled. Call `customizeFeatures` and assert the hand-calculated breakdown:
 
 ```ts
 expect(updated.basePrice.toNumber()).toBe(139);
@@ -147,7 +153,11 @@ expect(result.pricing).toMatchObject({
 });
 ```
 
-- [ ] **Step 5: Run focused and full unit tests**
+- [ ] **Step 5: Make subscription mutations use the canonical calculator**
+
+Run the focused test first and confirm it fails because the service currently drops specialty cost. Then, in `customizeFeatures`, count `tenantSpecialty`, calculate from the requested modules and write `new Decimal(pricing.totalMonthly)`. In `upgradePlan`, count specialties, use the new plan's included modules and write the calculated total. Replace private helper calls with imports from `subscription-pricing.ts`.
+
+- [ ] **Step 6: Run focused and full unit tests**
 
 Run: `npm test -- --runInBand src/subscription/subscription-pricing.spec.ts test/subscription-professional-seats.spec.ts`
 
@@ -157,7 +167,7 @@ Run: `npm test -- --runInBand`
 
 Expected: 13 existing suites plus the new pricing suite pass; only the existing optional test remains skipped.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/subscription/subscription-pricing.ts src/subscription/subscription-pricing.spec.ts src/subscription/subscription.service.ts test/subscription-professional-seats.spec.ts
@@ -170,6 +180,7 @@ git commit -m "refactor(api): centralize subscription pricing"
 
 **Files:**
 - Create: `api/src/specialties/specialty-catalog.controller.ts`
+- Test: `api/src/specialties/specialty-catalog.controller.spec.ts`
 - Create: `api/src/specialties/specialty-catalog.service.ts`
 - Test: `api/src/specialties/specialty-catalog.service.spec.ts`
 - Modify: `api/src/specialties/specialties.module.ts`
@@ -241,7 +252,15 @@ async resolveActiveCodes(codes: readonly string[], client = this.prisma) {
 }
 ```
 
-- [ ] **Step 4: Add the public controller without weakening tenant routes**
+- [ ] **Step 4: Write the failing controller visibility test**
+
+Use a Nest testing module with the real controller and mocked service. Assert `GET /specialties` returns the service result, then use `Reflector.get(IS_PUBLIC_KEY, SpecialtyCatalogController.prototype.list)` to assert `true` and the same lookup on `SpecialtiesController.prototype.setSpecialties` to assert `undefined`. This catches accidentally making the tenant mutation public without reproducing framework guard tests.
+
+Run: `npm test -- --runInBand src/specialties/specialty-catalog.controller.spec.ts`
+
+Expected: FAIL because the controller does not exist.
+
+- [ ] **Step 5: Add the public controller without weakening tenant routes**
 
 ```ts
 @ApiTags('specialties')
@@ -259,15 +278,13 @@ export class SpecialtyCatalogController {
 
 Register this controller alongside the existing tenant controller. Remove catalog responsibility from `SpecialtiesService`; retain its current tenant list/module methods until Task 3 replaces their mutation internals.
 
-- [ ] **Step 5: Add a controller metadata test and run the specialty suite**
-
-Verify with `Reflector` that only `SpecialtyCatalogController.list` carries `IS_PUBLIC_KEY = true`; tenant mutations must remain authenticated.
+- [ ] **Step 6: Run the specialty suite**
 
 Run: `npm test -- --runInBand src/specialties`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/specialties
@@ -281,6 +298,7 @@ git commit -m "feat(api): expose public specialty catalog"
 **Files:**
 - Create: `api/src/specialties/tenant-specialties.service.ts`
 - Test: `api/src/specialties/tenant-specialties.service.spec.ts`
+- Test: `api/src/specialties/specialties.controller.spec.ts`
 - Create: `api/prisma/migrations/20260925203000_reconcile_specialty_team_ownership/migration.sql`
 - Modify: `api/src/specialties/specialties.controller.ts`
 - Modify: `api/src/specialties/specialties.module.ts`
@@ -325,15 +343,29 @@ it('replaces both join tables and writes an absolute price', async () => {
   expect(second).toEqual(first);
   expect(subscriptionUpdate.data.basePrice.toNumber()).toBe(first.pricing.totalMonthly);
 });
+
+it('rejects enabling a module that has no selected specialty owner', async () => {
+  prisma.tenantSpecialty.findFirst.mockResolvedValue(null);
+  await expect(service.updateModule('tenant-1', 'nutrition.assessment', true))
+    .rejects.toMatchObject({
+      response: { code: 'MODULE_SPECIALTY_NOT_ENABLED' },
+    });
+  expect(prisma.tenantModule.create).not.toHaveBeenCalled();
+  expect(prisma.tenantModule.update).not.toHaveBeenCalled();
+});
 ```
 
-- [ ] **Step 2: Run the new test and confirm red**
+- [ ] **Step 2: Write failing controller tests for canonical and compatibility routes**
 
-Run: `npm test -- --runInBand src/specialties/tenant-specialties.service.spec.ts`
+Create a Nest test app with `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true })`. Send the same valid body to `PUT /tenants/tenant-1/specialties` and legacy `POST /tenants/tenant-1/specialties`; assert both call `replace('tenant-1', ['PSYCHOLOGY'], 'admin-1')` and return the same service result. Assert an empty list returns `400` before the service is called.
+
+- [ ] **Step 3: Run the new tests and confirm red**
+
+Run: `npm test -- --runInBand src/specialties/tenant-specialties.service.spec.ts src/specialties/specialties.controller.spec.ts`
 
 Expected: FAIL because the service does not exist.
 
-- [ ] **Step 3: Implement removal checks and transactional reconciliation**
+- [ ] **Step 4: Implement removal checks and transactional reconciliation**
 
 Use `Prisma.TransactionIsolationLevel.Serializable`. For each removed specialty, query:
 
@@ -362,7 +394,7 @@ Inside `applySelection`, delete and recreate `TenantSpecialty` and `Subscription
 
 Return specialties in request order, modules ordered by key and the canonical pricing object.
 
-- [ ] **Step 4: Enforce module ownership**
+- [ ] **Step 5: Enforce module ownership**
 
 Change module update to verify a selected specialty owns the key:
 
@@ -384,11 +416,11 @@ if (!owner) {
 
 Then update the existing `TenantModule`; when enabling a missing but valid key, create it with `enabled: true`.
 
-- [ ] **Step 5: Add `PUT` and keep `POST` as an adapter**
+- [ ] **Step 6: Add `PUT` and keep `POST` as an adapter**
 
 Both handlers call the same controller method/service and require `@Roles('ADMIN')`. The DTO must trim through `@Transform`, enforce `ArrayMinSize(1)` and reject non-string elements. Do not mark either route public.
 
-- [ ] **Step 6: Add the data reconciliation migration**
+- [ ] **Step 7: Add the data reconciliation migration**
 
 The SQL must:
 
@@ -418,7 +450,7 @@ WHERE account."tenantId" = tenant."id"
 
 Insert missing tenant modules with deterministic text IDs (`'reconcile_' || md5(tenantId || ':' || moduleKey)`), `enabled = true`, and current timestamps. Update `seatsPsychologistsUsed` from active profiles joined to active users. Do not delete clinical records or specialty catalog rows.
 
-- [ ] **Step 7: Run specialty, pricing and migration checks**
+- [ ] **Step 8: Run specialty, pricing and migration checks**
 
 Run: `npm test -- --runInBand src/specialties src/subscription/subscription-pricing.spec.ts`
 
@@ -428,7 +460,7 @@ Run: `npx prisma validate`
 
 Expected: schema valid.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/specialties prisma/migrations/20260925203000_reconcile_specialty_team_ownership/migration.sql
@@ -447,9 +479,7 @@ git commit -m "feat(api): reconcile tenant specialty selection"
 - Test: `api/src/onboarding/onboarding.service.spec.ts`
 - Test: `api/src/onboarding/onboarding.controller.spec.ts`
 - Modify: `api/src/app.module.ts`
-- Modify: `api/src/auth/auth.module.ts`
 - Modify: `api/src/specialties/specialties.module.ts`
-- Modify: `api/src/subscription/subscription-pricing.ts`
 
 **Interfaces:**
 - Produces public `POST /onboarding/tenants`.
@@ -484,6 +514,8 @@ it('rolls back tenant creation when specialty provisioning fails', async () => {
   expect(prisma.$transaction).toHaveBeenCalledTimes(1);
 });
 ```
+
+In `onboarding.controller.spec.ts`, also write the failing HTTP/metadata test before implementation: a valid request reaches `OnboardingService.create`, `Reflector.get(IS_PUBLIC_KEY, OnboardingController.prototype.create)` is `true`, and `Reflector.get(IS_PUBLIC_KEY, TenantsController.prototype.create)` remains `undefined`.
 
 - [ ] **Step 2: Run onboarding tests and confirm red**
 
@@ -557,7 +589,7 @@ Expected: PASS, including that the onboarding handler is public and the support 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/onboarding src/app.module.ts src/auth/auth.module.ts src/specialties/specialties.module.ts src/subscription/subscription-pricing.ts
+git add src/onboarding src/app.module.ts src/specialties/specialties.module.ts
 git commit -m "feat(api): add atomic clinic onboarding"
 ```
 
@@ -733,22 +765,44 @@ Extend the existing exact-name check with `psic_clinic_specialty_stage_test`. Ad
 
 - [ ] **Step 2: Write the E2E journey**
 
-The suite must use HTTP for public/onboarding/admin routes and assert:
+Build the Nest app with the production prefix and validation pipe, then create deterministic Psychology and Nutrition catalog/module fixtures before the first request:
 
 ```ts
-const catalog = await request(server).get('/specialties').expect(200);
+app.setGlobalPrefix('api/v1');
+app.useGlobalPipes(new ValidationPipe({
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+}));
+
+await prisma.specialty.upsert({
+  where: { code: 'PSYCHOLOGY' },
+  update: { isActive: true },
+  create: { code: 'PSYCHOLOGY', name: 'Psicología', isActive: true },
+});
+await prisma.specialty.upsert({
+  where: { code: 'NUTRITION' },
+  update: { isActive: true },
+  create: { code: 'NUTRITION', name: 'Nutrición', isActive: true },
+});
+```
+
+Create the required `SpecialtyModule` fixtures with `upsert` as well. The suite must use HTTP for public/onboarding/admin routes and assert:
+
+```ts
+const catalog = await request(server).get('/api/v1/specialties').expect(200);
 expect(catalog.body.map((item: { code: string }) => item.code))
   .toEqual(expect.arrayContaining(['PSYCHOLOGY', 'NUTRITION']));
 
 const created = await request(server)
-  .post('/onboarding/tenants')
+  .post('/api/v1/onboarding/tenants')
   .send(onboardingPayload)
   .expect(201);
 expect(created.body).not.toHaveProperty('admin.password');
 expect(created.body.admin.professionalProfile.specialty.code).toBe('PSYCHOLOGY');
 
 const login = await request(server)
-  .post('/auth/login')
+  .post('/api/v1/auth/login')
   .send({ email: onboardingPayload.adminEmail, password: onboardingPayload.adminPassword })
   .expect(201);
 ```
@@ -760,6 +814,8 @@ Use the access token to:
 - disable the admin profile, add Nutrition, and create a Nutrition professional;
 - reject a specialty belonging only to another tenant;
 - reject self-deactivation and cross-tenant updates.
+
+Add a real transaction rollback assertion by spying only `TenantSpecialtiesService.applySelection` to throw after tenant/admin writes have been issued, calling `OnboardingService.create`, restoring the spy, and querying Prisma to prove neither the tenant contact email nor admin email exists outside the failed transaction.
 
 - [ ] **Step 3: Run the focused suite against the standard exact test database**
 
@@ -821,7 +877,7 @@ From the web repository, verify `.worktrees` is ignored, then create the branch/
 
 Expected baseline: lint/type-check/build pass and 18 tests pass.
 
-- [ ] **Step 2: Write failing schema tests**
+- [ ] **Step 2: Write failing schema and hook tests**
 
 ```ts
 it('requires a selected admin specialty only when the admin provides care', () => {
@@ -844,6 +900,8 @@ it('requires one specialty for a professional team member', () => {
   })).success).toBe(false);
 });
 ```
+
+In `useSpecialties.test.tsx`, render each mutation hook with a real `QueryClient`, mock only the HTTP client boundary, seed cached tenant-specialty/module/subscription/usage data, execute the mutation and assert those queries become invalidated. The test must fail because the hooks do not exist, not because the provider is missing.
 
 - [ ] **Step 3: Define transport types without overloading existing `Specialty`**
 
@@ -917,7 +975,7 @@ export const onboardingApi = {
 
 Keep the old `specialtiesApi` export as a compatibility façade until all current consumers migrate; its `setForTenant` delegates to `tenantSpecialtiesApi.replace`.
 
-- [ ] **Step 5: Write and pass hook invalidation tests**
+- [ ] **Step 5: Implement the hooks and pass their invalidation tests**
 
 `useReplaceTenantSpecialties` must invalidate tenant specialties, modules, subscription, usage and tenant queries. `useSetTenantModule` invalidates modules. Use a real `QueryClient` and mocked endpoint functions, following `useProfile.test.tsx`.
 
@@ -1073,6 +1131,17 @@ it('keeps the attempted selection when the API blocks removal', async () => {
   await user.click(screen.getByRole('button', { name: 'Guardar especialidades' }));
   expect(screen.getByText('La especialidad tiene profesionales activos.')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Psicología/ })).toHaveAttribute('aria-pressed', 'false');
+});
+
+it('shows and toggles modules only for selected specialties', async () => {
+  renderManager({ catalog: [psychology, nutrition], enabled: [psychology] });
+  expect(screen.getByRole('checkbox', { name: 'psychology.assessments' })).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: 'nutrition.assessments' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('checkbox', { name: 'psychology.assessments' }));
+  expect(setModuleEnabled).toHaveBeenCalledWith({
+    moduleKey: 'psychology.assessments',
+    enabled: false,
+  });
 });
 ```
 
