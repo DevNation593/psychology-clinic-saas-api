@@ -2,6 +2,8 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { Prisma } from '@prisma/client';
 import { SpecialtiesService } from '../src/specialties/specialties.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { SpecialtyCatalogService } from '../src/specialties/specialty-catalog.service';
+import { TenantSpecialtiesService } from '../src/specialties/tenant-specialties.service';
 
 describe('Specialty selection pricing', () => {
   it('writes an absolute price from the transactional subscription snapshot', async () => {
@@ -13,45 +15,45 @@ describe('Specialty selection pricing', () => {
       featureAdvancedAnalytics: true,
     };
     const tx = {
+      specialty: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'a', code: 'A', name: 'A', description: null, modules: [] },
+          { id: 'b', code: 'B', name: 'B', description: null, modules: [] },
+          { id: 'c', code: 'C', name: 'C', description: null, modules: [] },
+          { id: 'd', code: 'D', name: 'D', description: null, modules: [] },
+        ]),
+      },
       tenantSubscription: {
-        findUnique: jest.fn().mockResolvedValue(subscription),
+        findUnique: jest.fn().mockResolvedValue({ ...subscription, id: 'sub-1', currency: 'USD' }),
         update: jest.fn().mockResolvedValue({}),
       },
       tenantSpecialty: {
-        count: jest.fn().mockResolvedValue(1),
+        findMany: jest.fn().mockResolvedValue([{ specialtyId: 'a' }]),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
         createMany: jest.fn().mockResolvedValue({ count: 4 }),
       },
+      subscriptionSpecialty: {
+        findMany: jest.fn().mockResolvedValue([{ specialtyId: 'a' }]),
+        createMany: jest.fn().mockResolvedValue({ count: 3 }),
+      },
       tenantModule: {
+        findMany: jest.fn().mockResolvedValue([]),
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
         deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
     const db: any = {
-      tenantSubscription: {
-        findUnique: jest.fn().mockResolvedValue({
-          ...subscription,
-          planType: 'TRIAL',
-          includedSpecialties: 1,
-          featureAdvancedAnalytics: false,
-        }),
-      },
-      tenantSpecialty: { count: jest.fn().mockResolvedValue(1) },
-      specialty: {
-        findMany: jest.fn().mockResolvedValue([
-          { id: 'a', code: 'A', name: 'A', modules: [] },
-          { id: 'b', code: 'B', name: 'B', modules: [] },
-          { id: 'c', code: 'C', name: 'C', modules: [] },
-          { id: 'd', code: 'D', name: 'D', modules: [] },
-        ]),
-      },
       applyRlsContext: jest.fn().mockResolvedValue(undefined),
       $transaction: jest
         .fn()
         .mockRejectedValueOnce({ code: 'P2034' })
         .mockImplementation(async (callback) => callback(tx)),
     };
-    const service = new SpecialtiesService(db as PrismaService);
+    const selection = new TenantSpecialtiesService(
+      db as PrismaService,
+      new SpecialtyCatalogService(db as PrismaService),
+    );
+    const service = new SpecialtiesService(db as PrismaService, selection);
 
     await service.setForTenant('clinic-1', ['A', 'B', 'C', 'D'], 'user-1');
 

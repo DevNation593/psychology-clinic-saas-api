@@ -1,15 +1,13 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { runSerializableTransaction } from '../prisma/serializable-transaction';
-import {
-  calculateSubscriptionPrice,
-  getSelectedModules,
-} from '../subscription/subscription-pricing';
+import { TenantSpecialtiesService } from './tenant-specialties.service';
 
 @Injectable()
 export class SpecialtiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantSpecialties: TenantSpecialtiesService,
+  ) {}
 
   async listForTenant(tenantId: string) {
     const specialties = await this.prisma.tenantSpecialty.findMany({
@@ -32,70 +30,11 @@ export class SpecialtiesService {
     });
   }
 
-  async updateModule(tenantId: string, moduleKey: string, enabled: boolean) {
-    const module = await this.prisma.tenantModule.findUnique({
-      where: { tenantId_moduleKey: { tenantId, moduleKey } },
-    });
-
-    if (!module) {
-      throw new NotFoundException('El módulo no está configurado para este consultorio');
-    }
-
-    return this.prisma.tenantModule.update({
-      where: { id: module.id },
-      data: { enabled },
-    });
+  async updateModule(tenantId: string, moduleKey: string, enabled: boolean, userId: string) {
+    return this.tenantSpecialties.updateModule(tenantId, moduleKey, enabled, userId);
   }
 
   async setForTenant(tenantId: string, specialtyCodes: string[], userId: string) {
-    const codes = [...new Set(specialtyCodes.map((code) => code.toUpperCase()))];
-    const specialties = await this.prisma.specialty.findMany({
-      where: { code: { in: codes }, isActive: true },
-      include: { modules: true },
-    });
-    if (specialties.length !== codes.length) {
-      throw new NotFoundException('Una o más especialidades no existen o están inactivas');
-    }
-
-    const selectedIds = specialties.map((specialty) => specialty.id);
-    const specialtyModules = specialties.flatMap((specialty) =>
-      specialty.modules.map((module) => module.moduleKey),
-    );
-    return runSerializableTransaction(this.prisma, tenantId, userId, async (tx) => {
-      const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
-      if (!subscription) throw new NotFoundException('Suscripción no encontrada');
-      const pricing = calculateSubscriptionPrice({
-        planType: subscription.planType,
-        selectedModules: getSelectedModules(subscription),
-        specialtyCount: selectedIds.length,
-        specialtyUnitPrice: Number(subscription.specialtyPrice),
-      });
-
-      await tx.tenantSpecialty.deleteMany({
-        where: { tenantId, specialtyId: { notIn: selectedIds } },
-      });
-      await tx.tenantSpecialty.createMany({
-        data: selectedIds.map((specialtyId) => ({ tenantId, specialtyId })),
-        skipDuplicates: true,
-      });
-      await tx.tenantModule.createMany({
-        data: specialtyModules.map((moduleKey) => ({ tenantId, moduleKey, enabled: true })),
-        skipDuplicates: true,
-      });
-      await tx.tenantModule.deleteMany({
-        where: {
-          tenantId,
-          moduleKey: { contains: '.' },
-          NOT: { moduleKey: { in: specialtyModules } },
-        },
-      });
-      await tx.tenantSubscription.update({
-        where: { tenantId },
-        data: {
-          basePrice: new Decimal(pricing.totalMonthly),
-        },
-      });
-      return { tenantId, specialties: specialties.map(({ code, name }) => ({ code, name })) };
-    });
+    return this.tenantSpecialties.replace(tenantId, specialtyCodes, userId);
   }
 }

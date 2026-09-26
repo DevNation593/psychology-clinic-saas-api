@@ -1,16 +1,20 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UpdateModuleDto } from './dto/update-module.dto';
 import { UpdateTenantSpecialtiesDto } from './dto/update-specialties.dto';
 import { SpecialtiesService } from './specialties.service';
+import { TenantSpecialtiesService } from './tenant-specialties.service';
 
 @ApiTags('specialties')
 @ApiBearerAuth('access-token')
 @Controller('tenants/:tenantId')
 export class SpecialtiesController {
-  constructor(private readonly specialtiesService: SpecialtiesService) {}
+  constructor(
+    private readonly specialtiesService: SpecialtiesService,
+    private readonly tenantSpecialtiesService: TenantSpecialtiesService,
+  ) {}
 
   @Get('specialties')
   @ApiOperation({ summary: 'List the specialties enabled for a practice' })
@@ -18,15 +22,27 @@ export class SpecialtiesController {
     return this.specialtiesService.listForTenant(tenantId);
   }
 
-  @Post('specialties')
-  @Roles('CLIENTE')
+  @Put('specialties')
+  @Roles('ADMIN')
   @ApiOperation({ summary: 'Select specialties for the tenant' })
   setSpecialties(
     @Param('tenantId') tenantId: string,
     @Body() dto: UpdateTenantSpecialtiesDto,
     @CurrentUser() user: { userId: string },
   ) {
-    return this.specialtiesService.setForTenant(tenantId, dto.specialtyCodes, user.userId);
+    return this.tenantSpecialtiesService.replace(tenantId, dto.specialtyCodes, user.userId);
+  }
+
+  @Post('specialties')
+  @HttpCode(200)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Legacy specialty selection route' })
+  setSpecialtiesLegacy(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: UpdateTenantSpecialtiesDto,
+    @CurrentUser() user: { userId: string },
+  ) {
+    return this.setSpecialties(tenantId, dto, user);
   }
 
   @Get('modules')
@@ -36,13 +52,19 @@ export class SpecialtiesController {
   }
 
   @Patch('modules/:moduleKey')
-  @Roles('CLIENTE')
+  @Roles('ADMIN')
   @ApiOperation({ summary: 'Enable or disable a practice module' })
   updateModule(
     @Param('tenantId') tenantId: string,
     @Param('moduleKey') moduleKey: string,
     @Body() updateModuleDto: UpdateModuleDto,
+    @CurrentUser() user: { userId: string },
   ) {
-    return this.specialtiesService.updateModule(tenantId, moduleKey, updateModuleDto.enabled);
+    return this.tenantSpecialtiesService.updateModule(
+      tenantId,
+      moduleKey,
+      updateModuleDto.enabled,
+      user.userId,
+    );
   }
 }
