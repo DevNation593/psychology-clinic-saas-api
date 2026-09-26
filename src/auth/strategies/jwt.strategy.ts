@@ -41,7 +41,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         }),
     );
 
-    if (!user || !user.isActive || !user.tenant.isActive) {
+    if (!user || !user.isActive || !user.tenant.isActive || user.tenantId !== payload.tenantId) {
       throw new UnauthorizedException('User or tenant is inactive');
     }
 
@@ -59,10 +59,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
 
     return {
-      userId: payload.sub,
-      email: payload.email,
-      tenantId: payload.tenantId,
-      role: payload.role,
+      userId: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      role: user.role,
     };
   }
 }

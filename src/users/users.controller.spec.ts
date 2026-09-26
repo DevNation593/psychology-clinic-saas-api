@@ -15,6 +15,7 @@ describe('UsersController self profile route', () => {
     update: jest.fn(),
     createForTenant: jest.fn(),
     deactivate: jest.fn(),
+    activate: jest.fn(),
   };
 
   beforeAll(async () => {
@@ -127,6 +128,40 @@ describe('UsersController self profile route', () => {
       'admin-1',
     );
     expect(usersService.deactivate).toHaveBeenCalledWith('tenant-1', 'member-1', 'admin-1');
+  });
+
+  it.each(['ASISTENTE', 'PROFESIONAL'])('denies legacy account activation to %s', async (role) => {
+    await request(app.getHttpServer())
+      .post('/tenants/tenant-1/users/pending-1/activate')
+      .set('x-test-role', role)
+      .send({ password: 'Password123!' })
+      .expect(403);
+    expect(usersService.activate).not.toHaveBeenCalled();
+  });
+
+  it('lets the tenant admin attempt pending activation with actor identity', async () => {
+    usersService.activate.mockResolvedValue({ id: 'pending-1', isActive: true });
+    await request(app.getHttpServer())
+      .post('/tenants/tenant-1/users/pending-1/activate')
+      .set('x-test-role', 'ADMIN')
+      .set('x-test-user-id', 'admin-1')
+      .send({ password: 'Password123!' })
+      .expect(201);
+    expect(usersService.activate).toHaveBeenCalledWith(
+      'tenant-1',
+      'pending-1',
+      'Password123!',
+      'admin-1',
+    );
+  });
+
+  it('denies pending activation across tenants', async () => {
+    await request(app.getHttpServer())
+      .post('/tenants/other-tenant/users/pending-1/activate')
+      .set('x-test-role', 'ADMIN')
+      .send({ password: 'Password123!' })
+      .expect(403);
+    expect(usersService.activate).not.toHaveBeenCalled();
   });
 
   it('lets a professional update only the authenticated account through /me', async () => {

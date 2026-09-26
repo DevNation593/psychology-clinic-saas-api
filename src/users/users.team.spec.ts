@@ -28,6 +28,7 @@ describe('UsersService clinic team control', () => {
       role: 'ADMIN',
       isActive: true,
       managedByProvider: false,
+      password: 'seed-hash',
       professionalProfile: null,
       ...extra,
     };
@@ -434,5 +435,75 @@ describe('UsersService clinic team control', () => {
     });
     await service.grantPsychologistAccess('tenant-1', 'legacy-user');
     expect(users[1].isActive).toBe(true);
+  });
+
+  it.each([
+    [
+      'active direct account',
+      { isActive: true, invitedAt: null, activatedAt: new Date('2026-01-01') },
+    ],
+    [
+      'ordinary deactivated account',
+      { isActive: false, invitedAt: null, activatedAt: new Date('2026-01-01') },
+    ],
+    [
+      'already activated invitation',
+      { isActive: false, invitedAt: new Date('2026-01-01'), activatedAt: new Date('2026-01-02') },
+    ],
+  ])('refuses activation for %s without changing its password', async (_case, state) => {
+    const target = seed({ id: 'target-1', role: 'ASISTENTE', password: 'original-hash', ...state });
+    await expect(
+      service.activate('tenant-1', target.id, 'Password123!', 'admin-1'),
+    ).rejects.toMatchObject({ status: 409, response: { code: 'ACTIVATION_NOT_PENDING' } });
+    expect(db.user.update).not.toHaveBeenCalled();
+    expect(target.password).toBe('original-hash');
+  });
+
+  it('activates a pending invitation once under actor RLS and does not return the hash', async () => {
+    const target = seed({
+      id: 'pending-1',
+      role: 'ASISTENTE',
+      isActive: false,
+      invitedAt: new Date('2026-01-01'),
+      activatedAt: null,
+      emailVerified: false,
+      password: 'old-hash',
+    });
+    const result = await service.activate('tenant-1', target.id, 'Password123!', 'admin-1');
+    expect(target).toMatchObject({
+      isActive: true,
+      emailVerified: true,
+      password: 'secure-hash',
+      activatedAt: expect.any(Date),
+    });
+    expect(result).not.toHaveProperty('password');
+    expect(db.applyRlsContext).toHaveBeenCalledWith(db, {
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+    });
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+    db.user.update.mockClear();
+    await expect(
+      service.activate('tenant-1', target.id, 'AnotherPassword123!', 'admin-1'),
+    ).rejects.toMatchObject({ response: { code: 'ACTIVATION_NOT_PENDING' } });
+    expect(db.user.update).not.toHaveBeenCalled();
+    expect(target.password).toBe('secure-hash');
+  });
+
+  it('cannot activate a pending invitation belonging to another tenant', async () => {
+    seed({
+      id: 'pending-other',
+      tenantId: 'tenant-2',
+      role: 'ASISTENTE',
+      isActive: false,
+      invitedAt: new Date('2026-01-01'),
+      activatedAt: null,
+    });
+    await expect(
+      service.activate('tenant-1', 'pending-other', 'Password123!', 'admin-1'),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(db.user.update).not.toHaveBeenCalled();
   });
 });

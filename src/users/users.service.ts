@@ -349,6 +349,19 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuario no encontrado');
     if (accessFlow === 'provider' && !user.managedByProvider)
       throw new BadRequestException('Este usuario no es gestionado por el proveedor');
+    if (accessFlow === 'activation') {
+      if (user.managedByProvider) {
+        throw new ForbiddenException(
+          'El acceso de este usuario debe ser concedido por el proveedor',
+        );
+      }
+      if (user.isActive || !user.invitedAt || user.activatedAt) {
+        throw new ConflictException({
+          code: 'ACTIVATION_NOT_PENDING',
+          message: 'Esta cuenta no tiene una invitación pendiente de activación.',
+        });
+      }
+    }
     if (
       dto.role &&
       !isAdminRole(dto.role) &&
@@ -489,17 +502,20 @@ export class UsersService {
     return { message: 'Usuario desactivado exitosamente' };
   }
 
-  async activate(tenantId: string, userId: string, password: string) {
+  async activate(tenantId: string, userId: string, password: string, actorId: string) {
     const hashedPassword = await this.authService.hashPassword(password);
-    return this.mutate(tenantId, (tx) =>
-      this.updateInTransaction(
-        tx,
-        tenantId,
-        userId,
-        { isActive: true },
-        { password: hashedPassword, emailVerified: true, activatedAt: new Date() },
-        'activation',
-      ),
+    return this.mutate(
+      tenantId,
+      (tx) =>
+        this.updateInTransaction(
+          tx,
+          tenantId,
+          userId,
+          { isActive: true },
+          { password: hashedPassword, emailVerified: true, activatedAt: new Date() },
+          'activation',
+        ),
+      actorId,
     );
   }
 

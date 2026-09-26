@@ -108,16 +108,19 @@ export class UsersController {
     return this.usersService.deactivate(tenantId, userId, actor.userId);
   }
 
+  @Roles('ADMIN')
   @Post(':userId/activate')
-  @ApiOperation({ summary: 'Activate invited user not managed by provider (set password)' })
-  @ApiResponse({ status: 200, description: 'User activated' })
+  @ApiOperation({ summary: 'Activate a pending legacy invitation - Admin only' })
+  @ApiResponse({ status: 201, description: 'Pending invitation activated' })
   @ApiResponse({ status: 403, description: 'Provider-managed users require provider access grant' })
+  @ApiResponse({ status: 409, description: 'ACTIVATION_NOT_PENDING' })
   async activate(
     @Param('tenantId') tenantId: string,
     @Param('userId') userId: string,
     @Body() activateUserDto: ActivateUserDto,
+    @CurrentUser() actor: { userId: string },
   ) {
-    return this.usersService.activate(tenantId, userId, activateUserDto.password);
+    return this.usersService.activate(tenantId, userId, activateUserDto.password, actor.userId);
   }
 
   @Post(':userId/avatar')

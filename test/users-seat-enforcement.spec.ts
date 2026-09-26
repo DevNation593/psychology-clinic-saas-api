@@ -197,7 +197,7 @@ describe('Users - profile seat enforcement', () => {
     );
     expect(users[0]).toMatchObject({ isActive: false, professionalProfile: { isActive: true } });
     expect(subscription.seatsPsychologistsUsed).toBe(1);
-    await service.activate('t', users[0].id, 'password');
+    await service.activate('t', users[0].id, 'password', 'actor');
     expect(subscription.seatsPsychologistsUsed).toBe(1);
   });
   it('deactivation releases an invitation reservation despite inactive login', async () => {
@@ -217,7 +217,9 @@ describe('Users - profile seat enforcement', () => {
     seed({ password: 'original', emailVerified: false, activatedAt: null });
     await service.revokePsychologistAccess('t', 'u');
     const revoked = structuredClone(users[0]);
-    await expect(service.activate('t', 'u', 'replacement')).rejects.toMatchObject({ status: 403 });
+    await expect(service.activate('t', 'u', 'replacement', 'actor')).rejects.toMatchObject({
+      status: 403,
+    });
     await expect(service.update('t', 'u', { isActive: true }, 'actor')).rejects.toMatchObject({
       status: 403,
     });
@@ -311,7 +313,7 @@ describe('Users - profile seat enforcement', () => {
       status: 400,
     });
     expect(subscription.seatsPsychologistsUsed).toBe(1);
-    await service.activate('t', users[0].id, 'password');
+    await service.activate('t', users[0].id, 'password', 'actor');
     expect(users[0].isActive).toBe(true);
     expect(subscription.seatsPsychologistsUsed).toBe(1);
   });
