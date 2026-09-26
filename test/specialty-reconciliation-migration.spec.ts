@@ -17,6 +17,17 @@ const models = new Map(
 );
 
 describe('specialty reconciliation migration', () => {
+  it('skips selections without a subscription instead of aborting the migration', () => {
+    expect(sql).not.toMatch(/\bRAISE\s+EXCEPTION\b/i);
+    const billedInsert = sql.slice(
+      sql.indexOf('INSERT INTO "SubscriptionSpecialty"'),
+      sql.indexOf('DELETE FROM "SubscriptionSpecialty"'),
+    );
+    expect(billedInsert).toMatch(
+      /JOIN\s+"TenantSubscription"\s+subscription\s+ON\s+subscription\."tenantId"\s*=\s*selected\."tenantId"/,
+    );
+  });
+
   it('writes only selection, module, ownership and seat tables using real schema columns', () => {
     const targets = [...sql.matchAll(/\b(?:INSERT INTO|UPDATE|DELETE FROM)\s+"([A-Za-z]+)"/gi)].map(
       (match) => match[1],

@@ -66,6 +66,15 @@ describe('TenantSpecialtiesService', () => {
           [psy, nut].filter((row) => where.code.in.includes(row.code)),
         ),
       },
+      specialtyModule: {
+        findMany: jest.fn(async ({ where }) =>
+          where.moduleKey.in
+            .filter((key: string) =>
+              ['psychology.notes', 'nutrition.assessment', 'shared', 'obsolete'].includes(key),
+            )
+            .map((moduleKey: string) => ({ moduleKey })),
+        ),
+      },
       tenantSpecialty: {
         ...joins(
           () => selected,
@@ -200,7 +209,7 @@ describe('TenantSpecialtiesService', () => {
     expect(tx.tenantSpecialty.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('allows inactive professionals, historical/cancelled appointments and retains clinical data', async () => {
+  it('reconciles when dependency queries find none and retains clinical data', async () => {
     await service.replace('tenant-1', ['NUTRITION'], 'admin-1');
     expect(selected).toEqual(['nut']);
     expect(billed).toEqual(['nut']);
@@ -223,6 +232,45 @@ describe('TenantSpecialtiesService', () => {
     });
     expect(tx.tenantModule.deleteMany).toHaveBeenCalledWith({
       where: { tenantId: 'tenant-1', moduleKey: { in: ['obsolete', 'psychology.notes'] } },
+    });
+  });
+
+  it('keeps disabled core and other tenant-owned modules outside the specialty catalog', async () => {
+    modules.push(
+      { moduleKey: 'core.clinicalNotes', enabled: false },
+      { moduleKey: 'commercial.export', enabled: false },
+    );
+
+    const result = await service.replace('tenant-1', ['NUTRITION'], 'admin-1');
+
+    expect(modules).toEqual([
+      { moduleKey: 'core.clinicalNotes', enabled: false },
+      { moduleKey: 'commercial.export', enabled: false },
+      { moduleKey: 'nutrition.assessment', enabled: true },
+      { moduleKey: 'shared', enabled: true },
+    ]);
+    expect(result.modules).toEqual([
+      { moduleKey: 'commercial.export', enabled: false },
+      { moduleKey: 'core.clinicalNotes', enabled: false },
+      { moduleKey: 'nutrition.assessment', enabled: true },
+      { moduleKey: 'shared', enabled: true },
+    ]);
+    expect(tx.tenantModule.deleteMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', moduleKey: { in: ['obsolete', 'psychology.notes'] } },
+    });
+    expect(tx.tenantModule.createMany).toHaveBeenCalledWith({
+      data: [
+        { tenantId: 'tenant-1', moduleKey: 'nutrition.assessment', enabled: true },
+        { tenantId: 'tenant-1', moduleKey: 'shared', enabled: true },
+      ],
+    });
+    expect(tx.specialtyModule.findMany).toHaveBeenCalledWith({
+      where: {
+        moduleKey: {
+          in: ['commercial.export', 'core.clinicalNotes', 'obsolete', 'psychology.notes'],
+        },
+      },
+      select: { moduleKey: true },
     });
   });
 

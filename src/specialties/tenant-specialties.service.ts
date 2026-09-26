@@ -120,7 +120,15 @@ export class TenantSpecialtiesService {
       ...new Set(specialties.flatMap(({ modules }) => modules.map(({ moduleKey }) => moduleKey))),
     ].sort();
     const existingKeys = existingModules.map(({ moduleKey }) => moduleKey);
-    const removeKeys = existingKeys.filter((key) => !desiredKeys.includes(key));
+    const obsoleteCandidates = existingKeys.filter((key) => !desiredKeys.includes(key));
+    const catalogOwners = obsoleteCandidates.length
+      ? await tx.specialtyModule.findMany({
+          where: { moduleKey: { in: obsoleteCandidates } },
+          select: { moduleKey: true },
+        })
+      : [];
+    const ownedKeys = new Set(catalogOwners.map(({ moduleKey }) => moduleKey));
+    const removeKeys = obsoleteCandidates.filter((key) => ownedKeys.has(key));
     const addKeys = desiredKeys.filter((key) => !existingKeys.includes(key));
     if (removeKeys.length)
       await tx.tenantModule.deleteMany({ where: { tenantId, moduleKey: { in: removeKeys } } });
@@ -142,10 +150,10 @@ export class TenantSpecialtiesService {
     return {
       tenantId,
       specialties,
-      modules: desiredKeys.map((moduleKey) => ({
-        moduleKey,
-        enabled: existingModules.find((row) => row.moduleKey === moduleKey)?.enabled ?? true,
-      })),
+      modules: [
+        ...existingModules.filter(({ moduleKey }) => !removeKeys.includes(moduleKey)),
+        ...addKeys.map((moduleKey) => ({ moduleKey, enabled: true })),
+      ].sort((a, b) => a.moduleKey.localeCompare(b.moduleKey)),
       pricing: { ...pricing, currency: subscription.currency },
     };
   }

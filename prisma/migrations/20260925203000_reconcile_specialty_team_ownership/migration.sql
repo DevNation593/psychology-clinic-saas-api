@@ -1,15 +1,3 @@
--- Stop if a selected specialty cannot be associated with exactly one subscription.
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM "TenantSpecialty" selected
-    LEFT JOIN "TenantSubscription" subscription ON subscription."tenantId" = selected."tenantId"
-    WHERE subscription."id" IS NULL
-  ) THEN
-    RAISE EXCEPTION 'Cannot reconcile specialty selection without a tenant subscription';
-  END IF;
-END $$;
-
 INSERT INTO "SubscriptionSpecialty" ("tenantSubscriptionId", "specialtyId", "createdAt")
 SELECT subscription."id", selected."specialtyId", CURRENT_TIMESTAMP
 FROM "TenantSpecialty" selected
