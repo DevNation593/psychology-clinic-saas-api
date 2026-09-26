@@ -1,0 +1,438 @@
+import { Prisma } from '@prisma/client';
+import { UsersService } from './users.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { AuthService } from '../auth/auth.service';
+import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
+
+describe('UsersService clinic team control', () => {
+  let service: UsersService;
+  let db: any;
+  let users: any[];
+  let tenant: any;
+  let subscription: any;
+  const member = (extra: Record<string, unknown> = {}) => ({
+    email: ' Member@Example.COM ',
+    password: 'Password123!',
+    firstName: 'Ana',
+    lastName: 'Vega',
+    role: 'ASISTENTE',
+    ...extra,
+  });
+  const professional = (extra: Record<string, unknown> = {}) =>
+    member({ role: 'PROFESIONAL', professionalProfile: { specialtyId: 'specialty-1' }, ...extra });
+  const seed = (extra: Record<string, unknown> = {}) => {
+    const user = {
+      id: `user-${users.length + 1}`,
+      tenantId: 'tenant-1',
+      email: `existing-${users.length + 1}@example.com`,
+      role: 'ADMIN',
+      isActive: true,
+      managedByProvider: false,
+      professionalProfile: null,
+      ...extra,
+    };
+    users.push(user);
+    return user;
+  };
+
+  beforeEach(() => {
+    users = [];
+    tenant = { id: 'tenant-1', tenantType: 'CLINIC' };
+    subscription = {
+      tenantId: 'tenant-1',
+      planType: 'TRIAL',
+      status: 'TRIALING',
+      seatsPsychologistsMax: 1,
+      seatsPsychologistsUsed: 0,
+    };
+    db = {
+      applyRlsContext: jest.fn(),
+      $transaction: jest.fn(async (operation) => operation(db)),
+      tenant: { findUnique: jest.fn(async () => tenant) },
+      tenantSubscription: {
+        findUnique: jest.fn(async () => subscription),
+        update: jest.fn(async ({ data }) => Object.assign(subscription, data)),
+      },
+      tenantSpecialty: {
+        findUnique: jest.fn(async ({ where }) =>
+          where.tenantId_specialtyId.specialtyId === 'specialty-1'
+            ? { tenantId: 'tenant-1', specialtyId: 'specialty-1' }
+            : null,
+        ),
+      },
+      professionalProfile: {
+        count: jest.fn(
+          async () =>
+            users.filter((u) => u.tenantId === 'tenant-1' && u.professionalProfile?.isActive)
+              .length,
+        ),
+        findUnique: jest.fn(
+          async ({ where }) =>
+            users.find((u) => u.id === where.userId)?.professionalProfile ?? null,
+        ),
+      },
+      appointment: { count: jest.fn().mockResolvedValue(0) },
+      user: {
+        findUnique: jest.fn(
+          async ({ where }) =>
+            users.find(
+              (u) =>
+                u.tenantId === where.tenantId_email.tenantId &&
+                u.email === where.tenantId_email.email,
+            ) ?? null,
+        ),
+        findFirst: jest.fn(async ({ where }) => {
+          if (typeof where.id === 'string')
+            return users.find((u) => u.id === where.id && u.tenantId === where.tenantId) ?? null;
+          const email = typeof where.email === 'string' ? where.email : where.email?.equals;
+          return (
+            users.find(
+              (u) =>
+                u.tenantId === where.tenantId &&
+                u.id !== where.id?.not &&
+                u.email.toLowerCase() === email?.toLowerCase(),
+            ) ?? null
+          );
+        }),
+        count: jest.fn(
+          async ({ where }) =>
+            users.filter(
+              (u) =>
+                u.tenantId === where.tenantId &&
+                u.id !== where.id?.not &&
+                u.isActive &&
+                where.role.in.includes(u.role),
+            ).length,
+        ),
+        create: jest.fn(async ({ data }) => {
+          const user = {
+            ...data,
+            id: `user-${users.length + 1}`,
+            professionalProfile: data.professionalProfile?.create ?? null,
+            professionalSpecialties: data.professionalSpecialties?.create
+              ? [data.professionalSpecialties.create]
+              : [],
+          };
+          users.push(user);
+          return user;
+        }),
+        update: jest.fn(async ({ where, data }) => {
+          const user = users.find((u) => u.id === where.id);
+          const { professionalProfile, professionalSpecialties, ...fields } = data;
+          Object.assign(
+            user,
+            Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)),
+          );
+          if (professionalProfile?.delete) user.professionalProfile = null;
+          if (professionalProfile?.upsert)
+            user.professionalProfile = {
+              ...user.professionalProfile,
+              ...(user.professionalProfile
+                ? professionalProfile.upsert.update
+                : professionalProfile.upsert.create),
+            };
+          if (professionalSpecialties)
+            user.professionalSpecialties = professionalSpecialties.create
+              ? [professionalSpecialties.create]
+              : [];
+          return user;
+        }),
+      },
+    };
+    service = new UsersService(
+      db as PrismaService,
+      { hashPassword: jest.fn().mockResolvedValue('secure-hash') } as unknown as AuthService,
+      new ProfessionalProfilesService(db as PrismaService),
+    );
+  });
+
+  it.each(['SOPORTE', 'PACIENTE', 'UNKNOWN'])('rejects tenant-created role %s', async (role) => {
+    await expect(
+      service.createForTenant('tenant-1', member({ role }) as any, 'admin-1'),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(users).toHaveLength(0);
+  });
+
+  it.each([
+    ['PERSONAL', 'TRIALING'],
+    ['CLINIC', 'CANCELED'],
+    ['CLINIC', 'PAST_DUE'],
+  ])('rejects team creation for %s tenant with %s subscription', async (tenantType, status) => {
+    tenant.tenantType = tenantType;
+    subscription.status = status;
+    await expect(
+      service.createForTenant('tenant-1', member() as any, 'admin-1'),
+    ).rejects.toMatchObject({ status: 403, response: { code: 'TEAM_NOT_AVAILABLE' } });
+    expect(users).toHaveLength(0);
+  });
+
+  it('creates a direct active account in a CLINIC trial without leaking credentials', async () => {
+    const result = await service.createForTenant('tenant-1', member() as any, 'admin-1');
+    expect(result).toMatchObject({
+      email: 'member@example.com',
+      isActive: true,
+      managedByProvider: false,
+      emailVerified: true,
+    });
+    expect(result).not.toHaveProperty('password');
+    expect(users[0]).toMatchObject({
+      password: 'secure-hash',
+      activatedAt: expect.any(Date),
+      invitedAt: undefined,
+    });
+    expect(db.applyRlsContext).toHaveBeenCalledWith(db, {
+      tenantId: 'tenant-1',
+      userId: 'admin-1',
+    });
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+
+  it.each(['ADMIN', 'CLIENTE', 'PROFESIONAL', 'PSICOLOGO', 'ASISTENTE'])(
+    'accepts compatible team role %s',
+    async (role) => {
+      const input =
+        role === 'PROFESIONAL' || role === 'PSICOLOGO' ? professional({ role }) : member({ role });
+      await service.createForTenant('tenant-1', input as any, 'admin-1');
+      expect(users[0].role).toBe(role);
+      expect(users[0].managedByProvider).toBe(false);
+    },
+  );
+
+  it('requires a specialty for a professional and rejects an assistant profile', async () => {
+    await expect(
+      service.createForTenant('tenant-1', member({ role: 'PROFESIONAL' }) as any, 'admin-1'),
+    ).rejects.toMatchObject({ response: { code: 'PROFESSIONAL_SPECIALTY_REQUIRED' } });
+    await expect(
+      service.createForTenant(
+        'tenant-1',
+        member({ professionalProfile: { specialtyId: 'specialty-1' } }) as any,
+        'admin-1',
+      ),
+    ).rejects.toMatchObject({ response: { code: 'PROFESSIONAL_PROFILE_NOT_ALLOWED' } });
+  });
+
+  it('allows a nonclinical admin without a seat and a clinical admin with one mirrored specialty', async () => {
+    await service.createForTenant('tenant-1', member({ role: 'ADMIN' }) as any, 'admin-1');
+    expect(subscription.seatsPsychologistsUsed).toBe(0);
+    const result = await service.createForTenant(
+      'tenant-1',
+      professional({ role: 'ADMIN', email: 'clinical@example.com' }) as any,
+      'admin-1',
+    );
+    expect(result.professionalProfile).toMatchObject({ specialtyId: 'specialty-1' });
+    expect(users[1].professionalSpecialties).toEqual([
+      { specialtyId: 'specialty-1', isPrimary: true },
+    ]);
+    expect(subscription.seatsPsychologistsUsed).toBe(1);
+  });
+
+  it('rejects a specialty outside the tenant and an occupied seat before creating', async () => {
+    await expect(
+      service.createForTenant(
+        'tenant-1',
+        professional({ professionalProfile: { specialtyId: 'other' } }) as any,
+        'admin-1',
+      ),
+    ).rejects.toMatchObject({ response: { code: 'SPECIALTY_NOT_ENABLED' } });
+    seed({ professionalProfile: { specialtyId: 'specialty-1', isActive: true } });
+    await expect(
+      service.createForTenant('tenant-1', professional() as any, 'admin-1'),
+    ).rejects.toMatchObject({ response: { code: 'PROFESSIONAL_SEAT_LIMIT_REACHED' } });
+    expect(users).toHaveLength(1);
+  });
+
+  it('normalizes email and conflicts with mixed-case legacy email in the same tenant', async () => {
+    seed({ email: 'MEMBER@example.com' });
+    await expect(
+      service.createForTenant('tenant-1', member() as any, 'admin-1'),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(users).toHaveLength(1);
+  });
+
+  it('returns the same tenant conflict when a concurrent create wins the email unique constraint', async () => {
+    db.user.create.mockRejectedValueOnce({
+      code: 'P2002',
+      meta: { target: ['tenantId', 'email'] },
+    });
+    await expect(
+      service.createForTenant('tenant-1', member() as any, 'admin-1'),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('does not send an invitation during direct creation', async () => {
+    const previous = process.env.EMAIL_API_URL;
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true } as Response);
+    process.env.EMAIL_API_URL = 'https://mail.example.test/send';
+    try {
+      await service.createForTenant('tenant-1', member() as any, 'admin-1');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      if (previous === undefined) delete process.env.EMAIL_API_URL;
+      else process.env.EMAIL_API_URL = previous;
+    }
+  });
+
+  it('keeps the legacy create wrapper internal and delegates without tenantId in body', async () => {
+    const result = await service.create({ tenantId: 'tenant-1', ...member() } as any, 'admin-1');
+    expect(result.email).toBe('member@example.com');
+    expect(users[0].tenantId).toBe('tenant-1');
+  });
+
+  it('blocks self deactivation and self demotion before any write', async () => {
+    const admin = seed({ id: 'admin-1' });
+    seed({ id: 'admin-2' });
+    await expect(service.deactivate('tenant-1', admin.id, admin.id)).rejects.toMatchObject({
+      response: { code: 'CANNOT_DEACTIVATE_SELF' },
+    });
+    await expect(
+      service.update('tenant-1', admin.id, { role: 'ASISTENTE' }, admin.id),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['SOPORTE', 'PACIENTE'])('rejects changing a team member to %s', async (role) => {
+    seed({ id: 'admin-1' });
+    seed({ id: 'assistant-1', role: 'ASISTENTE' });
+    await expect(
+      service.update('tenant-1', 'assistant-1', { role: role as any }, 'admin-1'),
+    ).rejects.toMatchObject({ status: 400, response: { code: 'TEAM_ROLE_NOT_ALLOWED' } });
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['ADMIN', 'CLIENTE'])(
+    'protects the last effective %s admin in the same transaction',
+    async (role) => {
+      let insideTransaction = false;
+      db.$transaction.mockImplementation(async (operation) => {
+        insideTransaction = true;
+        try {
+          return await operation(db);
+        } finally {
+          insideTransaction = false;
+        }
+      });
+      const count = db.user.count.getMockImplementation();
+      db.user.count.mockImplementation(async (query) => {
+        expect(insideTransaction).toBe(true);
+        return count(query);
+      });
+      seed({ id: 'admin-1', role: 'ASISTENTE' });
+      seed({ id: 'admin-2', role });
+      await expect(
+        service.update('tenant-1', 'admin-2', { role: 'ASISTENTE' }, 'admin-1'),
+      ).rejects.toMatchObject({ response: { code: 'LAST_ACTIVE_ADMIN_REQUIRED' } });
+      expect(db.user.count).toHaveBeenCalledWith({
+        where: {
+          tenantId: 'tenant-1',
+          id: { not: 'admin-2' },
+          isActive: true,
+          role: { in: ['ADMIN', 'CLIENTE'] },
+        },
+      });
+      expect(db.user.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows removal with another active admin in the same tenant', async () => {
+    seed({ id: 'admin-1', role: 'CLIENTE' });
+    seed({ id: 'admin-2' });
+    await service.deactivate('tenant-1', 'admin-2', 'admin-1');
+    expect(users[1].isActive).toBe(false);
+  });
+
+  it('does not count administrators from another tenant', async () => {
+    seed({ id: 'admin-1', role: 'ASISTENTE' });
+    seed({ id: 'admin-2' });
+    seed({ id: 'foreign-admin', tenantId: 'tenant-2' });
+    await expect(service.deactivate('tenant-1', 'admin-2', 'admin-1')).rejects.toMatchObject({
+      response: { code: 'LAST_ACTIVE_ADMIN_REQUIRED' },
+    });
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it('normalizes edited email and rejects a mixed-case conflict within the tenant', async () => {
+    seed({ id: 'admin-1' });
+    const target = seed({ id: 'assistant-1', role: 'ASISTENTE' });
+    seed({ id: 'other-user', role: 'ASISTENTE', email: 'TAKEN@EXAMPLE.COM' });
+    await expect(
+      service.update('tenant-1', target.id, { email: ' Taken@example.com ' }, 'admin-1'),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.user.update).not.toHaveBeenCalled();
+    await service.update('tenant-1', target.id, { email: ' NEW@Example.COM ' }, 'admin-1');
+    expect(target.email).toBe('new@example.com');
+  });
+
+  it('returns a tenant conflict if a concurrent email edit wins the unique constraint', async () => {
+    seed({ id: 'admin-1' });
+    seed({ id: 'assistant-1', role: 'ASISTENTE' });
+    db.user.update.mockRejectedValueOnce({
+      code: 'P2002',
+      meta: { target: ['tenantId', 'email'] },
+    });
+    await expect(
+      service.update('tenant-1', 'assistant-1', { email: 'new@example.com' }, 'admin-1'),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('deactivating a direct professional twice leaves the occupied seat at zero', async () => {
+    seed({ id: 'admin-1', professionalProfile: null });
+    seed({
+      id: 'professional-1',
+      role: 'PROFESIONAL',
+      professionalProfile: { specialtyId: 'specialty-1', isActive: true },
+    });
+    await service.deactivate('tenant-1', 'professional-1', 'admin-1');
+    await service.deactivate('tenant-1', 'professional-1', 'admin-1');
+    expect(subscription.seatsPsychologistsUsed).toBe(0);
+  });
+
+  it('does not reactivate a clinical profile while its direct account stays inactive', async () => {
+    seed({ id: 'admin-1', professionalProfile: null });
+    seed({
+      id: 'professional-1',
+      role: 'PROFESIONAL',
+      isActive: false,
+      professionalProfile: { specialtyId: 'specialty-1', isActive: false },
+    });
+    await expect(
+      service.update(
+        'tenant-1',
+        'professional-1',
+        {
+          professionalProfile: { specialtyId: 'specialty-1', isActive: true },
+        },
+        'admin-1',
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.user.update).not.toHaveBeenCalled();
+    expect(subscription.seatsPsychologistsUsed).toBe(0);
+  });
+
+  it('keeps provider grant and revoke limited to preexisting legacy managed rows', async () => {
+    seed({
+      id: 'direct-user',
+      role: 'PROFESIONAL',
+      managedByProvider: false,
+      professionalProfile: { specialtyId: 'specialty-1', isActive: false },
+    });
+    await expect(service.revokePsychologistAccess('tenant-1', 'direct-user')).rejects.toMatchObject(
+      { status: 400 },
+    );
+    await expect(service.grantPsychologistAccess('tenant-1', 'direct-user')).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(db.user.update).not.toHaveBeenCalled();
+    seed({
+      id: 'legacy-user',
+      role: 'PSICOLOGO',
+      managedByProvider: true,
+      isActive: false,
+      professionalProfile: { specialtyId: 'specialty-1', isActive: false },
+    });
+    await service.grantPsychologistAccess('tenant-1', 'legacy-user');
+    expect(users[1].isActive).toBe(true);
+  });
+});
