@@ -1,4 +1,4 @@
-import { assertE2eDatabaseSafety } from './assert-e2e-database';
+import { assertE2eDatabaseSafety, assertSpecialtyStageDatabaseSafety } from './assert-e2e-database';
 
 const connection = 'postgresql://postgres:postgres@localhost:5432/';
 
@@ -25,6 +25,28 @@ describe('E2E database safety', () => {
   ])('rejects %s', (name) => {
     expect(() => assertE2eDatabaseSafety(connection + name)).toThrow(
       'E2E requires a dedicated allowlisted test database',
+    );
+  });
+});
+
+describe('exact specialty-stage database safety', () => {
+  it('accepts only the exact specialty-stage target', () => {
+    expect(() =>
+      assertSpecialtyStageDatabaseSafety(connection + 'psic_clinic_specialty_stage_test'),
+    ).not.toThrow();
+  });
+
+  it.each([
+    'psic_clinic_test',
+    'psic_clinic_profiles_fresh_test',
+    'psic_clinic_specialty_stage_test_shadow',
+    'psic_clinic_specialty_stage_test2',
+    'other_psic_clinic_specialty_stage_test',
+    'psic_clinic',
+    'postgres',
+  ])('rejects %s in exact stage mode', (name) => {
+    expect(() => assertSpecialtyStageDatabaseSafety(connection + name)).toThrow(
+      'Specialty stage requires the exact disposable database',
     );
   });
 });

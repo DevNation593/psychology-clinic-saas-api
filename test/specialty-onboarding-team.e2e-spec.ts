@@ -41,7 +41,12 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     app = module.createNestApplication();
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
+      }),
     );
     await app.init();
     prisma = app.get(PrismaService);
@@ -264,6 +269,18 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       .post('/api/v1/onboarding/tenants')
       .send(clinicPayload('other', false))
       .expect(201);
+    const otherLogin = await request(server)
+      .post('/api/v1/auth/login')
+      .send({ email: other.body.admin.email, password })
+      .expect(200);
+    const otherSpecialties = await request(server)
+      .get(`/api/v1/tenants/${other.body.tenant.id}/specialties`)
+      .set('Authorization', `Bearer ${otherLogin.body.accessToken}`)
+      .expect(200);
+    expect(otherSpecialties.body.map((item: { code: string }) => item.code)).toEqual([
+      'PSYCHOLOGY',
+    ]);
+    expect(otherSpecialties.body[0].id).toBe(psychologyId);
     const foreign = await request(server)
       .post(`/api/v1/tenants/${tenantId}/users`)
       .set('Authorization', `Bearer ${token}`)
@@ -303,22 +320,22 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
   it('rolls back tenant and administrator when specialty selection fails after writes', async () => {
     const payload = clinicPayload('rollback', false);
     const external = new PrismaClient();
-    const failure = new Error('selection failed after writes');
-    const spy = jest.spyOn(selections, 'applySelection').mockImplementation(async (tx, input) => {
-      expect(await tx.tenant.findUnique({ where: { id: input.tenantId } })).not.toBeNull();
-      expect(
-        await tx.user.findFirst({
-          where: { tenantId: input.tenantId, email: payload.adminEmail.toLowerCase() },
-        }),
-      ).not.toBeNull();
-      throw failure;
-    });
     try {
-      await expect(onboarding.create(payload)).rejects.toThrow(failure.message);
-    } finally {
-      spy.mockRestore();
-    }
-    try {
+      const failure = new Error('selection failed after writes');
+      const spy = jest.spyOn(selections, 'applySelection').mockImplementation(async (tx, input) => {
+        expect(await tx.tenant.findUnique({ where: { id: input.tenantId } })).not.toBeNull();
+        expect(
+          await tx.user.findFirst({
+            where: { tenantId: input.tenantId, email: payload.adminEmail.toLowerCase() },
+          }),
+        ).not.toBeNull();
+        throw failure;
+      });
+      try {
+        await expect(onboarding.create(payload)).rejects.toThrow(failure.message);
+      } finally {
+        spy.mockRestore();
+      }
       expect(
         await external.tenant.count({ where: { email: payload.contactEmail.toLowerCase() } }),
       ).toBe(0);
