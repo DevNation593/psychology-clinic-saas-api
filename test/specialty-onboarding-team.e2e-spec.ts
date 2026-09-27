@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module';
 import { OnboardingService } from '../src/onboarding/onboarding.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TenantSpecialtiesService } from '../src/specialties/tenant-specialties.service';
+import { assertSpecialtyStageDatabaseSafety } from './helpers/assert-e2e-database';
 
 jest.setTimeout(60000);
 
@@ -37,6 +38,8 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
   });
 
   beforeAll(async () => {
+    assertSpecialtyStageDatabaseSafety(process.env.DATABASE_URL_TEST);
+
     const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = module.createNestApplication();
     app.setGlobalPrefix('api/v1');
