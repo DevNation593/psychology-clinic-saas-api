@@ -94,6 +94,7 @@ describe('Professional profile transition (E2E)', () => {
       {
         tenantId,
         email: 'legacy@test.invalid',
+        password: TEST_PASSWORD,
         firstName: 'Legacy',
         lastName: 'Professional',
         role: 'PSICOLOGO',
@@ -116,6 +117,7 @@ describe('Professional profile transition (E2E)', () => {
       {
         tenantId,
         email: 'canonical@test.invalid',
+        password: TEST_PASSWORD,
         firstName: 'Canonical',
         lastName: 'Professional',
         role: 'PROFESIONAL',
@@ -176,6 +178,7 @@ describe('Professional profile transition (E2E)', () => {
         {
           tenantId,
           email: 'foreign@test.invalid',
+          password: TEST_PASSWORD,
           firstName: 'Foreign',
           lastName: 'Specialty',
           role: 'PROFESIONAL',
@@ -207,6 +210,7 @@ describe('Professional profile transition (E2E)', () => {
           {
             tenantId,
             email: `race-${name}@test.invalid`,
+            password: TEST_PASSWORD,
             firstName: 'Race',
             lastName: name,
             role: 'ADMIN',
@@ -237,9 +241,14 @@ describe('Professional profile transition (E2E)', () => {
     try {
       const results = await Promise.allSettled(
         candidates.map((candidate) =>
-          users.update(tenantId, candidate.id, {
-            professionalProfile: { specialtyId, isActive: true },
-          }),
+          users.update(
+            tenantId,
+            candidate.id,
+            {
+              professionalProfile: { specialtyId, isActive: true },
+            },
+            'fixture-actor',
+          ),
         ),
       );
       expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);

@@ -14,7 +14,12 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
-import { UpdateUserDto, ActivateUserDto, ChangePasswordDto } from './dto/user.dto';
+import {
+  CreateTenantUserDto,
+  UpdateUserDto,
+  ActivateUserDto,
+  ChangePasswordDto,
+} from './dto/user.dto';
 import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -47,6 +52,18 @@ export class UsersController {
     return this.usersService.findAll(tenantId, filters);
   }
 
+  @Roles('ADMIN')
+  @Post()
+  @ApiOperation({ summary: 'Create an active clinic team member - Admin only' })
+  @ApiResponse({ status: 201, description: 'Team member created' })
+  async create(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: CreateTenantUserDto,
+    @CurrentUser() actor: { userId: string },
+  ) {
+    return this.usersService.createForTenant(tenantId, dto, actor.userId);
+  }
+
   @Get(':userId')
   @ApiOperation({ summary: 'Get user by ID' })
   @ApiResponse({ status: 200, description: 'User found' })
@@ -74,28 +91,36 @@ export class UsersController {
     @Param('tenantId') tenantId: string,
     @Param('userId') userId: string,
     @Body() updateUserDto: UpdateUserDto,
+    @CurrentUser() actor: { userId: string },
   ) {
-    return this.usersService.update(tenantId, userId, updateUserDto);
+    return this.usersService.update(tenantId, userId, updateUserDto, actor.userId);
   }
 
   @Roles('ADMIN')
   @Delete(':userId')
   @ApiOperation({ summary: 'Deactivate user - Admin only (soft delete)' })
   @ApiResponse({ status: 200, description: 'User deactivated and seat freed' })
-  async deactivate(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
-    return this.usersService.deactivate(tenantId, userId);
+  async deactivate(
+    @Param('tenantId') tenantId: string,
+    @Param('userId') userId: string,
+    @CurrentUser() actor: { userId: string },
+  ) {
+    return this.usersService.deactivate(tenantId, userId, actor.userId);
   }
 
+  @Roles('ADMIN')
   @Post(':userId/activate')
-  @ApiOperation({ summary: 'Activate invited user not managed by provider (set password)' })
-  @ApiResponse({ status: 200, description: 'User activated' })
+  @ApiOperation({ summary: 'Activate a pending legacy invitation - Admin only' })
+  @ApiResponse({ status: 201, description: 'Pending invitation activated' })
   @ApiResponse({ status: 403, description: 'Provider-managed users require provider access grant' })
+  @ApiResponse({ status: 409, description: 'ACTIVATION_NOT_PENDING' })
   async activate(
     @Param('tenantId') tenantId: string,
     @Param('userId') userId: string,
     @Body() activateUserDto: ActivateUserDto,
+    @CurrentUser() actor: { userId: string },
   ) {
-    return this.usersService.activate(tenantId, userId, activateUserDto.password);
+    return this.usersService.activate(tenantId, userId, activateUserDto.password, actor.userId);
   }
 
   @Post(':userId/avatar')
@@ -148,8 +173,8 @@ export class UsersController {
   @Roles('SOPORTE')
   @Post(':userId/grant-access')
   @ApiOperation({
-    summary: 'Grant psychologist access (Provider/OWNER only)',
-    description: 'Activates a psychologist in a clinic tenant. Only for provider-managed users.',
+    summary: 'Grant access to a legacy provider-managed account (Provider/OWNER only)',
+    description: 'Legacy adapter: activates only an existing provider-managed account.',
   })
   @ApiResponse({ status: 200, description: 'Access granted' })
   @ApiResponse({ status: 400, description: 'User is not managed by provider' })
@@ -160,8 +185,8 @@ export class UsersController {
   @Roles('SOPORTE')
   @Post(':userId/revoke-access')
   @ApiOperation({
-    summary: 'Revoke psychologist access (Provider/OWNER only)',
-    description: 'Deactivates a psychologist in a clinic tenant. Only for provider-managed users.',
+    summary: 'Revoke access to a legacy provider-managed account (Provider/OWNER only)',
+    description: 'Legacy adapter: deactivates only an existing provider-managed account.',
   })
   @ApiResponse({ status: 200, description: 'Access revoked' })
   @ApiResponse({ status: 400, description: 'User is not managed by provider' })

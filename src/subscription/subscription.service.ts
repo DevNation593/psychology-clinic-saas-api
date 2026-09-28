@@ -1,114 +1,21 @@
 import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { PlanType, SubscriptionStatus, TenantType } from '@prisma/client';
+import { PlanType, TenantType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { ModuleName } from './dto/customize-features.dto';
-
-// Pricing per module (USD/month)
-const MODULE_PRICING: Record<ModuleName, number> = {
-  clinicalNotes: 0, // included in all plans
-  clinicalNotesEncryption: 5,
-  attachments: 3,
-  tasks: 3,
-  psychologicalTests: 8,
-  webPush: 2,
-  fcmPush: 2,
-  advancedAnalytics: 10,
-  videoConsultation: 12,
-  calendarSync: 4,
-  onlineSchedulingWidget: 5,
-  customReports: 8,
-  apiAccess: 15,
-  whatsAppIntegration: 10,
-  sso: 20,
-};
-
-// Modules included free in each plan (no extra charge)
-const PLAN_INCLUDED_MODULES: Record<string, ModuleName[]> = {
-  TRIAL: ['clinicalNotes'],
-  PERSONAL_BASIC: ['clinicalNotes', 'attachments', 'tasks', 'fcmPush', 'onlineSchedulingWidget'],
-  PERSONAL_PRO: [
-    'clinicalNotes',
-    'clinicalNotesEncryption',
-    'attachments',
-    'tasks',
-    'psychologicalTests',
-    'webPush',
-    'fcmPush',
-    'advancedAnalytics',
-    'videoConsultation',
-    'calendarSync',
-    'onlineSchedulingWidget',
-    'customReports',
-  ],
-  CLINIC_BASIC: ['clinicalNotes', 'attachments', 'tasks', 'fcmPush', 'onlineSchedulingWidget'],
-  CLINIC_PRO: [
-    'clinicalNotes',
-    'clinicalNotesEncryption',
-    'attachments',
-    'tasks',
-    'psychologicalTests',
-    'webPush',
-    'fcmPush',
-    'advancedAnalytics',
-    'videoConsultation',
-    'calendarSync',
-    'onlineSchedulingWidget',
-    'customReports',
-    'apiAccess',
-  ],
-  CLINIC_ENTERPRISE: [
-    'clinicalNotes',
-    'clinicalNotesEncryption',
-    'attachments',
-    'tasks',
-    'psychologicalTests',
-    'webPush',
-    'fcmPush',
-    'advancedAnalytics',
-    'videoConsultation',
-    'calendarSync',
-    'onlineSchedulingWidget',
-    'customReports',
-    'apiAccess',
-    'whatsAppIntegration',
-    'sso',
-  ],
-};
-
-// All available module names matching DB column pattern
-const ALL_MODULES: ModuleName[] = [
-  'clinicalNotes',
-  'clinicalNotesEncryption',
-  'attachments',
-  'tasks',
-  'psychologicalTests',
-  'webPush',
-  'fcmPush',
-  'advancedAnalytics',
-  'videoConsultation',
-  'calendarSync',
-  'onlineSchedulingWidget',
-  'customReports',
-  'apiAccess',
-  'whatsAppIntegration',
-  'sso',
-];
-
-const PLAN_SPECIALTY_LIMITS: Record<PlanType, number> = {
-  TRIAL: 1,
-  PERSONAL_BASIC: 1,
-  PERSONAL_PRO: 2,
-  CLINIC_BASIC: 2,
-  CLINIC_PRO: 3,
-  CLINIC_ENTERPRISE: 999,
-};
-
-const SPECIALTY_PRICE_PER_MONTH = 15;
-
-function moduleToDbKey(mod: ModuleName): string {
-  return `feature${mod.charAt(0).toUpperCase()}${mod.slice(1)}`;
-}
+import { runSerializableTransaction } from '../prisma/serializable-transaction';
+import {
+  ALL_MODULES,
+  MODULE_PRICING,
+  PLAN_SPECIALTY_LIMITS,
+  SPECIALTY_PRICE_PER_MONTH,
+  calculateSubscriptionPrice,
+  getPlanFeatureFlags,
+  getPlanIncludedModules,
+  getPlanLimits,
+  getSelectedModules,
+  moduleToDbKey,
+} from './subscription-pricing';
 
 @Injectable()
 export class SubscriptionService {
@@ -336,67 +243,55 @@ export class SubscriptionService {
   // UPGRADE PLAN
   // ========================================
   async upgradePlan(tenantId: string, userId: string, newPlan: PlanType) {
-    const subscription = await this.prisma.tenantSubscription.findUnique({
-      where: { tenantId },
-    });
+    const newPlanLimits = getPlanLimits(newPlan);
+    return runSerializableTransaction(this.prisma, tenantId, userId, async (tx) => {
+      const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
+      if (!subscription) throw new BadRequestException('Suscripción no encontrada');
 
-    if (!subscription) {
-      throw new BadRequestException('Suscripción no encontrada');
-    }
+      const planHierarchy: PlanType[] = [
+        'TRIAL',
+        'PERSONAL_BASIC',
+        'PERSONAL_PRO',
+        'CLINIC_BASIC',
+        'CLINIC_PRO',
+        'CLINIC_ENTERPRISE',
+      ];
+      if (planHierarchy.indexOf(newPlan) <= planHierarchy.indexOf(subscription.planType)) {
+        throw new BadRequestException(
+          'Esto no es una mejora. Use downgradePlan para degradaciones.',
+        );
+      }
 
-    // Validate upgrade path
-    const planHierarchy: PlanType[] = [
-      'TRIAL',
-      'PERSONAL_BASIC',
-      'PERSONAL_PRO',
-      'CLINIC_BASIC',
-      'CLINIC_PRO',
-      'CLINIC_ENTERPRISE',
-    ];
-    const currentIndex = planHierarchy.indexOf(subscription.planType);
-    const newIndex = planHierarchy.indexOf(newPlan);
+      const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
+      if (newPlan.startsWith('PERSONAL_') && tenant?.tenantType === 'CLINIC') {
+        throw new BadRequestException(
+          'No se puede cambiar a un plan personal en una cuenta de clínica.',
+        );
+      }
+      if (newPlan.startsWith('CLINIC_') && tenant?.tenantType === 'PERSONAL') {
+        await tx.tenant.update({ where: { id: tenantId }, data: { tenantType: 'CLINIC' } });
+      }
 
-    if (newIndex <= currentIndex) {
-      throw new BadRequestException('Esto no es una mejora. Use downgradePlan para degradaciones.');
-    }
-
-    // Validate tenant type compatibility
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
-    const isPersonalPlan = newPlan.startsWith('PERSONAL_');
-    const isClinicPlan = newPlan.startsWith('CLINIC_');
-
-    if (isPersonalPlan && tenant?.tenantType === 'CLINIC') {
-      throw new BadRequestException(
-        'No se puede cambiar a un plan personal en una cuenta de clínica.',
-      );
-    }
-    if (isClinicPlan && tenant?.tenantType === 'PERSONAL') {
-      // Auto-upgrade tenant type to CLINIC when moving to clinic plan
-      await this.prisma.tenant.update({
-        where: { id: tenantId },
-        data: { tenantType: 'CLINIC' },
+      const selectedModules = [
+        ...new Set([...getPlanIncludedModules(newPlan), ...getSelectedModules(subscription)]),
+      ];
+      const featureFlags = getPlanFeatureFlags(newPlan);
+      for (const mod of selectedModules) featureFlags[moduleToDbKey(mod)] = true;
+      const specialtyCount = await tx.tenantSpecialty.count({ where: { tenantId } });
+      const pricing = calculateSubscriptionPrice({
+        planType: newPlan,
+        selectedModules,
+        specialtyCount,
+        specialtyUnitPrice: Number(newPlanLimits.specialtyPrice),
       });
-    }
-
-    // Get new plan limits
-    const newPlanLimits = this.getPlanLimits(newPlan);
-
-    // Calculate prorated pricing
-    const proratedAmount = await this.calculateProratedCharge(
-      subscription,
-      Number(newPlanLimits.basePrice),
-    );
-
-    // Update subscription (immediate effect)
-    const updatedSubscription = await this.prisma.$transaction(async (tx) => {
-      await this.prisma.applyRlsContext(tx, { tenantId, userId });
+      const proratedAmount = await this.calculateProratedCharge(subscription, pricing.totalMonthly);
 
       const updated = await tx.tenantSubscription.update({
         where: { tenantId },
         data: {
           planType: newPlan,
           status: 'ACTIVE',
-          basePrice: newPlanLimits.basePrice,
+          basePrice: new Decimal(pricing.totalMonthly),
           pricePerSeat: newPlanLimits.pricePerSeat,
           seatsPsychologistsMax: newPlanLimits.seatsIncluded,
           maxActivePatients: newPlanLimits.maxActivePatients,
@@ -407,7 +302,7 @@ export class SubscriptionService {
           monthlyElectronicInvoicesLimit: 50,
 
           // Update feature flags
-          ...this.getPlanFeatures(newPlan),
+          ...featureFlags,
 
           // Clear scheduled changes
           scheduledPlanChange: null,
@@ -430,18 +325,16 @@ export class SubscriptionService {
         },
       });
 
-      return updated;
+      return {
+        success: true,
+        subscription: updated,
+        billing: {
+          proratedCharge: proratedAmount,
+          nextBillingDate: updated.currentPeriodEnd,
+        },
+        message: `Actualizado exitosamente a ${newPlan}. Todas las funcionalidades están ahora disponibles.`,
+      };
     });
-
-    return {
-      success: true,
-      subscription: updatedSubscription,
-      billing: {
-        proratedCharge: proratedAmount,
-        nextBillingDate: updatedSubscription.currentPeriodEnd,
-      },
-      message: `Actualizado exitosamente a ${newPlan}. Todas las funcionalidades están ahora disponibles.`,
-    };
   }
 
   // ========================================
@@ -483,7 +376,7 @@ export class SubscriptionService {
     }
 
     // Get new plan limits
-    const newPlanLimits = this.getPlanLimits(newPlan);
+    const newPlanLimits = getPlanLimits(newPlan);
 
     // Run pre-flight validations
     const validations = await this.validateDowngrade(tenantId, newPlanLimits);
@@ -562,35 +455,9 @@ export class SubscriptionService {
   // CUSTOMIZE FEATURES (module selection)
   // ========================================
   async customizeFeatures(tenantId: string, userId: string, selectedModules: ModuleName[]) {
-    const subscription = await this.prisma.tenantSubscription.findUnique({
-      where: { tenantId },
-    });
-
-    if (!subscription) {
-      throw new BadRequestException('Suscripción no encontrada');
-    }
-
-    if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING') {
-      throw new ForbiddenException('Solo puede personalizar módulos con una suscripción activa.');
-    }
-
     // clinicalNotes is always required
     if (!selectedModules.includes('clinicalNotes')) {
       selectedModules = ['clinicalNotes', ...selectedModules];
-    }
-
-    const planKey = this.resolvePlanKey(subscription.planType);
-    const includedModules = PLAN_INCLUDED_MODULES[planKey] || [];
-
-    // Calculate addon cost (only for modules not included in the plan)
-    let addonsCost = 0;
-    const addonsDetail: { module: string; price: number }[] = [];
-    for (const mod of selectedModules) {
-      if (!includedModules.includes(mod)) {
-        const price = MODULE_PRICING[mod];
-        addonsCost += price;
-        addonsDetail.push({ module: mod, price });
-      }
     }
 
     // Build feature flags update object
@@ -599,17 +466,34 @@ export class SubscriptionService {
       featureFlags[moduleToDbKey(mod)] = selectedModules.includes(mod);
     }
 
-    const basePlanLimits = this.getPlanLimits(subscription.planType);
-    const newTotalPrice = Number(basePlanLimits.basePrice) + addonsCost;
+    return runSerializableTransaction(this.prisma, tenantId, userId, async (tx) => {
+      const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
+      if (!subscription) throw new BadRequestException('Suscripción no encontrada');
+      if (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING') {
+        throw new ForbiddenException('Solo puede personalizar módulos con una suscripción activa.');
+      }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      await this.prisma.applyRlsContext(tx, { tenantId, userId });
+      const includedModules = getPlanIncludedModules(subscription.planType);
+      const addonsDetail: { module: string; price: number }[] = [];
+      for (const mod of new Set(selectedModules)) {
+        if (!includedModules.includes(mod)) {
+          addonsDetail.push({ module: mod, price: MODULE_PRICING[mod] });
+        }
+      }
+      const specialtyCount = await tx.tenantSpecialty.count({ where: { tenantId } });
+      const pricing = calculateSubscriptionPrice({
+        planType: subscription.planType,
+        selectedModules,
+        specialtyCount,
+        specialtyUnitPrice: Number(subscription.specialtyPrice),
+      });
+      const addonsCost = pricing.featureAddonsPrice;
 
-      const result = await tx.tenantSubscription.update({
+      const updated = await tx.tenantSubscription.update({
         where: { tenantId },
         data: {
           ...featureFlags,
-          basePrice: new Decimal(newTotalPrice),
+          basePrice: new Decimal(pricing.totalMonthly),
         },
       });
 
@@ -623,29 +507,26 @@ export class SubscriptionService {
             selectedModules,
             addons: addonsDetail,
             addonsCost,
-            totalPrice: newTotalPrice,
+            totalPrice: pricing.totalMonthly,
           },
           triggeredByUserId: userId,
         },
       });
 
-      return result;
+      return {
+        success: true,
+        plan: subscription.planType,
+        selectedModules,
+        includedInPlan: includedModules,
+        addons: addonsDetail,
+        pricing: {
+          ...pricing,
+          addonsCost,
+          currency: subscription.currency,
+        },
+        features: this.extractFeatures(updated),
+      };
     });
-
-    return {
-      success: true,
-      plan: subscription.planType,
-      selectedModules,
-      includedInPlan: includedModules,
-      addons: addonsDetail,
-      pricing: {
-        basePlanPrice: Number(basePlanLimits.basePrice),
-        addonsCost,
-        totalMonthly: newTotalPrice,
-        currency: subscription.currency,
-      },
-      features: this.extractFeatures(updated),
-    };
   }
 
   // ========================================
@@ -668,8 +549,8 @@ export class SubscriptionService {
         return p === 'TRIAL' || p.startsWith('CLINIC_');
       })
       .map((planType) => {
-        const limits = this.getPlanLimits(planType);
-        const includedModules = PLAN_INCLUDED_MODULES[planType] || [];
+        const limits = getPlanLimits(planType);
+        const includedModules = getPlanIncludedModules(planType);
         return {
           planType,
           basePrice: Number(limits.basePrice),
@@ -820,7 +701,7 @@ export class SubscriptionService {
       }
 
       // Generate warnings about feature loss
-      const newFeatures = this.getPlanFeatures(newPlanLimits.planType);
+      const newFeatures = getPlanFeatureFlags(newPlanLimits.planType);
 
       if (subscription.featureAdvancedAnalytics && !newFeatures.featureAdvancedAnalytics) {
         warnings.push('Perderá acceso a Analíticas Avanzadas');
@@ -848,113 +729,6 @@ export class SubscriptionService {
   // ========================================
   // HELPER METHODS
   // ========================================
-
-  private getPlanLimits(planType: PlanType) {
-    const plans = {
-      TRIAL: {
-        planType: 'TRIAL' as PlanType,
-        tenantType: 'PERSONAL' as TenantType,
-        basePrice: new Decimal(0),
-        pricePerSeat: new Decimal(0),
-        seatsIncluded: 1,
-        maxActivePatients: 10,
-        storageGB: 0,
-        monthlyNotificationsLimit: 100,
-        includedSpecialties: PLAN_SPECIALTY_LIMITS.TRIAL,
-        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
-        monthlyElectronicInvoicesLimit: 50,
-      },
-      PERSONAL_BASIC: {
-        planType: 'PERSONAL_BASIC' as PlanType,
-        tenantType: 'PERSONAL' as TenantType,
-        basePrice: new Decimal(29),
-        pricePerSeat: new Decimal(0),
-        seatsIncluded: 1,
-        maxActivePatients: 50,
-        storageGB: 0,
-        monthlyNotificationsLimit: 300,
-        includedSpecialties: PLAN_SPECIALTY_LIMITS.PERSONAL_BASIC,
-        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
-        monthlyElectronicInvoicesLimit: 50,
-      },
-      PERSONAL_PRO: {
-        planType: 'PERSONAL_PRO' as PlanType,
-        tenantType: 'PERSONAL' as TenantType,
-        basePrice: new Decimal(59),
-        pricePerSeat: new Decimal(0),
-        seatsIncluded: 1,
-        maxActivePatients: 200,
-        storageGB: 1,
-        monthlyNotificationsLimit: 1000,
-        includedSpecialties: PLAN_SPECIALTY_LIMITS.PERSONAL_PRO,
-        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
-        monthlyElectronicInvoicesLimit: 50,
-      },
-      CLINIC_BASIC: {
-        planType: 'CLINIC_BASIC' as PlanType,
-        tenantType: 'CLINIC' as TenantType,
-        basePrice: new Decimal(99),
-        pricePerSeat: new Decimal(15),
-        seatsIncluded: 3,
-        maxActivePatients: 150,
-        storageGB: 1,
-        monthlyNotificationsLimit: 500,
-        includedSpecialties: PLAN_SPECIALTY_LIMITS.CLINIC_BASIC,
-        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
-        monthlyElectronicInvoicesLimit: 50,
-      },
-      CLINIC_PRO: {
-        planType: 'CLINIC_PRO' as PlanType,
-        tenantType: 'CLINIC' as TenantType,
-        basePrice: new Decimal(199),
-        pricePerSeat: new Decimal(12),
-        seatsIncluded: 10,
-        maxActivePatients: 500,
-        storageGB: 5,
-        monthlyNotificationsLimit: 2000,
-        includedSpecialties: PLAN_SPECIALTY_LIMITS.CLINIC_PRO,
-        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
-        monthlyElectronicInvoicesLimit: 50,
-      },
-      CLINIC_ENTERPRISE: {
-        planType: 'CLINIC_ENTERPRISE' as PlanType,
-        tenantType: 'CLINIC' as TenantType,
-        basePrice: new Decimal(0),
-        pricePerSeat: new Decimal(0),
-        seatsIncluded: 999,
-        maxActivePatients: 999999,
-        storageGB: 100,
-        monthlyNotificationsLimit: 999999,
-        includedSpecialties: PLAN_SPECIALTY_LIMITS.CLINIC_ENTERPRISE,
-        specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
-        monthlyElectronicInvoicesLimit: 50,
-      },
-    };
-
-    const resolvedPlan = this.resolvePlanKey(planType);
-
-    return plans[resolvedPlan as keyof typeof plans];
-  }
-
-  private getPlanFeatures(planType: PlanType) {
-    const planKey = this.resolvePlanKey(planType);
-    const includedModules = PLAN_INCLUDED_MODULES[planKey] || [];
-
-    const features: Record<string, boolean> = {};
-    for (const mod of ALL_MODULES) {
-      features[moduleToDbKey(mod)] = includedModules.includes(mod);
-    }
-    return features;
-  }
-
-  private resolvePlanKey(planType: PlanType): string {
-    const legacyMap: Record<string, PlanType> = {
-      BASIC: 'CLINIC_BASIC',
-      PRO: 'CLINIC_PRO',
-      CUSTOM: 'CLINIC_ENTERPRISE',
-    };
-    return legacyMap[planType] || planType;
-  }
 
   private extractFeatures(subscription: any) {
     return {

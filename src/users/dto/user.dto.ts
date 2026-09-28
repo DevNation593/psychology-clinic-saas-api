@@ -85,6 +85,17 @@ export class CreateUserDto {
 
 export class InviteUserDto extends OmitType(CreateUserDto, ['tenantId', 'password'] as const) {}
 
+export class CreateTenantUserDto extends OmitType(CreateUserDto, [
+  'tenantId',
+  'password',
+] as const) {
+  @ApiProperty({ minLength: 8 })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8)
+  password: string;
+}
+
 export class UpdateUserDto extends PartialType(
   OmitType(CreateUserDto, ['tenantId', 'password'] as const),
 ) {

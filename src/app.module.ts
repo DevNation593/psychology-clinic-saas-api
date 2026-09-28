@@ -20,6 +20,7 @@ import { TenantSettingsModule } from './tenant-settings/tenant-settings.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { BillingModule } from './billing/billing.module';
 import { SpecialtyRecordsModule } from './specialty-records/specialty-records.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 import { HealthController } from './health.controller';
 import './common/utils/bigint-json';
 
@@ -76,6 +77,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     SpecialtiesModule,
     BillingModule,
     SpecialtyRecordsModule,
+    OnboardingModule,
   ],
   providers: [
     {
