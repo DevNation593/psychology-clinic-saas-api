@@ -1,14 +1,22 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PatientTeamService } from '../patient-team/patient-team.service';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 
 @Injectable()
 export class PatientsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private patientTeam: PatientTeamService,
+  ) {}
 
-  private normalizeOptionalString(value?: string): string | null | undefined {
+  private normalizeOptionalString(value?: string | null): string | null | undefined {
     if (value === undefined) {
       return undefined;
+    }
+    if (value === null) {
+      return null;
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
@@ -70,84 +78,98 @@ export class PatientsService {
     currentUserId: string,
     currentUserRole: string,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await this.prisma.applyRlsContext(tx, {
-        tenantId,
-        userId: currentUserId,
-        role: currentUserRole,
-      });
-
-      let subscription = await tx.tenantSubscription.findUnique({
-        where: { tenantId },
-      });
-
-      // Some RLS policies only allow admins to read subscription details.
-      if (!subscription && currentUserRole !== 'CLIENTE') {
-        await this.prisma.applyRlsContext(tx, {
-          tenantId,
-          userId: currentUserId,
-          role: 'CLIENTE',
-        });
-        subscription = await tx.tenantSubscription.findUnique({
-          where: { tenantId },
-        });
-
-        // Restore effective caller context before patient write.
+    return this.prisma.$transaction(
+      async (tx) => {
         await this.prisma.applyRlsContext(tx, {
           tenantId,
           userId: currentUserId,
           role: currentUserRole,
         });
-      }
 
-      this.assertCanCreatePatient(tenantId, subscription);
-
-      const patient = await tx.patient.create({
-        data: {
-          ...this.sanitizeCreatePayload(createPatientDto),
-          tenantId,
-        },
-      });
-
-      // Maintain usage counters; if RLS blocks this for non-admin roles, retry under admin context.
-      let updated = await tx.tenantSubscription.updateMany({
-        where: {
-          tenantId,
-          activePatientsCount: { lt: subscription.maxActivePatients },
-        },
-        data: { activePatientsCount: { increment: 1 } },
-      });
-
-      if (updated.count === 0 && currentUserRole !== 'CLIENTE') {
-        await this.prisma.applyRlsContext(tx, {
-          tenantId,
-          userId: currentUserId,
-          role: 'CLIENTE',
+        let subscription = await tx.tenantSubscription.findUnique({
+          where: { tenantId },
         });
-        updated = await tx.tenantSubscription.updateMany({
+
+        // Some RLS policies only allow admins to read subscription details.
+        if (!subscription && currentUserRole !== 'CLIENTE') {
+          await this.prisma.applyRlsContext(tx, {
+            tenantId,
+            userId: currentUserId,
+            role: 'CLIENTE',
+          });
+          subscription = await tx.tenantSubscription.findUnique({
+            where: { tenantId },
+          });
+
+          // Restore effective caller context before patient write.
+          await this.prisma.applyRlsContext(tx, {
+            tenantId,
+            userId: currentUserId,
+            role: currentUserRole,
+          });
+        }
+
+        this.assertCanCreatePatient(tenantId, subscription);
+
+        const sanitized = this.sanitizeCreatePayload(createPatientDto);
+        const assignedPsychologistId = sanitized.assignedPsychologistId;
+        const patient = await tx.patient.create({
+          data: {
+            ...sanitized,
+            tenantId,
+          },
+        });
+
+        if (assignedPsychologistId) {
+          await this.patientTeam.ensureActive(tx, {
+            tenantId,
+            patientId: patient.id,
+            professionalId: assignedPsychologistId,
+            assignedById: currentUserId,
+          });
+        }
+
+        // Maintain usage counters; if RLS blocks this for non-admin roles, retry under admin context.
+        let updated = await tx.tenantSubscription.updateMany({
           where: {
             tenantId,
             activePatientsCount: { lt: subscription.maxActivePatients },
           },
           data: { activePatientsCount: { increment: 1 } },
         });
-      }
 
-      if (updated.count === 0) {
-        throw new ForbiddenException({
-          error: 'PATIENT_LIMIT_REACHED',
-          message: `Límite de pacientes alcanzado. El plan actual (${subscription.planType}) permite ${subscription.maxActivePatients} paciente(s) activo(s). Por favor actualiza tu plan.`,
-          details: {
-            maxActivePatients: subscription.maxActivePatients,
-            activePatientsCount: subscription.activePatientsCount,
-            planType: subscription.planType,
-            upgradeUrl: `/tenants/${tenantId}/subscription/upgrade`,
-          },
-        });
-      }
+        if (updated.count === 0 && currentUserRole !== 'CLIENTE') {
+          await this.prisma.applyRlsContext(tx, {
+            tenantId,
+            userId: currentUserId,
+            role: 'CLIENTE',
+          });
+          updated = await tx.tenantSubscription.updateMany({
+            where: {
+              tenantId,
+              activePatientsCount: { lt: subscription.maxActivePatients },
+            },
+            data: { activePatientsCount: { increment: 1 } },
+          });
+        }
 
-      return patient;
-    });
+        if (updated.count === 0) {
+          throw new ForbiddenException({
+            error: 'PATIENT_LIMIT_REACHED',
+            message: `Límite de pacientes alcanzado. El plan actual (${subscription.planType}) permite ${subscription.maxActivePatients} paciente(s) activo(s). Por favor actualiza tu plan.`,
+            details: {
+              maxActivePatients: subscription.maxActivePatients,
+              activePatientsCount: subscription.activePatientsCount,
+              planType: subscription.planType,
+              upgradeUrl: `/tenants/${tenantId}/subscription/upgrade`,
+            },
+          });
+        }
+
+        return patient;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   private assertCanCreatePatient(tenantId: string, subscription: any) {
@@ -255,19 +277,52 @@ export class PatientsService {
     return patient;
   }
 
-  async update(tenantId: string, patientId: string, updatePatientDto: UpdatePatientDto) {
-    const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, tenantId, deletedAt: null },
-    });
+  async update(
+    tenantId: string,
+    patientId: string,
+    updatePatientDto: UpdatePatientDto,
+    currentUserId: string,
+    currentUserRole: string,
+  ) {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.prisma.applyRlsContext(tx, {
+          tenantId,
+          userId: currentUserId,
+          role: currentUserRole,
+        });
 
-    if (!patient) {
-      throw new NotFoundException('Paciente no encontrado');
-    }
+        const patient = await tx.patient.findFirst({
+          where: { id: patientId, tenantId, deletedAt: null },
+        });
 
-    return this.prisma.patient.update({
-      where: { id: patientId },
-      data: this.sanitizeUpdatePayload(updatePatientDto),
-    });
+        if (!patient) {
+          throw new NotFoundException('Paciente no encontrado');
+        }
+
+        const { assignedPsychologistId, ...otherData } =
+          this.sanitizeUpdatePayload(updatePatientDto);
+        const updated = await tx.patient.update({
+          where: { id: patientId },
+          data: {
+            ...otherData,
+            ...(assignedPsychologistId !== undefined ? { assignedPsychologistId } : {}),
+          },
+        });
+
+        if (assignedPsychologistId) {
+          await this.patientTeam.ensureActive(tx, {
+            tenantId,
+            patientId,
+            professionalId: assignedPsychologistId,
+            assignedById: currentUserId,
+          });
+        }
+
+        return updated;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   async softDelete(
