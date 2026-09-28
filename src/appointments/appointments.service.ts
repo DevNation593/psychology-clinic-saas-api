@@ -163,10 +163,20 @@ export class AppointmentsService {
       const existing = await tx.appointment.findFirst({ where: { id: appointmentId, tenantId } });
       if (!existing) throw new NotFoundException('Cita no encontrada');
       const currentProfessionalId = existing.professionalId ?? existing.psychologistId;
+      if (pureCancellation) {
+        this.assertCancellationOwnership(currentProfessionalId, actor);
+        const cancelled = await tx.appointment.update({
+          where: { id: appointmentId },
+          data: {
+            status: AppointmentStatus.CANCELLED,
+            ...this.cancellationData(actor.userId, null),
+          },
+          include: appointmentInclude,
+        });
+        return this.normalizeAppointment(cancelled);
+      }
       await this.findPatient(tx, tenantId, existing.patientId);
-      if (pureCancellation) this.assertCancellationOwnership(currentProfessionalId, actor);
-      else
-        await this.authorizeUpdate(tx, tenantId, existing.patientId, currentProfessionalId, actor);
+      await this.authorizeUpdate(tx, tenantId, existing.patientId, currentProfessionalId, actor);
 
       const hasProfessionalReference =
         input.professionalId !== undefined || input.psychologistId !== undefined;

@@ -443,6 +443,60 @@ describe('AppointmentsService canonical appointments', () => {
     expect(team.assertActiveMembership).not.toHaveBeenCalled();
   });
 
+  it('PATCH-cancels an archived patient appointment with audit metadata and normalized aliases', async () => {
+    db.patient.findFirst.mockResolvedValue(null);
+    db.appointment.findFirst.mockResolvedValue(row({ professionalId: null, professional: null }));
+    db.appointment.update.mockImplementation(async ({ data }) =>
+      row({ professionalId: null, professional: null, ...data }),
+    );
+    const result = await update({ status: 'CANCELLED' }, clinician);
+    expect(result).toMatchObject({
+      status: 'CANCELLED',
+      professionalId: 'professional-1',
+      psychologistId: 'professional-1',
+      cancelledAt: now,
+      cancelledBy: 'professional-1',
+      cancellationReason: null,
+    });
+    expect(result.professional).toEqual(result.psychologist);
+    expect(db.patient.findFirst).not.toHaveBeenCalled();
+    expect(team.assertActiveMembership).not.toHaveBeenCalled();
+  });
+
+  it('dedicated cancel also handles an archived patient and records the supplied reason', async () => {
+    db.patient.findFirst.mockResolvedValue(null);
+    db.appointment.findFirst.mockResolvedValue(row({ professionalId: null, professional: null }));
+    db.appointment.update.mockImplementation(async ({ data }) =>
+      row({ professionalId: null, professional: null, ...data }),
+    );
+    const result = await cancel(clinician);
+    expect(result).toMatchObject({
+      status: 'CANCELLED',
+      professionalId: 'professional-1',
+      psychologistId: 'professional-1',
+      cancelledAt: now,
+      cancelledBy: 'professional-1',
+      cancellationReason: 'Patient request',
+    });
+    expect(db.patient.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('keeps active-patient validation for mixed cancellation and metadata edits', async () => {
+    db.patient.findFirst.mockResolvedValue(null);
+    await expect(
+      update({ status: 'CANCELLED', title: 'Changed' }, clinician),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(db.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it('requires team edit permission for mixed cancellation payloads', async () => {
+    team.assertActiveMembership.mockRejectedValue({ status: 403 });
+    await expect(
+      update({ status: 'CANCELLED', title: 'Changed' }, clinician),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(db.appointment.update).not.toHaveBeenCalled();
+  });
+
   it('still rejects a third-party professional cancelling through PATCH', async () => {
     db.appointment.findFirst.mockResolvedValue(
       row({ professionalId: 'professional-2', psychologistId: 'professional-2' }),
