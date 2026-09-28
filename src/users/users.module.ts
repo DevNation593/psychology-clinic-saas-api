@@ -4,9 +4,10 @@ import { UsersController } from './users.controller';
 import { ProviderAdminController } from './provider-admin.controller';
 import { AuthModule } from '../auth/auth.module';
 import { ProfessionalProfilesModule } from '../professional-profiles/professional-profiles.module';
+import { PatientTeamModule } from '../patient-team/patient-team.module';
 
 @Module({
-  imports: [AuthModule, ProfessionalProfilesModule],
+  imports: [AuthModule, ProfessionalProfilesModule, PatientTeamModule],
   controllers: [UsersController, ProviderAdminController],
   providers: [UsersService],
   exports: [UsersService],

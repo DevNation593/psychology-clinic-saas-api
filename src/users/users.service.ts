@@ -14,6 +14,7 @@ import { isAdminRole, isProfessionalRole } from '../common/roles/role-compatibil
 import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
 import { ProfessionalProfileInputDto } from '../professional-profiles/dto/professional-profile.dto';
 import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
+import { PatientTeamService } from '../patient-team/patient-team.service';
 
 const professionalFields = {
   professionalTitle: true,
@@ -64,6 +65,7 @@ export class UsersService {
     private prisma: PrismaService,
     private authService: AuthService,
     private profiles: ProfessionalProfilesService,
+    private patientTeam: PatientTeamService,
   ) {}
 
   private resolveProfileInput(
@@ -417,8 +419,14 @@ export class UsersService {
       if (existing) throw new ConflictException('Este email ya está registrado en esta clínica');
     }
     const current = user.professionalProfile;
-    const remove = dto.professionalProfile === null;
     const input = this.resolveProfileInput(dto);
+    const nextRole = dto.role ?? user.role;
+    const remove =
+      dto.professionalProfile === null ||
+      (dto.role === UserRole.ASISTENTE &&
+        current &&
+        dto.professionalProfile === undefined &&
+        !input);
     const profile = remove
       ? undefined
       : (input ??
@@ -459,7 +467,16 @@ export class UsersService {
     ) {
       throw new ForbiddenException('El acceso de este usuario debe ser concedido por el proveedor');
     }
-    this.profiles.validateRoleProfile(dto.role ?? user.role, profile);
+    this.profiles.validateRoleProfile(nextRole, profile);
+    const hadClinicalCapacity = user.isActive && current?.isActive === true;
+    const willHaveClinicalCapacity =
+      (dto.isActive ?? user.isActive) &&
+      profile?.isActive === true &&
+      (isAdminRole(nextRole) || isProfessionalRole(nextRole));
+    const losesClinicalCapacity = hadClinicalCapacity && !willHaveClinicalCapacity;
+    if (losesClinicalCapacity) {
+      await this.patientTeam.assertNoFutureAppointmentsForProfessional(tx, tenantId, userId);
+    }
     if (profile) {
       if (!current || profile.specialtyId !== current.specialtyId) {
         await this.profiles.assertSpecialtyEnabled(tenantId, profile.specialtyId, tx);
@@ -492,6 +509,9 @@ export class UsersService {
       },
       select: userSelect,
     });
+    if (losesClinicalCapacity) {
+      await this.patientTeam.deactivateAllForProfessional(tx, tenantId, userId);
+    }
     await this.profiles.syncStoredSeatCount(tenantId, tx);
     const { password: _, ...safe } = updated as typeof updated & { password?: string };
     return safe;
