@@ -53,9 +53,10 @@ export class AppointmentsService {
     const reference = this.normalizeProfessionalReference(input)!;
     const start = this.parseStart(input.startTime);
     const end = this.endTime(start, input.duration);
-    if (start < new Date()) throw new BadRequestException('No se pueden crear citas en el pasado');
 
     return runSerializableTransaction(this.prisma, tenantId, actor.userId, async (tx) => {
+      if (start < new Date())
+        throw new BadRequestException('No se pueden crear citas en el pasado');
       await this.findPatient(tx, tenantId, input.patientId);
       await this.authorizeCreate(tx, tenantId, input.patientId, reference.professionalId, actor);
       const specialtyId = await this.resolveSpecialty(tx, tenantId, reference);
@@ -154,12 +155,18 @@ export class AppointmentsService {
     actor: TeamActor,
   ) {
     this.assertActor(tenantId, actor);
+    this.assertNonNullUpdateFields(input);
+    const pureCancellation =
+      input.status === AppointmentStatus.CANCELLED &&
+      Object.entries(input).every(([field, value]) => field === 'status' || value === undefined);
     return runSerializableTransaction(this.prisma, tenantId, actor.userId, async (tx) => {
       const existing = await tx.appointment.findFirst({ where: { id: appointmentId, tenantId } });
       if (!existing) throw new NotFoundException('Cita no encontrada');
       const currentProfessionalId = existing.professionalId ?? existing.psychologistId;
       await this.findPatient(tx, tenantId, existing.patientId);
-      await this.authorizeUpdate(tx, tenantId, existing.patientId, currentProfessionalId, actor);
+      if (pureCancellation) this.assertCancellationOwnership(currentProfessionalId, actor);
+      else
+        await this.authorizeUpdate(tx, tenantId, existing.patientId, currentProfessionalId, actor);
 
       const hasProfessionalReference =
         input.professionalId !== undefined || input.psychologistId !== undefined;
@@ -178,6 +185,13 @@ export class AppointmentsService {
       const specialtyChanged = specialtyId !== existing.specialtyId;
       const intervalChanged =
         start.getTime() !== existing.startTime.getTime() || duration !== existing.duration;
+      const reactivating =
+        existing.status === AppointmentStatus.CANCELLED &&
+        input.status !== undefined &&
+        input.status !== AppointmentStatus.CANCELLED;
+      const cancelling =
+        existing.status !== AppointmentStatus.CANCELLED &&
+        input.status === AppointmentStatus.CANCELLED;
 
       if (
         toCanonicalRole(actor.role) === 'PROFESIONAL' &&
@@ -191,7 +205,7 @@ export class AppointmentsService {
       if (professionalChanged && reference && !reference.legacyOnly && !input.specialtyId) {
         throw this.specialtyRequired();
       }
-      if (professionalChanged || specialtyChanged || intervalChanged) {
+      if (professionalChanged || specialtyChanged || intervalChanged || reactivating) {
         const resolved = await this.resolveSpecialty(tx, tenantId, {
           professionalId,
           specialtyId: specialtyId ?? undefined,
@@ -199,15 +213,15 @@ export class AppointmentsService {
         });
         specialtyId = resolved;
       }
-      if (intervalChanged) {
+      if (intervalChanged || reactivating) {
         if (start < new Date())
           throw new BadRequestException('No se pueden crear citas en el pasado');
-        await this.assertWorkingHours(tx, tenantId, start);
       }
-      if (professionalChanged || intervalChanged) {
+      if (professionalChanged || intervalChanged || reactivating) {
+        await this.assertWorkingHours(tx, tenantId, start);
         await this.checkConflicts(tx, tenantId, professionalId, start, end, appointmentId);
       }
-      if (patientChanged || professionalChanged) {
+      if (patientChanged || professionalChanged || reactivating) {
         await this.team.ensureActive(tx, {
           tenantId,
           patientId,
@@ -228,6 +242,12 @@ export class AppointmentsService {
           ...(input.isOnline !== undefined && { isOnline: input.isOnline }),
           ...(input.meetingUrl !== undefined && { meetingUrl: input.meetingUrl }),
           ...(input.status !== undefined && { status: input.status }),
+          ...(cancelling && this.cancellationData(actor.userId, null)),
+          ...(reactivating && {
+            cancelledAt: null,
+            cancelledBy: null,
+            cancellationReason: null,
+          }),
         },
         include: appointmentInclude,
       });
@@ -237,27 +257,58 @@ export class AppointmentsService {
 
   async cancel(tenantId: string, appointmentId: string, reason: string, actor: TeamActor) {
     this.assertActor(tenantId, actor);
-    const appointment = await this.prisma.appointment.findFirst({
-      where: { id: appointmentId, tenantId },
+    return runSerializableTransaction(this.prisma, tenantId, actor.userId, async (tx) => {
+      const appointment = await tx.appointment.findFirst({
+        where: { id: appointmentId, tenantId },
+      });
+      if (!appointment) throw new NotFoundException('Cita no encontrada');
+      this.assertCancellationOwnership(
+        appointment.professionalId ?? appointment.psychologistId,
+        actor,
+      );
+      const updated = await tx.appointment.update({
+        where: { id: appointmentId },
+        data: {
+          status: AppointmentStatus.CANCELLED,
+          ...this.cancellationData(actor.userId, reason),
+        },
+        include: appointmentInclude,
+      });
+      return this.normalizeAppointment(updated);
     });
-    if (!appointment) throw new NotFoundException('Cita no encontrada');
-    if (
-      toCanonicalRole(actor.role) === 'PROFESIONAL' &&
-      (appointment.professionalId ?? appointment.psychologistId) !== actor.userId
-    ) {
+  }
+
+  private cancellationData(userId: string, reason: string | null) {
+    return { cancelledAt: new Date(), cancelledBy: userId, cancellationReason: reason };
+  }
+
+  private assertCancellationOwnership(professionalId: string, actor: TeamActor) {
+    if (toCanonicalRole(actor.role) === 'PROFESIONAL' && professionalId !== actor.userId) {
       throw this.appointmentForbidden();
     }
-    const updated = await this.prisma.appointment.update({
-      where: { id: appointmentId },
-      data: {
-        status: AppointmentStatus.CANCELLED,
-        cancelledAt: new Date(),
-        cancelledBy: actor.userId,
-        cancellationReason: reason,
-      },
-      include: appointmentInclude,
-    });
-    return this.normalizeAppointment(updated);
+  }
+
+  private assertNonNullUpdateFields(input: UpdateAppointmentDto) {
+    const fields = [
+      'patientId',
+      'professionalId',
+      'psychologistId',
+      'specialtyId',
+      'startTime',
+      'duration',
+      'status',
+      'title',
+      'isOnline',
+    ];
+    for (const field of fields) {
+      if ((input as unknown as Record<string, unknown>)[field] === null) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'APPOINTMENT_FIELD_INVALID',
+          message: `${field} no puede ser nulo.`,
+        });
+      }
+    }
   }
 
   private assertActor(tenantId: string, actor: TeamActor) {
@@ -285,19 +336,16 @@ export class AppointmentsService {
     input: ProfessionalReference,
     required = true,
   ): { professionalId: string; specialtyId?: string; legacyOnly: boolean } | undefined {
-    if (
-      input.professionalId &&
-      input.psychologistId &&
-      input.professionalId !== input.psychologistId
-    ) {
+    const hasProfessional = input.professionalId !== undefined;
+    const hasPsychologist = input.psychologistId !== undefined;
+    if (hasProfessional && hasPsychologist && input.professionalId !== input.psychologistId) {
       throw new BadRequestException({
         statusCode: 400,
         code: 'PROFESSIONAL_REFERENCE_MISMATCH',
         message: 'professionalId y psychologistId deben identificar a la misma persona.',
       });
     }
-    const professionalId = input.professionalId ?? input.psychologistId;
-    if (!professionalId) {
+    if (!hasProfessional && !hasPsychologist) {
       if (!required) return undefined;
       throw new UnprocessableEntityException({
         statusCode: 422,
@@ -305,10 +353,18 @@ export class AppointmentsService {
         message: 'Selecciona un profesional.',
       });
     }
+    const professionalId = hasProfessional ? input.professionalId : input.psychologistId;
+    if (typeof professionalId !== 'string' || !professionalId.trim()) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'PROFESSIONAL_REFERENCE_INVALID',
+        message: 'Selecciona un identificador profesional válido.',
+      });
+    }
     return {
       professionalId,
       specialtyId: input.specialtyId,
-      legacyOnly: !input.professionalId && !!input.psychologistId,
+      legacyOnly: !hasProfessional && hasPsychologist,
     };
   }
 

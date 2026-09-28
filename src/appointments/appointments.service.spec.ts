@@ -284,10 +284,33 @@ describe('AppointmentsService canonical appointments', () => {
     await expect(
       update({ professionalId: 'professional-2', specialtyId: null }),
     ).rejects.toMatchObject({
-      status: 422,
-      response: { code: 'SPECIALTY_REQUIRED' },
+      status: 400,
     });
     expect(db.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'patientId',
+    'professionalId',
+    'psychologistId',
+    'specialtyId',
+    'startTime',
+    'duration',
+    'status',
+    'title',
+    'isOnline',
+  ])('rejects explicit null for nonnullable update field %s', async (field) => {
+    await expect(update({ [field]: null })).rejects.toMatchObject({ status: 400 });
+    expect(db.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it('preserves legitimate nullable metadata updates', async () => {
+    await update({ description: null, location: null, meetingUrl: null });
+    expect(db.appointment.update.mock.calls[0][0].data).toMatchObject({
+      description: null,
+      location: null,
+      meetingUrl: null,
+    });
   });
 
   it('derives specialty for legacy-only reassignment', async () => {
@@ -301,6 +324,19 @@ describe('AppointmentsService canonical appointments', () => {
         }),
       }),
     );
+  });
+
+  it('checks current working hours on reassignment even when the time is unchanged', async () => {
+    db.tenantSettings.findUnique.mockResolvedValue({
+      workingDays: ['MONDAY'],
+      workingHoursStart: '09:00',
+      workingHoursEnd: '17:00',
+    });
+    await expect(
+      update({ professionalId: 'professional-2', specialtyId: 'nutrition' }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(db.appointment.update).not.toHaveBeenCalled();
+    expect(team.ensureActive).not.toHaveBeenCalled();
   });
 
   it('rejects contradictory identifiers on reassignment before writing', async () => {
@@ -341,6 +377,86 @@ describe('AppointmentsService canonical appointments', () => {
     await update({ startTime: '2026-09-29T15:00:00.000Z' });
     expect(eligibility.resolve).toHaveBeenCalledWith(db, tenantId, 'professional-1', 'nutrition');
     expect(db.appointment.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('reactivates a cancelled booking only after current checks and clears cancellation metadata', async () => {
+    db.appointment.findFirst.mockResolvedValue(
+      row({
+        status: 'CANCELLED',
+        cancelledAt: now,
+        cancelledBy: 'admin-1',
+        cancellationReason: 'Prior cancellation',
+      }),
+    );
+    await update({ status: 'SCHEDULED' });
+    expect(eligibility.resolve).toHaveBeenCalledWith(db, tenantId, 'professional-1', 'nutrition');
+    expect(db.tenantSettings.findUnique).toHaveBeenCalledWith({ where: { tenantId } });
+    expect(db.appointment.findMany).toHaveBeenCalledTimes(1);
+    expect(team.ensureActive).toHaveBeenCalledWith(db, {
+      tenantId,
+      patientId: 'patient-1',
+      professionalId: 'professional-1',
+      assignedById: 'admin-1',
+    });
+    expect(db.appointment.update.mock.calls[0][0].data).toMatchObject({
+      status: 'SCHEDULED',
+      cancelledAt: null,
+      cancelledBy: null,
+      cancellationReason: null,
+    });
+  });
+
+  it('refuses reactivation when the current slot conflicts', async () => {
+    db.appointment.findFirst.mockResolvedValue(row({ status: 'CANCELLED' }));
+    db.appointment.findMany.mockResolvedValue([
+      {
+        id: 'other',
+        startTime: new Date(startTime),
+        endTime: new Date('2026-09-29T14:00:00.000Z'),
+        patient: { firstName: 'Other', lastName: 'Patient' },
+      },
+    ]);
+    await expect(update({ status: 'CONFIRMED' })).rejects.toMatchObject({
+      status: 409,
+      response: { code: 'APPOINTMENT_CONFLICT' },
+    });
+    expect(db.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it('audits cancellation through PATCH status', async () => {
+    await update({ status: 'CANCELLED' }, assistant);
+    expect(db.appointment.update.mock.calls[0][0].data).toMatchObject({
+      status: 'CANCELLED',
+      cancelledAt: now,
+      cancelledBy: 'assistant-1',
+    });
+    expect(eligibility.resolve).not.toHaveBeenCalled();
+  });
+
+  it('lets an owner cancel through PATCH without active team membership, like the cancel endpoint', async () => {
+    team.assertActiveMembership.mockRejectedValue({ status: 403 });
+    await update({ status: 'CANCELLED' }, clinician);
+    expect(db.appointment.update.mock.calls[0][0].data).toMatchObject({
+      status: 'CANCELLED',
+      cancelledBy: 'professional-1',
+    });
+    expect(team.assertActiveMembership).not.toHaveBeenCalled();
+  });
+
+  it('still rejects a third-party professional cancelling through PATCH', async () => {
+    db.appointment.findFirst.mockResolvedValue(
+      row({ professionalId: 'professional-2', psychologistId: 'professional-2' }),
+    );
+    await expect(update({ status: 'CANCELLED' }, clinician)).rejects.toMatchObject({ status: 403 });
+    expect(db.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it('does not revalidate or reassign for a non-cancellation status-only transition', async () => {
+    await update({ status: 'CONFIRMED' });
+    expect(eligibility.resolve).not.toHaveBeenCalled();
+    expect(db.tenantSettings.findUnique).not.toHaveBeenCalled();
+    expect(db.appointment.findMany).not.toHaveBeenCalled();
+    expect(team.ensureActive).not.toHaveBeenCalled();
   });
 
   it('propagates a specialty mismatch from authoritative eligibility', async () => {
@@ -460,6 +576,39 @@ describe('AppointmentsService canonical appointments', () => {
     });
   });
 
+  it.each([
+    ['create', { professionalId: '', psychologistId: 'professional-1', specialtyId: 'nutrition' }],
+    ['update', { professionalId: '', psychologistId: 'professional-1', specialtyId: 'nutrition' }],
+    ['list', { professionalId: '', psychologistId: 'professional-1' }],
+  ])('%s rejects differing aliases even if one is empty', async (operation, input) => {
+    const action =
+      operation === 'create'
+        ? create(createInput(input))
+        : operation === 'update'
+          ? update(input)
+          : list(input);
+    await expect(action).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'PROFESSIONAL_REFERENCE_MISMATCH' },
+    });
+  });
+
+  it.each(['create', 'update', 'list'])(
+    '%s rejects a supplied empty professional identifier',
+    async (operation) => {
+      const action =
+        operation === 'create'
+          ? create(createInput({ professionalId: '' }))
+          : operation === 'update'
+            ? update({ professionalId: '' })
+            : list({ professionalId: '' });
+      await expect(action).rejects.toMatchObject({ status: 400 });
+      expect(db.appointment.create).not.toHaveBeenCalled();
+      expect(db.appointment.update).not.toHaveBeenCalled();
+      expect(db.appointment.findMany).not.toHaveBeenCalled();
+    },
+  );
+
   it('applies a legacy-only professional filter to canonical and unmigrated rows', async () => {
     await list({ psychologistId: 'professional-2' });
     expect(db.appointment.findMany.mock.calls[0][0].where.AND).toContainEqual({
@@ -518,6 +667,54 @@ describe('AppointmentsService canonical appointments', () => {
     expect(db.appointment.findMany).toHaveBeenCalledTimes(2);
     expect(team.ensureActive).toHaveBeenCalledTimes(2);
     expect(db.appointment.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a start that becomes past before a create retry', async () => {
+    prisma.$transaction
+      .mockImplementationOnce(async (callback) => {
+        await callback(db);
+        jest.setSystemTime(new Date('2026-09-29T14:00:00.000Z'));
+        throw { code: 'P2034' };
+      })
+      .mockImplementationOnce((callback) => callback(db));
+    await expect(create(createInput())).rejects.toMatchObject({ status: 400 });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(db.appointment.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks update ownership after a serialization retry and rejects the former owner', async () => {
+    db.appointment.findFirst
+      .mockResolvedValueOnce(row())
+      .mockResolvedValueOnce(
+        row({ professionalId: 'professional-2', psychologistId: 'professional-2' }),
+      );
+    prisma.$transaction
+      .mockImplementationOnce(async (callback) => {
+        await callback(db);
+        throw { code: 'P2034' };
+      })
+      .mockImplementationOnce((callback) => callback(db));
+    await expect(update({ title: 'Changed' }, clinician)).rejects.toMatchObject({ status: 403 });
+    expect(db.appointment.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechecks cancellation ownership in the same transaction after reassignment', async () => {
+    db.appointment.findFirst
+      .mockResolvedValueOnce(row())
+      .mockResolvedValueOnce(
+        row({ professionalId: 'professional-2', psychologistId: 'professional-2' }),
+      );
+    prisma.$transaction
+      .mockImplementationOnce(async (callback) => {
+        await callback(db);
+        throw { code: 'P2034' };
+      })
+      .mockImplementationOnce((callback) => callback(db));
+    await expect(cancel(clinician)).rejects.toMatchObject({ status: 403 });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(db.appointment.findFirst).toHaveBeenCalledTimes(2);
+    expect(db.appointment.update).toHaveBeenCalledTimes(1);
+    expect(prisma.appointment.update).toHaveBeenCalledTimes(1);
   });
 
   it('keeps reminder records using the psychologist relation', async () => {
