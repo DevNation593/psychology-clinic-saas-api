@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
 import { PatientsModule } from './patients/patients.module';
+import { PatientTeamModule } from './patient-team/patient-team.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ClinicalNotesModule } from './clinical-notes/clinical-notes.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -66,6 +67,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     TenantsModule,
     UsersModule,
     PatientsModule,
+    PatientTeamModule,
     AppointmentsModule,
     ClinicalNotesModule,
     TasksModule,
