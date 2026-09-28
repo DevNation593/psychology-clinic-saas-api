@@ -1,7 +1,7 @@
 # Diseño de equipo tratante y citas multiespecialidad
 
 **Fecha:** 2026-09-27
-**Estado:** pendiente de revisión de la especificación escrita
+**Estado:** aprobado para implementación
 **Depende de:** `2026-09-23-multispecialty-consulting-design.md` y la etapa de catálogo, onboarding y administración del equipo
 **Ramas de trabajo:** API y web `codex/patient-team-appointments`
 **Bases verificadas:** API `647037981ff86be378ca5acb14d542955c191a72`; web `f02b3bd1c8a28b8b31054936a65c9ecdd6fb5cb4`
@@ -100,7 +100,7 @@ La combinación `patientId + professionalId` es única porque ambos identificado
 
 Una asignación no se borra físicamente. Retirarla establece `isActive = false`. Agregar una combinación inexistente la crea; agregar una combinación inactiva la reactiva, renueva `assignedAt` y `assignedById`; agregar una combinación ya activa es idempotente y no altera su procedencia.
 
-La especialidad no se duplica en esta tabla. Para estado actual se obtiene de `ProfessionalProfile.specialtyId`. Los registros y citas históricas conservan por separado la especialidad vigente al momento de su creación.
+La especialidad no se duplica en esta tabla. Para estado actual se obtiene de `ProfessionalProfile.specialtyId`. Los registros y citas históricas conservan por separado la especialidad vigente al momento de su creación. Si un perfil se elimina por completo, su asignación histórica ya inactiva se conserva y devuelve `specialty: null`; la interfaz la agrupa como “Sin especialidad vigente”. Una asignación activa o un candidato elegible nunca puede tener especialidad nula.
 
 ### Compatibilidad de `Patient.assignedPsychologistId`
 
@@ -189,7 +189,7 @@ type PatientTeamMember = {
     lastName: string;
     professionalTitle: string | null;
     licenseNumber: string | null;
-    specialty: { id: string; code: string; name: string };
+    specialty: { id: string; code: string; name: string } | null;
   };
 };
 ```
@@ -314,6 +314,7 @@ Los formularios de alta y edición eliminan el selector único “Psicólogo asi
 El detalle incorpora una sección o pestaña independiente “Equipo tratante”. La implementación extraerá componentes y hooks enfocados para esta sección sin reescribir toda la página existente. La vista:
 
 - agrupa integrantes por especialidad;
+- agrupa perfiles históricos eliminados bajo “Sin especialidad vigente”;
 - muestra nombre, título, estado y fecha de asignación;
 - distingue integrantes activos de históricos/inactivos;
 - permite filtrar candidatos por especialidad;
