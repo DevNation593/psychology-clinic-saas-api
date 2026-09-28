@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PatientTeamService } from '../patient-team/patient-team.service';
+import { toCanonicalRole } from '../common/roles/role-compatibility';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 
 @Injectable()
@@ -86,6 +87,16 @@ export class PatientsService {
           role: currentUserRole,
         });
 
+        const sanitized = this.sanitizeCreatePayload(createPatientDto);
+        const assignedPsychologistId = sanitized.assignedPsychologistId;
+        if (assignedPsychologistId && toCanonicalRole(currentUserRole) === 'PROFESIONAL') {
+          throw new ForbiddenException({
+            statusCode: 403,
+            code: 'TEAM_ASSIGNMENT_FORBIDDEN',
+            message: 'No tienes permiso para modificar este equipo tratante.',
+          });
+        }
+
         let subscription = await tx.tenantSubscription.findUnique({
           where: { tenantId },
         });
@@ -111,8 +122,6 @@ export class PatientsService {
 
         this.assertCanCreatePatient(tenantId, subscription);
 
-        const sanitized = this.sanitizeCreatePayload(createPatientDto);
-        const assignedPsychologistId = sanitized.assignedPsychologistId;
         const patient = await tx.patient.create({
           data: {
             ...sanitized,
@@ -302,6 +311,9 @@ export class PatientsService {
 
         const { assignedPsychologistId, ...otherData } =
           this.sanitizeUpdatePayload(updatePatientDto);
+        if (assignedPsychologistId && toCanonicalRole(currentUserRole) === 'PROFESIONAL') {
+          await this.patientTeam.assertActiveMembership(tx, tenantId, patientId, currentUserId);
+        }
         const updated = await tx.patient.update({
           where: { id: patientId },
           data: {

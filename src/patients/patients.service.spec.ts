@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { ForbiddenException } from '@nestjs/common';
 import { PatientTeamService } from '../patient-team/patient-team.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePatientDto } from './dto/patient.dto';
@@ -35,7 +36,7 @@ describe('PatientsService legacy assignment compatibility', () => {
     $transaction: jest.fn(),
     applyRlsContext: jest.fn(),
   };
-  const team = { ensureActive: jest.fn(), remove: jest.fn() };
+  const team = { ensureActive: jest.fn(), assertActiveMembership: jest.fn(), remove: jest.fn() };
   const service = new PatientsService(
     prisma as unknown as PrismaService,
     team as unknown as PatientTeamService,
@@ -58,6 +59,12 @@ describe('PatientsService legacy assignment compatibility', () => {
     lastName: 'Paz',
     ...overrides,
   });
+  const assignmentForbidden = () =>
+    new ForbiddenException({
+      statusCode: 403,
+      code: 'TEAM_ASSIGNMENT_FORBIDDEN',
+      message: 'No tienes permiso para modificar este equipo tratante.',
+    });
 
   it('creates the same patient and activates its legacy assignee in one serializable transaction', async () => {
     const result = await service.create(
@@ -96,6 +103,47 @@ describe('PatientsService legacy assignment compatibility', () => {
     await service.create('tenant-1', createInput(), 'admin-1', 'ADMIN');
     expect(team.ensureActive).not.toHaveBeenCalled();
   });
+
+  it.each(['PROFESIONAL', 'PSICOLOGO'])(
+    'rejects a %s creating a patient with a legacy assignee before any write',
+    async (role) => {
+      await expect(
+        service.create(
+          'tenant-1',
+          createInput({ assignedPsychologistId: 'professional-1' }),
+          'professional-1',
+          role,
+        ),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: {
+          statusCode: 403,
+          code: 'TEAM_ASSIGNMENT_FORBIDDEN',
+        },
+      });
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(tx.tenantSubscription.findUnique).not.toHaveBeenCalled();
+      expect(tx.patient.create).not.toHaveBeenCalled();
+      expect(team.ensureActive).not.toHaveBeenCalled();
+      expect(tx.tenantSubscription.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([undefined, null])(
+    'allows a professional to create patient demographics with pointer %s',
+    async (assignedPsychologistId) => {
+      await service.create(
+        'tenant-1',
+        createInput({ assignedPsychologistId }),
+        'professional-1',
+        'PROFESIONAL',
+      );
+
+      expect(tx.patient.create).toHaveBeenCalledTimes(1);
+      expect(team.ensureActive).not.toHaveBeenCalled();
+    },
+  );
 
   it('clears only the legacy pointer when update explicitly supplies null', async () => {
     await service.update(
@@ -152,6 +200,15 @@ describe('PatientsService legacy assignment compatibility', () => {
       where: { id: 'patient-1' },
       data: expect.objectContaining({ assignedPsychologistId: 'professional-2' }),
     });
+    expect(team.assertActiveMembership).toHaveBeenCalledWith(
+      tx,
+      'tenant-1',
+      'patient-1',
+      'professional-1',
+    );
+    expect(team.assertActiveMembership.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.patient.update.mock.invocationCallOrder[0],
+    );
     expect(team.ensureActive).toHaveBeenCalledWith(tx, {
       tenantId: 'tenant-1',
       patientId: 'patient-1',
@@ -161,4 +218,57 @@ describe('PatientsService legacy assignment compatibility', () => {
     expect(team.remove).not.toHaveBeenCalled();
     expect(tx.patientProfessional.updateMany).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['PROFESIONAL', 'professional-1'],
+    ['PSICOLOGO', 'professional-2'],
+  ])('denies an unassigned %s adding %s through the legacy pointer', async (role, targetId) => {
+    team.assertActiveMembership.mockRejectedValue(assignmentForbidden());
+
+    await expect(
+      service.update(
+        'tenant-1',
+        'patient-1',
+        { assignedPsychologistId: targetId },
+        'professional-1',
+        role,
+      ),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: {
+        statusCode: 403,
+        code: 'TEAM_ASSIGNMENT_FORBIDDEN',
+      },
+    });
+
+    expect(team.assertActiveMembership).toHaveBeenCalledWith(
+      tx,
+      'tenant-1',
+      'patient-1',
+      'professional-1',
+    );
+    expect(tx.patient.update).not.toHaveBeenCalled();
+    expect(team.ensureActive).not.toHaveBeenCalled();
+  });
+
+  it.each(['ADMIN', 'ASISTENTE'])(
+    'lets %s activate a legacy assignee without a team membership check',
+    async (role) => {
+      await service.update(
+        'tenant-1',
+        'patient-1',
+        { assignedPsychologistId: 'professional-2' },
+        'actor-1',
+        role,
+      );
+
+      expect(team.assertActiveMembership).not.toHaveBeenCalled();
+      expect(team.ensureActive).toHaveBeenCalledWith(tx, {
+        tenantId: 'tenant-1',
+        patientId: 'patient-1',
+        professionalId: 'professional-2',
+        assignedById: 'actor-1',
+      });
+    },
+  );
 });
