@@ -32,9 +32,12 @@ describe('Patient team and appointments (E2E)', () => {
     `/api/v1/tenants/${routeTenantId}/patients/${patientId}/team`;
   const appointmentsUrl = (routeTenantId = tenantId) =>
     `/api/v1/tenants/${routeTenantId}/appointments`;
-  const futureAt = (days: number) => {
-    const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-    date.setUTCHours(14, 0, 0, 0);
+  const futureBase = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  futureBase.setUTCHours(14, 0, 0, 0);
+  futureBase.setUTCDate(futureBase.getUTCDate() + ((8 - futureBase.getUTCDay()) % 7));
+  const futureAt = (weekdays: number) => {
+    const date = new Date(futureBase);
+    date.setUTCDate(date.getUTCDate() + Math.floor(weekdays / 5) * 7 + (weekdays % 5));
     return date.toISOString();
   };
   const appointmentInput = (
@@ -311,20 +314,55 @@ describe('Patient team and appointments (E2E)', () => {
       professionalId: nutritionProfessionalId,
       isActive: false,
     });
+    expect(
+      await prisma.patientProfessional.findUniqueOrThrow({
+        where: { patientId_professionalId: { patientId, professionalId: nutritionProfessionalId } },
+      }),
+    ).toMatchObject({
+      tenantId,
+      patientId,
+      professionalId: nutritionProfessionalId,
+      isActive: false,
+    });
 
     const foreignRoute = await request(server)
       .get(teamUrl(patientId, otherTenantId))
       .set('Authorization', bearer(adminToken))
       .expect(403);
     expect(foreignRoute.body.code).toBe('TENANT_SCOPE_VIOLATION');
-    await request(server)
+    const unknownPatient = await request(server)
+      .get(teamUrl(randomUUID()))
+      .set('Authorization', bearer(adminToken))
+      .expect(404);
+    const foreignPatient = await request(server)
       .get(teamUrl(otherPatientId))
       .set('Authorization', bearer(adminToken))
       .expect(404);
-    await request(server)
+    expect(foreignPatient.body).toMatchObject({ statusCode: 404, error: 'Not Found' });
+    expect(foreignPatient.body).toEqual(unknownPatient.body);
+    const unknownProfessional = await request(server)
+      .put(`${url}/${randomUUID()}`)
+      .set('Authorization', bearer(adminToken))
+      .expect(404);
+    const foreignProfessional = await request(server)
       .put(`${url}/${otherProfessionalId}`)
       .set('Authorization', bearer(adminToken))
       .expect(404);
+    expect(foreignProfessional.body).toMatchObject({ statusCode: 404, error: 'Not Found' });
+    expect(foreignProfessional.body).toEqual(unknownProfessional.body);
+    for (const body of [foreignPatient.body, foreignProfessional.body]) {
+      const safeBody = JSON.stringify(body);
+      for (const foreignIdentity of [
+        otherTenantId,
+        otherPatientId,
+        otherProfessionalId,
+        `foreign-${suffix}@example.test`,
+        `other-professional-${suffix}@example.test`,
+        'Foreign',
+      ]) {
+        expect(safeBody).not.toContain(foreignIdentity);
+      }
+    }
     expect(await prisma.patientProfessional.count({ where: { patientId: otherPatientId } })).toBe(
       0,
     );
@@ -353,6 +391,16 @@ describe('Patient team and appointments (E2E)', () => {
       professional: { id: nutritionProfessionalId },
       psychologist: { id: nutritionProfessionalId },
       specialty: { id: nutritionId, code: 'NUTRITION' },
+    });
+    expect(
+      await prisma.appointment.findUniqueOrThrow({ where: { id: appointmentId } }),
+    ).toMatchObject({
+      tenantId,
+      patientId,
+      professionalId: nutritionProfessionalId,
+      psychologistId: nutritionProfessionalId,
+      specialtyId: nutritionId,
+      status: 'SCHEDULED',
     });
     expect(
       await prisma.patientProfessional.findUnique({
@@ -413,6 +461,16 @@ describe('Patient team and appointments (E2E)', () => {
       psychologistId: psychologyProfessionalId,
       specialtyId: psychologyId,
     });
+    expect(
+      await prisma.appointment.findUniqueOrThrow({ where: { id: appointmentId } }),
+    ).toMatchObject({
+      tenantId,
+      patientId,
+      professionalId: psychologyProfessionalId,
+      psychologistId: psychologyProfessionalId,
+      specialtyId: psychologyId,
+      status: 'SCHEDULED',
+    });
     const memberships = await prisma.patientProfessional.findMany({ where: { patientId } });
     expect(memberships).toEqual(
       expect.arrayContaining([
@@ -425,6 +483,16 @@ describe('Patient team and appointments (E2E)', () => {
       .set('Authorization', bearer(assistantToken))
       .expect(200);
     expect(removedNutrition.body.isActive).toBe(false);
+    expect(
+      await prisma.patientProfessional.findUniqueOrThrow({
+        where: { patientId_professionalId: { patientId, professionalId: nutritionProfessionalId } },
+      }),
+    ).toMatchObject({
+      tenantId,
+      patientId,
+      professionalId: nutritionProfessionalId,
+      isActive: false,
+    });
     const cancelled = await request(server)
       .post(`${appointmentsUrl()}/${appointmentId}/cancel`)
       .set('Authorization', bearer(assistantToken))
@@ -436,6 +504,18 @@ describe('Patient team and appointments (E2E)', () => {
       .set('Authorization', bearer(assistantToken))
       .expect(200);
     expect(removedPsychology.body.isActive).toBe(false);
+    expect(
+      await prisma.patientProfessional.findUniqueOrThrow({
+        where: {
+          patientId_professionalId: { patientId, professionalId: psychologyProfessionalId },
+        },
+      }),
+    ).toMatchObject({
+      tenantId,
+      patientId,
+      professionalId: psychologyProfessionalId,
+      isActive: false,
+    });
     expect(await prisma.patientProfessional.count({ where: { patientId, isActive: true } })).toBe(
       0,
     );
@@ -619,15 +699,22 @@ describe('Patient team and appointments (E2E)', () => {
     expect(appointmentResponses.find((response) => response.status === 409)?.body.code).toBe(
       'APPOINTMENT_CONFLICT',
     );
-    expect(
-      await prisma.appointment.count({
-        where: {
-          patientId,
-          professionalId: psychologyProfessionalId,
-          startTime: new Date(input.startTime),
-        },
-      }),
-    ).toBe(1);
+    const duplicateRows = await prisma.appointment.findMany({
+      where: {
+        patientId,
+        startTime: new Date(input.startTime),
+        endTime: new Date(new Date(input.startTime).getTime() + input.duration * 60 * 1000),
+      },
+    });
+    expect(duplicateRows).toHaveLength(1);
+    expect(duplicateRows[0]).toMatchObject({
+      tenantId,
+      patientId,
+      professionalId: psychologyProfessionalId,
+      psychologistId: psychologyProfessionalId,
+      specialtyId: psychologyId,
+      status: 'SCHEDULED',
+    });
 
     const racingPatientId = await createPatient('RacingRemoval');
     const racingUrl = `${teamUrl(racingPatientId)}/${nutritionProfessionalId}`;
@@ -669,6 +756,8 @@ describe('Patient team and appointments (E2E)', () => {
       where: { id: patientId },
       data: { assignedPsychologistId: psychologyProfessionalId },
     });
+    const legacyStart = new Date(futureAt(38));
+    const mismatchedStart = new Date(futureAt(39));
     const legacy = await prisma.appointment.create({
       data: {
         tenantId,
@@ -676,8 +765,8 @@ describe('Patient team and appointments (E2E)', () => {
         psychologistId: psychologyProfessionalId,
         professionalId: null,
         specialtyId: null,
-        startTime: new Date(futureAt(38)),
-        endTime: new Date(new Date(futureAt(38)).getTime() + 60 * 60 * 1000),
+        startTime: legacyStart,
+        endTime: new Date(legacyStart.getTime() + 60 * 60 * 1000),
         duration: 60,
       },
     });
@@ -688,8 +777,8 @@ describe('Patient team and appointments (E2E)', () => {
         psychologistId: psychologyProfessionalId,
         professionalId: nutritionProfessionalId,
         specialtyId: nutritionId,
-        startTime: new Date(futureAt(39)),
-        endTime: new Date(new Date(futureAt(39)).getTime() + 60 * 60 * 1000),
+        startTime: mismatchedStart,
+        endTime: new Date(mismatchedStart.getTime() + 60 * 60 * 1000),
         duration: 60,
       },
     });
@@ -722,26 +811,74 @@ describe('Patient team and appointments (E2E)', () => {
       otherTenantId,
       otherAdminToken,
     );
+    const readTeamSnapshot = () =>
+      prisma.patientProfessional.findMany({
+        select: {
+          id: true,
+          tenantId: true,
+          patientId: true,
+          professionalId: true,
+          assignedAt: true,
+          assignedById: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: { id: 'asc' },
+      });
+    const readAppointmentSnapshot = () =>
+      prisma.appointment.findMany({
+        where: { id: { in: [legacy.id, mismatched.id] } },
+        select: {
+          id: true,
+          tenantId: true,
+          patientId: true,
+          psychologistId: true,
+          professionalId: true,
+          specialtyId: true,
+          startTime: true,
+          endTime: true,
+          duration: true,
+          status: true,
+          title: true,
+          updatedAt: true,
+        },
+        orderBy: { id: 'asc' },
+      });
+    let assertionFailed = false;
     try {
       await prisma.patient.update({
         where: { id: foreignPatientId },
         data: { assignedPsychologistId: psychologyProfessionalId },
       });
-      const rowsBefore = await prisma.patientProfessional.count();
-      const legacyBefore = await prisma.appointment.findUniqueOrThrow({ where: { id: legacy.id } });
+      const teamBefore = await readTeamSnapshot();
+      const appointmentsBefore = await readAppointmentSnapshot();
+      expect(appointmentsBefore.map((row) => row.id)).toEqual([legacy.id, mismatched.id].sort());
       await expect(reconcilePatientTeamAppointments(prisma)).rejects.toThrow(
         'PATIENT_TEAM_CROSS_TENANT',
       );
-      expect(await prisma.patientProfessional.count()).toBe(rowsBefore);
-      expect(await prisma.appointment.findUniqueOrThrow({ where: { id: legacy.id } })).toEqual(
-        legacyBefore,
-      );
+      expect(await readTeamSnapshot()).toEqual(teamBefore);
+      expect(await readAppointmentSnapshot()).toEqual(appointmentsBefore);
+    } catch (error) {
+      assertionFailed = true;
+      throw error;
     } finally {
-      await prisma.patient.update({
-        where: { id: foreignPatientId },
-        data: { assignedPsychologistId: null },
-      });
-      await prisma.patient.delete({ where: { id: foreignPatientId } });
+      let cleanupError: unknown;
+      for (const cleanup of [
+        () =>
+          prisma.patient.update({
+            where: { id: foreignPatientId },
+            data: { assignedPsychologistId: null },
+          }),
+        () => prisma.patient.delete({ where: { id: foreignPatientId } }),
+      ]) {
+        try {
+          await cleanup();
+        } catch (error) {
+          cleanupError ??= error;
+        }
+      }
+      if (cleanupError && !assertionFailed) throw cleanupError;
     }
   });
 });
