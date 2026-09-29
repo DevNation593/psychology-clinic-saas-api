@@ -699,13 +699,7 @@ describe('Patient team and appointments (E2E)', () => {
     expect(appointmentResponses.find((response) => response.status === 409)?.body.code).toBe(
       'APPOINTMENT_CONFLICT',
     );
-    const duplicateRows = await prisma.appointment.findMany({
-      where: {
-        patientId,
-        startTime: new Date(input.startTime),
-        endTime: new Date(new Date(input.startTime).getTime() + input.duration * 60 * 1000),
-      },
-    });
+    const duplicateRows = await prisma.appointment.findMany({ where: { patientId } });
     expect(duplicateRows).toHaveLength(1);
     expect(duplicateRows[0]).toMatchObject({
       tenantId,
@@ -713,6 +707,8 @@ describe('Patient team and appointments (E2E)', () => {
       professionalId: psychologyProfessionalId,
       psychologistId: psychologyProfessionalId,
       specialtyId: psychologyId,
+      startTime: new Date(input.startTime),
+      endTime: new Date(new Date(input.startTime).getTime() + input.duration * 60 * 1000),
       status: 'SCHEDULED',
     });
 
@@ -828,7 +824,6 @@ describe('Patient team and appointments (E2E)', () => {
       });
     const readAppointmentSnapshot = () =>
       prisma.appointment.findMany({
-        where: { id: { in: [legacy.id, mismatched.id] } },
         select: {
           id: true,
           tenantId: true,
@@ -841,30 +836,67 @@ describe('Patient team and appointments (E2E)', () => {
           duration: true,
           status: true,
           title: true,
+          createdAt: true,
           updatedAt: true,
         },
         orderBy: { id: 'asc' },
       });
+    let guardAppointmentId: string | undefined;
     let assertionFailed = false;
     try {
       await prisma.patient.update({
         where: { id: foreignPatientId },
         data: { assignedPsychologistId: psychologyProfessionalId },
       });
+      const guardStart = new Date(futureAt(40));
+      const guardAppointment = await prisma.appointment.create({
+        data: {
+          tenantId,
+          patientId,
+          psychologistId: psychologyProfessionalId,
+          professionalId: null,
+          specialtyId: null,
+          startTime: guardStart,
+          endTime: new Date(guardStart.getTime() + 60 * 60 * 1000),
+          duration: 60,
+        },
+      });
+      guardAppointmentId = guardAppointment.id;
       const teamBefore = await readTeamSnapshot();
       const appointmentsBefore = await readAppointmentSnapshot();
-      expect(appointmentsBefore.map((row) => row.id)).toEqual([legacy.id, mismatched.id].sort());
+      expect(appointmentsBefore.map((row) => row.id)).toEqual(
+        expect.arrayContaining([legacy.id, mismatched.id, guardAppointmentId]),
+      );
+      expect(guardAppointment).toMatchObject({
+        tenantId,
+        patientId,
+        psychologistId: psychologyProfessionalId,
+        professionalId: null,
+        specialtyId: null,
+      });
       await expect(reconcilePatientTeamAppointments(prisma)).rejects.toThrow(
         'PATIENT_TEAM_CROSS_TENANT',
       );
       expect(await readTeamSnapshot()).toEqual(teamBefore);
       expect(await readAppointmentSnapshot()).toEqual(appointmentsBefore);
+      expect(
+        await prisma.appointment.findUniqueOrThrow({ where: { id: guardAppointmentId } }),
+      ).toMatchObject({
+        tenantId,
+        patientId,
+        psychologistId: psychologyProfessionalId,
+        professionalId: null,
+        specialtyId: null,
+      });
     } catch (error) {
       assertionFailed = true;
       throw error;
     } finally {
       let cleanupError: unknown;
       for (const cleanup of [
+        ...(guardAppointmentId
+          ? [() => prisma.appointment.delete({ where: { id: guardAppointmentId } })]
+          : []),
         () =>
           prisma.patient.update({
             where: { id: foreignPatientId },
