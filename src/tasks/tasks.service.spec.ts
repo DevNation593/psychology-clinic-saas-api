@@ -3,11 +3,9 @@ import { TaskActor, TasksService } from './tasks.service';
 
 describe('TasksService visibility per professional', () => {
   const tenantId = 'tenant-1';
-  const admin: TaskActor = { userId: 'admin-1', role: 'ADMIN' };
-  const legacyAdmin: TaskActor = { userId: 'admin-1', role: 'CLIENTE' };
+  const admin: TaskActor = { userId: 'admin-1', role: 'MASTER' };
   const assistant: TaskActor = { userId: 'assistant-1', role: 'ASISTENTE' };
   const professional: TaskActor = { userId: 'pro-1', role: 'PROFESIONAL' };
-  const legacyProfessional: TaskActor = { userId: 'pro-1', role: 'PSICOLOGO' };
   const task = (overrides: Record<string, unknown> = {}) => ({
     id: 'task-1',
     tenantId,
@@ -42,7 +40,7 @@ describe('TasksService visibility per professional', () => {
   });
 
   describe('listing', () => {
-    it.each([professional, legacyProfessional])(
+    it.each([professional])(
       'limits a professional ($role) to tasks they created or were assigned',
       async (actor) => {
         await service.findAll(tenantId, {}, actor);
@@ -67,7 +65,7 @@ describe('TasksService visibility per professional', () => {
       });
     });
 
-    it.each([admin, legacyAdmin, assistant])('shows every clinic task to $role', async (actor) => {
+    it.each([admin, assistant])('shows every clinic task to $role', async (actor) => {
       await service.findAll(tenantId, {}, actor);
       expect(prisma.task.findMany.mock.calls[0][0].where).toEqual({ tenantId });
     });

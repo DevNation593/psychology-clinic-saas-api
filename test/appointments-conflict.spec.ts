@@ -6,7 +6,7 @@ import { PatientTeamService } from '../src/patient-team/patient-team.service';
 describe('Appointments conflict and scheduling regressions', () => {
   const now = new Date('2026-09-28T12:00:00.000Z');
   const startTime = '2026-09-29T13:00:00.000Z';
-  const actor = { tenantId: 'tenant-1', userId: 'admin-1', role: 'ADMIN' };
+  const actor = { tenantId: 'tenant-1', userId: 'admin-1', role: 'MASTER' };
   const input = {
     patientId: 'patient-1',
     professionalId: 'professional-1',

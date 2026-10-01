@@ -38,7 +38,7 @@ export class BillingService {
         id: issuerId,
         tenantId,
         isActive: true,
-        role: { in: ['CLIENTE', 'PSICOLOGO', 'ADMIN', 'PROFESIONAL'] },
+        role: { in: ['MASTER', 'PROFESIONAL'] },
       },
       select: { id: true },
     });

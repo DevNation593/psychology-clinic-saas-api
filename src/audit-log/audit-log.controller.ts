@@ -5,13 +5,13 @@ import { Roles } from '../common/decorators/roles.decorator';
 
 @ApiTags('audit-log')
 @ApiBearerAuth('access-token')
-@Roles('CLIENTE')
+@Roles('MASTER')
 @Controller('tenants/:tenantId/audit-logs')
 export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List audit logs - Admin only' })
+  @ApiOperation({ summary: 'List audit logs - Master only' })
   @ApiQuery({ name: 'entity', required: false })
   @ApiQuery({ name: 'entityId', required: false })
   @ApiQuery({ name: 'userId', required: false })
@@ -39,7 +39,7 @@ export class AuditLogController {
   }
 
   @Get(':entity/:entityId')
-  @ApiOperation({ summary: 'Get audit logs for specific entity - Admin only' })
+  @ApiOperation({ summary: 'Get audit logs for specific entity - Master only' })
   @ApiResponse({ status: 200, description: 'Entity audit history' })
   async findByEntity(
     @Param('tenantId') tenantId: string,

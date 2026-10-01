@@ -23,27 +23,37 @@ function setup(role: string | undefined, requiredRoles?: string[], isPublic = fa
 
 describe('RolesGuard', () => {
   it.each([
-    ['ADMIN', 'CLIENTE'],
-    ['CLIENTE', 'ADMIN'],
-    ['PROFESIONAL', 'PSICOLOGO'],
-    ['PSICOLOGO', 'PROFESIONAL'],
-  ])('allows %s when metadata requires %s', (actual, required) => {
-    const { guard, context } = setup(actual, [required]);
+    ['MASTER', ['MASTER']],
+    ['PROFESIONAL', ['MASTER', 'PROFESIONAL']],
+    ['ASISTENTE', ['MASTER', 'ASISTENTE', 'PROFESIONAL']],
+  ])('allows %s when metadata requires %j', (actual, required) => {
+    const { guard, context } = setup(actual, required);
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it('rejects SOPORTE when metadata requires ADMIN', () => {
-    const { guard, context } = setup('SOPORTE', ['ADMIN']);
-    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
-  });
+  it.each(['PROFESIONAL', 'ASISTENTE', 'ADMIN', 'CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'])(
+    'rejects %s when metadata requires MASTER',
+    (actual) => {
+      const { guard, context } = setup(actual, ['MASTER']);
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    },
+  );
+
+  it.each(['ADMIN', 'CLIENTE', 'PSICOLOGO'])(
+    'rejects %s on clinical endpoints open to the whole clinic team',
+    (actual) => {
+      const { guard, context } = setup(actual, ['MASTER', 'ASISTENTE', 'PROFESIONAL']);
+      expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
+    },
+  );
 
   it('allows SOPORTE when explicitly declared in metadata', () => {
-    const { guard, context } = setup('SOPORTE', ['ADMIN', 'SOPORTE']);
+    const { guard, context } = setup('SOPORTE', ['MASTER', 'SOPORTE']);
     expect(guard.canActivate(context)).toBe(true);
   });
 
   it('allows a public route without a user', () => {
-    const { guard, context } = setup(undefined, ['ADMIN'], true);
+    const { guard, context } = setup(undefined, ['MASTER'], true);
     expect(guard.canActivate(context)).toBe(true);
   });
 

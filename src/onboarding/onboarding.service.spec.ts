@@ -179,7 +179,7 @@ describe('OnboardingService', () => {
     expect(result.admin).toMatchObject({
       id: 'admin-1',
       email: 'ana@example.com',
-      role: 'ADMIN',
+      role: 'MASTER',
       professionalProfile: null,
     });
     expect(state.settings).toEqual([

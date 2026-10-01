@@ -52,9 +52,9 @@ export class UsersController {
     return this.usersService.findAll(tenantId, filters);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
   @Post()
-  @ApiOperation({ summary: 'Create an active clinic team member - Admin only' })
+  @ApiOperation({ summary: 'Create an active clinic team member - Master only' })
   @ApiResponse({ status: 201, description: 'Team member created' })
   async create(
     @Param('tenantId') tenantId: string,
@@ -83,9 +83,9 @@ export class UsersController {
     return this.usersService.updateSelf(tenantId, user.userId, updateSelfProfileDto);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
   @Patch(':userId')
-  @ApiOperation({ summary: 'Update user - Admin only' })
+  @ApiOperation({ summary: 'Update user - Master only' })
   @ApiResponse({ status: 200, description: 'User updated' })
   async update(
     @Param('tenantId') tenantId: string,
@@ -96,9 +96,9 @@ export class UsersController {
     return this.usersService.update(tenantId, userId, updateUserDto, actor.userId);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
   @Delete(':userId')
-  @ApiOperation({ summary: 'Deactivate user - Admin only (soft delete)' })
+  @ApiOperation({ summary: 'Deactivate user - Master only (soft delete)' })
   @ApiResponse({ status: 200, description: 'User deactivated and seat freed' })
   async deactivate(
     @Param('tenantId') tenantId: string,
@@ -108,9 +108,9 @@ export class UsersController {
     return this.usersService.deactivate(tenantId, userId, actor.userId);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
   @Post(':userId/activate')
-  @ApiOperation({ summary: 'Activate a pending legacy invitation - Admin only' })
+  @ApiOperation({ summary: 'Activate a pending legacy invitation - Master only' })
   @ApiResponse({ status: 201, description: 'Pending invitation activated' })
   @ApiResponse({ status: 403, description: 'Provider-managed users require provider access grant' })
   @ApiResponse({ status: 409, description: 'ACTIVATION_NOT_PENDING' })

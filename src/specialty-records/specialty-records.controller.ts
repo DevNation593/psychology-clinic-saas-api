@@ -23,7 +23,7 @@ export class SpecialtyRecordsController {
   }
 
   @Post()
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @ApiOperation({ summary: 'Create a specialty clinical record' })
   create(
     @Param('tenantId') tenantId: string,

@@ -20,7 +20,7 @@ describe('FeatureGuard', () => {
   };
   const guard = new FeatureGuard(new Reflector(), prisma as unknown as PrismaService);
 
-  const contextFor = (controller: { prototype: { handler: () => void } }, role = 'ADMIN') =>
+  const contextFor = (controller: { prototype: { handler: () => void } }, role = 'MASTER') =>
     ({
       getHandler: () => controller.prototype.handler,
       getClass: () => controller,

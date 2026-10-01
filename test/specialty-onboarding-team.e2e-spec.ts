@@ -105,7 +105,7 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     });
     expect(created.body.admin).toMatchObject({
       email: `admin-primary-${suffix}@example.test`,
-      role: 'ADMIN',
+      role: 'MASTER',
       professionalProfile: { isActive: true, specialty: { code: 'PSYCHOLOGY' } },
     });
     expect(JSON.stringify(created.body)).not.toMatch(/password|\$2[aby]\$/i);
@@ -303,8 +303,8 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       .patch(`/api/v1/tenants/${tenantId}/users/${adminId}`)
       .set('Authorization', `Bearer ${token}`)
       .send({ isActive: false })
-      .expect(409);
-    expect(selfDeactivate.body.code).toBe('CANNOT_DEACTIVATE_SELF');
+      .expect(400);
+    expect(selfDeactivate.body.code).toBe('MASTER_IMMUTABLE');
     expect(await prisma.user.count({ where: { id: adminId, isActive: true } })).toBe(1);
 
     await request(server)

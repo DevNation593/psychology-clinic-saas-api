@@ -54,7 +54,7 @@ describe('BillingService invoice issuer role compatibility', () => {
       const issuer = {
         id: 'issuer-1',
         tenantId: 'tenant-1',
-        role: 'ADMIN',
+        role: 'MASTER',
         isActive: true,
       };
       const allowedRoles: string[] = where.role?.in ?? [where.role];
@@ -85,7 +85,7 @@ describe('BillingService invoice issuer role compatibility', () => {
         id: 'issuer-1',
         tenantId: 'tenant-1',
         isActive: true,
-        role: { in: ['CLIENTE', 'PSICOLOGO', 'ADMIN', 'PROFESIONAL'] },
+        role: { in: ['MASTER', 'PROFESIONAL'] },
       },
       select: { id: true },
     });
@@ -93,8 +93,8 @@ describe('BillingService invoice issuer role compatibility', () => {
 
   it.each([
     ['a disallowed role', { role: 'ASISTENTE', tenantId: 'tenant-1', isActive: true }],
-    ['another tenant', { role: 'ADMIN', tenantId: 'tenant-2', isActive: true }],
-    ['an inactive issuer', { role: 'ADMIN', tenantId: 'tenant-1', isActive: false }],
+    ['another tenant', { role: 'MASTER', tenantId: 'tenant-2', isActive: true }],
+    ['an inactive issuer', { role: 'MASTER', tenantId: 'tenant-1', isActive: false }],
   ])('rejects %s', async (_description, issuer) => {
     prisma.user.findFirst.mockImplementation(async ({ where }) => {
       const allowedRoles: string[] = where.role?.in ?? [where.role];

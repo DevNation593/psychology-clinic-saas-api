@@ -130,7 +130,7 @@ export class OnboardingService {
                 password,
                 firstName: dto.adminFirstName.trim(),
                 lastName: dto.adminLastName.trim(),
-                role: UserRole.ADMIN,
+                role: UserRole.MASTER,
                 isActive: true,
                 emailVerified: true,
                 activatedAt: new Date(),

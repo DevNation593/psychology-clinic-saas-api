@@ -12,7 +12,7 @@ import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorat
 
 @ApiTags('appointments')
 @ApiBearerAuth('access-token')
-@Roles('ADMIN', 'ASISTENTE', 'PROFESIONAL')
+@Roles('MASTER', 'ASISTENTE', 'PROFESIONAL')
 @Controller('tenants/:tenantId/appointments')
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}

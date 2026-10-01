@@ -17,7 +17,7 @@ describe('Auth professional profile payload', () => {
       email: 'admin@test.invalid',
       firstName: 'Clinical',
       lastName: 'Admin',
-      role: 'CLIENTE',
+      role: 'MASTER',
       isActive: true,
       password: await bcrypt.hash('Password123!', 4),
       updatedAt: new Date(),
@@ -59,10 +59,10 @@ describe('Auth professional profile payload', () => {
     expect(result.user).toMatchObject({
       id: user.id,
       tenantId: user.tenantId,
-      role: 'CLIENTE',
+      role: 'MASTER',
       professionalProfile: { specialty: { id: 'specialty-1', name: 'Clinical' } },
     });
-    expect(JSON.parse(result.accessToken).role).toBe('CLIENTE');
+    expect(JSON.parse(result.accessToken).role).toBe('MASTER');
     expect(db.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         include: { tenant: true, professionalProfile: { include: { specialty: true } } },
@@ -75,16 +75,16 @@ describe('Auth professional profile payload', () => {
       sub: user.id,
       email: user.email,
       tenantId: user.tenantId,
-      role: 'CLIENTE',
+      role: 'MASTER',
     });
     const result = await service.refreshTokens(previousToken);
     expect(result.user).toMatchObject({
       id: user.id,
       tenantId: user.tenantId,
-      role: 'CLIENTE',
+      role: 'MASTER',
       professionalProfile: { specialty: { id: 'specialty-1', name: 'Clinical' } },
     });
-    expect(JSON.parse(result.accessToken).role).toBe('CLIENTE');
+    expect(JSON.parse(result.accessToken).role).toBe('MASTER');
     expect(result.refreshToken).not.toBe(previousToken);
     expect(db.refreshToken.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({

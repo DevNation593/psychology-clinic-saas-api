@@ -99,6 +99,10 @@ export class TenantGuard implements CanActivate {
 - Tokens belong to a "family" (tracked by `familyId`)
 - If a revoked token is used → entire family is revoked (security breach detected)
 
+**Roles**:
+
+`MASTER` es el titular de la cuenta del consultorio: hay exactamente uno por tenant (índice único parcial `User_tenantId_master_key`), lo crea el onboarding y no puede cambiar de rol ni desactivarse. `ADMIN` permanece en el enum reservado para uso futuro y no concede acceso dentro de un consultorio. `CLIENTE` y `PSICOLOGO` son valores obsoletos sin usuarios.
+
 ### 3. Subscription & Seat Management
 
 **Seat Enforcement Flow**:

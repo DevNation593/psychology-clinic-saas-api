@@ -29,18 +29,18 @@ export class TenantsController {
   }
 
   @ApiBearerAuth('access-token')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @Patch(':tenantId')
-  @ApiOperation({ summary: 'Update tenant - Admin only' })
+  @ApiOperation({ summary: 'Update tenant - Master only' })
   @ApiResponse({ status: 200, description: 'Tenant updated' })
   async update(@Param('tenantId') tenantId: string, @Body() updateTenantDto: UpdateTenantDto) {
     return this.tenantsService.update(tenantId, updateTenantDto);
   }
 
   @ApiBearerAuth('access-token')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @Post(':tenantId/complete-onboarding')
-  @ApiOperation({ summary: 'Mark onboarding as completed - Admin only' })
+  @ApiOperation({ summary: 'Mark onboarding as completed - Master only' })
   @ApiResponse({ status: 200, description: 'Onboarding completed' })
   async completeOnboarding(@Param('tenantId') tenantId: string) {
     return this.tenantsService.completeOnboarding(tenantId);

@@ -46,7 +46,7 @@ describe('UsersService self profile updates', () => {
       firstName: 'Ana',
       lastName: 'Ríos',
       phone: '+593 99 123 4567',
-      role: 'ADMIN',
+      role: 'MASTER',
       professionalTitle: null,
       licenseNumber: null,
       professionalProfile: null,

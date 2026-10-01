@@ -71,7 +71,7 @@ describe('PatientsService legacy assignment compatibility', () => {
       'tenant-1',
       createInput({ assignedPsychologistId: 'professional-1' }),
       'admin-1',
-      'ADMIN',
+      'MASTER',
     );
 
     expect(result).toBe(patient);
@@ -82,7 +82,7 @@ describe('PatientsService legacy assignment compatibility', () => {
     expect(prisma.applyRlsContext).toHaveBeenCalledWith(tx, {
       tenantId: 'tenant-1',
       userId: 'admin-1',
-      role: 'ADMIN',
+      role: 'MASTER',
     });
     expect(tx.patient.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -100,11 +100,11 @@ describe('PatientsService legacy assignment compatibility', () => {
   });
 
   it('keeps an unassigned create free of team writes', async () => {
-    await service.create('tenant-1', createInput(), 'admin-1', 'ADMIN');
+    await service.create('tenant-1', createInput(), 'admin-1', 'MASTER');
     expect(team.ensureActive).not.toHaveBeenCalled();
   });
 
-  it.each(['PROFESIONAL', 'PSICOLOGO'])(
+  it.each(['PROFESIONAL'])(
     'rejects a %s creating a patient with a legacy assignee before any write',
     async (role) => {
       await expect(
@@ -164,7 +164,7 @@ describe('PatientsService legacy assignment compatibility', () => {
   });
 
   it('leaves the pointer and team untouched when update omits the legacy field', async () => {
-    await service.update('tenant-1', 'patient-1', { firstName: 'Anita' }, 'admin-1', 'ADMIN');
+    await service.update('tenant-1', 'patient-1', { firstName: 'Anita' }, 'admin-1', 'MASTER');
 
     const data = tx.patient.update.mock.calls[0][0].data;
     expect(data).toEqual(expect.objectContaining({ firstName: 'Anita' }));
@@ -219,39 +219,39 @@ describe('PatientsService legacy assignment compatibility', () => {
     expect(tx.patientProfessional.updateMany).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['PROFESIONAL', 'professional-1'],
-    ['PSICOLOGO', 'professional-2'],
-  ])('denies an unassigned %s adding %s through the legacy pointer', async (role, targetId) => {
-    team.assertActiveMembership.mockRejectedValue(assignmentForbidden());
+  it.each([['PROFESIONAL', 'professional-1']])(
+    'denies an unassigned %s adding %s through the legacy pointer',
+    async (role, targetId) => {
+      team.assertActiveMembership.mockRejectedValue(assignmentForbidden());
 
-    await expect(
-      service.update(
+      await expect(
+        service.update(
+          'tenant-1',
+          'patient-1',
+          { assignedPsychologistId: targetId },
+          'professional-1',
+          role,
+        ),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: {
+          statusCode: 403,
+          code: 'TEAM_ASSIGNMENT_FORBIDDEN',
+        },
+      });
+
+      expect(team.assertActiveMembership).toHaveBeenCalledWith(
+        tx,
         'tenant-1',
         'patient-1',
-        { assignedPsychologistId: targetId },
         'professional-1',
-        role,
-      ),
-    ).rejects.toMatchObject({
-      status: 403,
-      response: {
-        statusCode: 403,
-        code: 'TEAM_ASSIGNMENT_FORBIDDEN',
-      },
-    });
+      );
+      expect(tx.patient.update).not.toHaveBeenCalled();
+      expect(team.ensureActive).not.toHaveBeenCalled();
+    },
+  );
 
-    expect(team.assertActiveMembership).toHaveBeenCalledWith(
-      tx,
-      'tenant-1',
-      'patient-1',
-      'professional-1',
-    );
-    expect(tx.patient.update).not.toHaveBeenCalled();
-    expect(team.ensureActive).not.toHaveBeenCalled();
-  });
-
-  it.each(['ADMIN', 'ASISTENTE'])(
+  it.each(['MASTER', 'ASISTENTE'])(
     'lets %s activate a legacy assignee without a team membership check',
     async (role) => {
       await service.update(
@@ -286,7 +286,7 @@ describe('PatientsService legacy assignment compatibility', () => {
         'tenant-1',
         createInput({ billingTaxIdType: 'CEDULA', billingTaxId: '171 234 5678' }),
         'admin-1',
-        'ADMIN',
+        'MASTER',
       );
       expect(tx.patient.create.mock.calls[0][0].data).toMatchObject({
         billingTaxIdType: 'CEDULA',
@@ -297,7 +297,7 @@ describe('PatientsService legacy assignment compatibility', () => {
 
     it('rejects a billing type without a number before writing', async () => {
       await expect(
-        service.create('tenant-1', createInput({ billingTaxIdType: 'RUC' }), 'admin-1', 'ADMIN'),
+        service.create('tenant-1', createInput({ billingTaxIdType: 'RUC' }), 'admin-1', 'MASTER'),
       ).rejects.toMatchObject({ status: 400, response: { code: 'PATIENT_BILLING_INVALID' } });
       expect(tx.patient.create).not.toHaveBeenCalled();
     });
@@ -309,7 +309,7 @@ describe('PatientsService legacy assignment compatibility', () => {
         'patient-1',
         { billingAddress: 'Av. 1' },
         'admin-1',
-        'ADMIN',
+        'MASTER',
       );
       expect(tx.patient.update.mock.calls[0][0].data).toMatchObject({
         billingName: 'Luis Vega',
@@ -321,13 +321,13 @@ describe('PatientsService legacy assignment compatibility', () => {
     it('rejects an update that leaves the stored number without its type', async () => {
       tx.patient.findFirst.mockResolvedValue({ ...patient, ...storedBilling });
       await expect(
-        service.update('tenant-1', 'patient-1', { billingTaxIdType: '' }, 'admin-1', 'ADMIN'),
+        service.update('tenant-1', 'patient-1', { billingTaxIdType: '' }, 'admin-1', 'MASTER'),
       ).rejects.toMatchObject({ status: 400, response: { code: 'PATIENT_BILLING_INVALID' } });
       expect(tx.patient.update).not.toHaveBeenCalled();
     });
 
     it('does not touch billing columns when an update omits them', async () => {
-      await service.update('tenant-1', 'patient-1', { firstName: 'Anabel' }, 'admin-1', 'ADMIN');
+      await service.update('tenant-1', 'patient-1', { firstName: 'Anabel' }, 'admin-1', 'MASTER');
       const data = tx.patient.update.mock.calls[0][0].data;
       for (const key of Object.keys(storedBilling)) {
         expect(data).not.toHaveProperty(key);

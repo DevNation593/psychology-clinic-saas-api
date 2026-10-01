@@ -6,7 +6,7 @@ import { PatientTeamService } from './patient-team.service';
 
 @ApiTags('patient-team')
 @ApiBearerAuth('access-token')
-@Roles('ADMIN', 'ASISTENTE', 'PROFESIONAL')
+@Roles('MASTER', 'ASISTENTE', 'PROFESIONAL')
 @Controller('tenants/:tenantId/patients/:patientId/team')
 export class PatientTeamController {
   constructor(private readonly service: PatientTeamService) {}

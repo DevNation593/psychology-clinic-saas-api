@@ -31,8 +31,8 @@ export class SubscriptionController {
   }
 
   @Post('upgrade')
-  @Roles('CLIENTE')
-  @ApiOperation({ summary: 'Upgrade subscription plan (CLIENTE only)' })
+  @Roles('MASTER')
+  @ApiOperation({ summary: 'Upgrade subscription plan (Master only)' })
   async upgradePlan(
     @Param('tenantId') tenantId: string,
     @CurrentUser() user: any,
@@ -42,8 +42,8 @@ export class SubscriptionController {
   }
 
   @Post('downgrade')
-  @Roles('CLIENTE')
-  @ApiOperation({ summary: 'Schedule downgrade (CLIENTE only)' })
+  @Roles('MASTER')
+  @ApiOperation({ summary: 'Schedule downgrade (Master only)' })
   async downgradePlan(
     @Param('tenantId') tenantId: string,
     @CurrentUser() user: any,
@@ -53,9 +53,9 @@ export class SubscriptionController {
   }
 
   @Post('features')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @ApiOperation({
-    summary: 'Customize subscription modules/features (CLIENTE only)',
+    summary: 'Customize subscription modules/features (Master only)',
     description:
       'Select which modules to enable. Modules included in the plan are free; others are billed as addons.',
   })
