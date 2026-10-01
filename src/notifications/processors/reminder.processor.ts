@@ -50,13 +50,19 @@ export class ReminderProcessor {
           continue;
         }
 
-        // Parse tenant's reminder rules ("24h", "2h", "30m"...) into hours
-        const tenantRules = tenant.settings.reminderRules
-          .map((rule) => ({ rule, hoursBefore: parseReminderRule(rule) }))
-          .filter(
-            (parsed): parsed is { rule: string; hoursBefore: number } =>
-              parsed.hoursBefore !== null,
-          );
+        // Parse tenant's reminder rules ("24h", "2h", "30m"...) into hours.
+        // Equivalent rules ("60m" and "1h") collapse into a single reminder.
+        const tenantRules = [
+          ...new Map(
+            tenant.settings.reminderRules
+              .map((rule) => ({ rule, hoursBefore: parseReminderRule(rule) }))
+              .filter(
+                (parsed): parsed is { rule: string; hoursBefore: number } =>
+                  parsed.hoursBefore !== null,
+              )
+              .map((parsed) => [parsed.hoursBefore, parsed] as const),
+          ).values(),
+        ];
 
         // Find appointments needing reminders
         for (const { rule, hoursBefore } of tenantRules) {
@@ -89,20 +95,33 @@ export class ReminderProcessor {
           });
 
           // Rules without a dedicated flag are de-duplicated through the notification log.
+          // The logged start time is part of the match, so a rescheduled appointment
+          // is reminded again.
           let appointments = candidates;
           if (hoursBefore !== 24 && hoursBefore !== 2 && candidates.length > 0) {
-            const alreadySent = await this.prisma.notificationLog.findMany({
+            const previous = await this.prisma.notificationLog.findMany({
               where: {
                 tenantId: tenant.id,
                 type: 'APPOINTMENT_REMINDER',
                 relatedEntityType: 'appointment',
                 relatedEntityId: { in: candidates.map((appointment) => appointment.id) },
-                data: { path: ['reminderRule'], equals: rule },
               },
-              select: { relatedEntityId: true },
+              select: { relatedEntityId: true, data: true },
             });
-            const sentIds = new Set(alreadySent.map((log) => log.relatedEntityId));
-            appointments = candidates.filter((appointment) => !sentIds.has(appointment.id));
+            const sentKeys = new Set(
+              previous
+                .map((log) => ({ id: log.relatedEntityId, data: log.data as Record<string, any> }))
+                .filter(
+                  ({ data }) =>
+                    typeof data?.reminderRule === 'string' &&
+                    parseReminderRule(data.reminderRule) === hoursBefore,
+                )
+                .map(({ id, data }) => `${id}|${data.startTime}`),
+            );
+            appointments = candidates.filter(
+              (appointment) =>
+                !sentKeys.has(`${appointment.id}|${appointment.startTime.toISOString()}`),
+            );
           }
 
           for (const appointment of appointments) {

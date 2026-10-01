@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ACTIVITY_WRITE_INTERVAL_MS, getInactivityTimeoutMs } from '../session-inactivity';
+import { getActivityWriteIntervalMs, getInactivityTimeoutMs } from '../session-inactivity';
 
 interface JwtPayload {
   sub: string; // userId
@@ -54,7 +54,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('La sesión expiró por inactividad');
     }
 
-    if (idleMs === null || idleMs > ACTIVITY_WRITE_INTERVAL_MS) {
+    if (idleMs === null || idleMs > getActivityWriteIntervalMs()) {
       await this.prisma.user.update({
         where: { id: user.id },
         data: { lastActivityAt: new Date() },

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppointmentsService } from './appointments.service';
 
@@ -85,7 +85,12 @@ describe('AppointmentsService scheduling rules', () => {
     patient: { findFirst: jest.fn() },
     user: { findFirst: jest.fn() },
     tenantSettings: { findUnique: jest.fn() },
-    appointment: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn() },
+    appointment: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
   };
   let service: AppointmentsService;
 
@@ -156,5 +161,61 @@ describe('AppointmentsService scheduling rules', () => {
     const { include } = prisma.appointment.findFirst.mock.calls[0][0];
     expect('clinicalNotes' in include).toBe(included);
     expect(include.psychologist.select.password).toBeUndefined();
+  });
+
+  describe('update', () => {
+    const existing = {
+      id: 'appointment-1',
+      tenantId,
+      psychologistId: 'professional-1',
+      startTime: new Date(nextUtcHour(15)),
+      endTime: new Date(new Date(nextUtcHour(15)).getTime() + 60 * 60000),
+      duration: 60,
+    };
+    const overlapping = {
+      id: 'appointment-2',
+      patient: { firstName: 'Ana', lastName: 'Pérez' },
+      startTime: existing.startTime,
+      endTime: existing.endTime,
+    };
+
+    beforeEach(() => {
+      prisma.appointment.findFirst.mockResolvedValue(existing);
+      prisma.appointment.update.mockResolvedValue({ id: 'appointment-1' });
+      prisma.tenantSettings.findUnique.mockResolvedValue({
+        workingDays: allDays,
+        workingHoursStart: '00:00',
+        workingHoursEnd: '23:59',
+        timezone: 'UTC',
+      });
+    });
+
+    it('checks conflicts when only the professional changes', async () => {
+      prisma.appointment.findMany.mockResolvedValue([overlapping]);
+
+      await expect(
+        service.update(tenantId, 'appointment-1', { psychologistId: 'professional-2' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.appointment.findMany.mock.calls[0][0].where.psychologistId).toBe(
+        'professional-2',
+      );
+      expect(prisma.appointment.update).not.toHaveBeenCalled();
+    });
+
+    it('resets reminder flags when the appointment is moved', async () => {
+      await service.update(tenantId, 'appointment-1', { startTime: nextUtcHour(17) });
+
+      expect(prisma.appointment.update.mock.calls[0][0].data).toMatchObject({
+        reminderSent24h: false,
+        reminderSent2h: false,
+      });
+    });
+
+    it('does not touch the schedule for unrelated changes', async () => {
+      await service.update(tenantId, 'appointment-1', { title: 'Seguimiento' });
+
+      expect(prisma.appointment.findMany).not.toHaveBeenCalled();
+      expect(prisma.appointment.update.mock.calls[0][0].data).not.toHaveProperty('reminderSent24h');
+    });
   });
 });

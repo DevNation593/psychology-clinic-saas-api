@@ -329,8 +329,14 @@ export class AppointmentsService {
       throw new NotFoundException('Cita no encontrada');
     }
 
-    // If updating time, validate it and check conflicts
-    if (updateAppointmentDto.startTime || updateAppointmentDto.duration) {
+    let rescheduled = false;
+
+    // If the slot or the professional changes, validate it and check conflicts
+    if (
+      updateAppointmentDto.startTime ||
+      updateAppointmentDto.duration ||
+      updateAppointmentDto.psychologistId
+    ) {
       const newStart = updateAppointmentDto.startTime
         ? new Date(updateAppointmentDto.startTime)
         : existing.startTime;
@@ -341,30 +347,33 @@ export class AppointmentsService {
 
       const newDuration = updateAppointmentDto.duration || existing.duration;
       const newEnd = new Date(newStart.getTime() + newDuration * 60000);
+      const newPsychologistId = updateAppointmentDto.psychologistId || existing.psychologistId;
+
+      rescheduled = newStart.getTime() !== existing.startTime.getTime();
+      const slotChanged =
+        rescheduled ||
+        newEnd.getTime() !== existing.endTime.getTime() ||
+        newPsychologistId !== existing.psychologistId;
 
       const settings = await this.prisma.tenantSettings.findUnique({
         where: { tenantId },
       });
 
       // Only re-validate the schedule when the appointment is actually moved.
-      if (newStart.getTime() !== existing.startTime.getTime()) {
+      if (rescheduled) {
         if (newStart < new Date()) {
           throw new BadRequestException('No se pueden mover citas al pasado');
         }
         this.assertWithinWorkingHours(settings, newStart);
       }
 
-      if (!settings?.allowDoubleBooking) {
-        await this.checkConflicts(
-          tenantId,
-          updateAppointmentDto.psychologistId || existing.psychologistId,
-          newStart,
-          newEnd,
-          appointmentId,
-        );
+      if (slotChanged && !settings?.allowDoubleBooking) {
+        await this.checkConflicts(tenantId, newPsychologistId, newStart, newEnd, appointmentId);
       }
 
-      updateAppointmentDto['endTime'] = newEnd;
+      if (updateAppointmentDto.startTime || updateAppointmentDto.duration) {
+        updateAppointmentDto['endTime'] = newEnd;
+      }
     }
 
     if (updateAppointmentDto.patientId) {
@@ -382,6 +391,8 @@ export class AppointmentsService {
       data: {
         ...dataToUpdate,
         ...(status && { status: status as any }),
+        // A moved appointment must be reminded again at its new time.
+        ...(rescheduled && { reminderSent24h: false, reminderSent2h: false }),
         ...(patientId && { patient: { connect: { id: patientId } } }),
         ...(psychologistId && { psychologist: { connect: { id: psychologistId } } }),
       },
@@ -426,7 +437,7 @@ export class AppointmentsService {
       },
       include: {
         patient: true,
-        psychologist: true,
+        psychologist: { select: PUBLIC_USER_SELECT },
         tenant: {
           include: { settings: true },
         },

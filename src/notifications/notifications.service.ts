@@ -250,12 +250,15 @@ export class NotificationsService {
     reminderRule: string = `${hoursBefore}h`,
   ) {
     const title = '🔔 Recordatorio de cita';
-    const timeLabel =
-      hoursBefore < 1
-        ? `${Math.round(hoursBefore * 60)} minutos`
-        : hoursBefore === 1
-          ? '1 hora'
-          : `${hoursBefore} horas`;
+    const totalMinutes = Math.round(hoursBefore * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const timeLabel = [
+      hours > 0 ? `${hours} ${hours === 1 ? 'hora' : 'horas'}` : '',
+      minutes > 0 ? `${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     const body = `Cita con ${appointment.patient.firstName} ${appointment.patient.lastName} en ${timeLabel}`;
 
     const data = {

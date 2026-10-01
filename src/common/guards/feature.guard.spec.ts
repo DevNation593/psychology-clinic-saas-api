@@ -66,6 +66,14 @@ describe('FeatureGuard', () => {
     );
   });
 
+  it('reports a missing subscription with the locked-feature code', async () => {
+    prisma.tenantSubscription.findUnique.mockResolvedValue(null);
+
+    await expect(guard.canActivate(contextFor(ClassLevelController))).rejects.toMatchObject({
+      response: { error: 'FEATURE_NOT_AVAILABLE' },
+    });
+  });
+
   it('bypasses the check for SOPORTE', async () => {
     await expect(guard.canActivate(contextFor(ClassLevelController, 'SOPORTE'))).resolves.toBe(
       true,

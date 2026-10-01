@@ -37,7 +37,11 @@ export class FeatureGuard implements CanActivate {
     });
 
     if (!subscription) {
-      return false;
+      throw new ForbiddenException({
+        error: 'FEATURE_NOT_AVAILABLE',
+        message: 'No se encontró una suscripción para el consultorio.',
+        feature: requiredFeature,
+      });
     }
 
     const configuredModules = await this.prisma.tenantModule.findMany({
