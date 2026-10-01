@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -60,9 +61,10 @@ export class BillingService {
 
     const tax = dto.tax ?? 0;
     const total = Number((dto.subtotal + tax).toFixed(2));
-    const idempotencyKey =
-      dto.idempotencyKey || `${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const existing = await this.prisma.invoice.findUnique({ where: { idempotencyKey } });
+    // Keys are namespaced per tenant so a client-supplied key can never resolve
+    // to (or collide with) another tenant's invoice.
+    const idempotencyKey = `${tenantId}:${dto.idempotencyKey || randomUUID()}`;
+    const existing = await this.prisma.invoice.findFirst({ where: { idempotencyKey, tenantId } });
     if (existing) {
       return existing;
     }
@@ -136,6 +138,13 @@ export class BillingService {
         where: { tenantId },
         data: { monthlyElectronicInvoicesUsed: { increment: 1 } },
       });
+      if (tenant.billingSettings?.apiKey) {
+        // The sequential was consumed by this document; advance it for the next one.
+        await this.prisma.billingSettings.update({
+          where: { tenantId },
+          data: { nextSequential: { increment: 1 } },
+        });
+      }
       return issuedInvoice;
     } catch (error) {
       await this.prisma.invoice.update({
