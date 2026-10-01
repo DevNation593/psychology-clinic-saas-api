@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
@@ -29,8 +29,9 @@ export class BillingController {
   @Get('invoices')
   @Roles('CLIENTE', 'PSICOLOGO')
   @ApiOperation({ summary: 'Listar facturas del tenant' })
-  listInvoices(@Param('tenantId') tenantId: string) {
-    return this.billingService.listInvoices(tenantId);
+  @ApiQuery({ name: 'patientId', required: false })
+  listInvoices(@Param('tenantId') tenantId: string, @Query('patientId') patientId?: string) {
+    return this.billingService.listInvoices(tenantId, { patientId });
   }
 
   @Get('invoices/:invoiceId')
