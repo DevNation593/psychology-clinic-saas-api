@@ -15,13 +15,14 @@ datasource db {
 // ============================================
 
 enum UserRole {
-  CLIENTE // Cliente/Administrador que adquiere el servicio
-  PSICOLOGO // Psicólogo que trabaja en una clínica
-  ADMIN
+  CLIENTE // Obsoleto: migrado a MASTER. Se conserva porque Postgres no permite quitar valores de un enum.
+  PSICOLOGO // Obsoleto: migrado a PROFESIONAL.
+  ADMIN // Reservado para uso futuro. No concede acceso dentro de un consultorio.
   PROFESIONAL
   ASISTENTE
   SOPORTE // Soporte técnico con acceso a todos los módulos
   PACIENTE // Paciente de un cliente
+  MASTER // Titular de la cuenta del consultorio. Uno por tenant (índice parcial User_tenantId_master_key).
 }
 
 enum TenantType {
