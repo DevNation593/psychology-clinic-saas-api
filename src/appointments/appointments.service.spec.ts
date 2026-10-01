@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppointmentsService } from './appointments.service';
 
@@ -76,5 +76,146 @@ describe('AppointmentsService professional role compatibility', () => {
 
     await expect(service.create(tenantId, appointmentInput)).rejects.toThrow(NotFoundException);
     expect(prisma.appointment.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('AppointmentsService scheduling rules', () => {
+  const tenantId = 'tenant-1';
+  const prisma = {
+    patient: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn() },
+    tenantSettings: { findUnique: jest.fn() },
+    appointment: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+  };
+  let service: AppointmentsService;
+
+  // Next occurrence (at least a day ahead) of the given UTC hour.
+  const nextUtcHour = (hour: number) => {
+    const date = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    date.setUTCHours(hour, 0, 0, 0);
+    return date.toISOString();
+  };
+  const allDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+  const input = (startTime: string) => ({
+    patientId: 'patient-1',
+    psychologistId: 'professional-1',
+    startTime,
+    duration: 60,
+  });
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    prisma.patient.findFirst.mockResolvedValue({ id: 'patient-1', tenantId });
+    prisma.user.findFirst.mockResolvedValue({ id: 'professional-1', tenantId });
+    prisma.appointment.findMany.mockResolvedValue([]);
+    prisma.appointment.create.mockResolvedValue({ id: 'appointment-1' });
+    service = new AppointmentsService(prisma as unknown as PrismaService);
+  });
+
+  it('evaluates working hours in the tenant time zone', async () => {
+    prisma.tenantSettings.findUnique.mockResolvedValue({
+      workingDays: allDays,
+      workingHoursStart: '09:00',
+      workingHoursEnd: '18:00',
+      timezone: 'America/Guayaquil', // UTC-5, no DST
+    });
+
+    // 15:00 UTC is 10:00 in Guayaquil: inside working hours.
+    await expect(service.create(tenantId, input(nextUtcHour(15)))).resolves.toMatchObject({
+      id: 'appointment-1',
+    });
+    // 10:00 UTC is 05:00 in Guayaquil: outside working hours.
+    await expect(service.create(tenantId, input(nextUtcHour(10)))).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('skips conflict detection when the tenant allows double booking', async () => {
+    prisma.tenantSettings.findUnique.mockResolvedValue({
+      workingDays: allDays,
+      workingHoursStart: '00:00',
+      workingHoursEnd: '23:59',
+      timezone: 'UTC',
+      allowDoubleBooking: true,
+    });
+
+    await service.create(tenantId, input(nextUtcHour(15)));
+
+    expect(prisma.appointment.findMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['ASISTENTE', false],
+    ['PROFESIONAL', true],
+    ['CLIENTE', true],
+  ])('includes clinical notes for %s: %s', async (role, included) => {
+    prisma.appointment.findFirst.mockResolvedValue({ id: 'appointment-1' });
+
+    await service.findOne(tenantId, 'appointment-1', role);
+
+    const { include } = prisma.appointment.findFirst.mock.calls[0][0];
+    expect('clinicalNotes' in include).toBe(included);
+    expect(include.psychologist.select.password).toBeUndefined();
+  });
+
+  describe('update', () => {
+    const existing = {
+      id: 'appointment-1',
+      tenantId,
+      psychologistId: 'professional-1',
+      startTime: new Date(nextUtcHour(15)),
+      endTime: new Date(new Date(nextUtcHour(15)).getTime() + 60 * 60000),
+      duration: 60,
+    };
+    const overlapping = {
+      id: 'appointment-2',
+      patient: { firstName: 'Ana', lastName: 'Pérez' },
+      startTime: existing.startTime,
+      endTime: existing.endTime,
+    };
+
+    beforeEach(() => {
+      prisma.appointment.findFirst.mockResolvedValue(existing);
+      prisma.appointment.update.mockResolvedValue({ id: 'appointment-1' });
+      prisma.tenantSettings.findUnique.mockResolvedValue({
+        workingDays: allDays,
+        workingHoursStart: '00:00',
+        workingHoursEnd: '23:59',
+        timezone: 'UTC',
+      });
+    });
+
+    it('checks conflicts when only the professional changes', async () => {
+      prisma.appointment.findMany.mockResolvedValue([overlapping]);
+
+      await expect(
+        service.update(tenantId, 'appointment-1', { psychologistId: 'professional-2' }),
+      ).rejects.toThrow(ConflictException);
+      expect(prisma.appointment.findMany.mock.calls[0][0].where.psychologistId).toBe(
+        'professional-2',
+      );
+      expect(prisma.appointment.update).not.toHaveBeenCalled();
+    });
+
+    it('resets reminder flags when the appointment is moved', async () => {
+      await service.update(tenantId, 'appointment-1', { startTime: nextUtcHour(17) });
+
+      expect(prisma.appointment.update.mock.calls[0][0].data).toMatchObject({
+        reminderSent24h: false,
+        reminderSent2h: false,
+      });
+    });
+
+    it('does not touch the schedule for unrelated changes', async () => {
+      await service.update(tenantId, 'appointment-1', { title: 'Seguimiento' });
+
+      expect(prisma.appointment.findMany).not.toHaveBeenCalled();
+      expect(prisma.appointment.update.mock.calls[0][0].data).not.toHaveProperty('reminderSent24h');
+    });
   });
 });

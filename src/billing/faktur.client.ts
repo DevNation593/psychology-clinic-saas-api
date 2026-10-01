@@ -55,6 +55,11 @@ export class FakturClient {
       );
     }
 
+    // The base URL can be configured per tenant: never send the API key over plain HTTP in production.
+    if (process.env.NODE_ENV === 'production' && !/^https:\/\//i.test(baseUrl)) {
+      throw new ServiceUnavailableException('La URL de Faktur debe usar HTTPS.');
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 

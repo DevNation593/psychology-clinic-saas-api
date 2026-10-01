@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
 import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
 
 @Injectable()
@@ -144,8 +145,8 @@ export class TasksService {
       where: { id: taskId, tenantId },
       include: {
         patient: true,
-        createdBy: true,
-        assignedTo: true,
+        createdBy: { select: PUBLIC_USER_SELECT },
+        assignedTo: { select: PUBLIC_USER_SELECT },
       },
     });
 
@@ -181,8 +182,8 @@ export class TasksService {
       data: updateData,
       include: {
         patient: true,
-        createdBy: true,
-        assignedTo: true,
+        createdBy: { select: PUBLIC_USER_SELECT },
+        assignedTo: { select: PUBLIC_USER_SELECT },
       },
     });
   }

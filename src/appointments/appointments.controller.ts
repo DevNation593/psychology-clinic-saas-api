@@ -80,8 +80,9 @@ export class AppointmentsController {
   async findOne(
     @Param('tenantId') tenantId: string,
     @Param('appointmentId') appointmentId: string,
+    @CurrentUser() user: any,
   ) {
-    return this.appointmentsService.findOne(tenantId, appointmentId);
+    return this.appointmentsService.findOne(tenantId, appointmentId, user.role);
   }
 
   @Roles('CLIENTE', 'PSICOLOGO')

@@ -6,6 +6,9 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
+import { getZonedDateParts } from '../common/utils/timezone';
+import { isAdminRole, isProfessionalRole } from '../common/roles/role-compatibility';
 import { CreateAppointmentDto, UpdateAppointmentDto } from './dto/appointment.dto';
 
 @Injectable()
@@ -67,42 +70,12 @@ export class AppointmentsService {
       where: { tenantId },
     });
 
-    // Validate working hours
-    if (settings) {
-      const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
-      const dayLabels: Record<string, string> = {
-        MONDAY: 'Lunes',
-        TUESDAY: 'Martes',
-        WEDNESDAY: 'Miércoles',
-        THURSDAY: 'Jueves',
-        FRIDAY: 'Viernes',
-        SATURDAY: 'Sábado',
-        SUNDAY: 'Domingo',
-      };
-      if (!settings.workingDays.includes(dayOfWeek)) {
-        const workingDayLabels = settings.workingDays
-          .map((d: string) => dayLabels[d] || d)
-          .join(', ');
-        throw new BadRequestException(
-          `No se pueden programar citas el día ${dayLabels[dayOfWeek] || dayOfWeek}. Días laborales: ${workingDayLabels}`,
-        );
-      }
-
-      const startHour = start.getHours() * 60 + start.getMinutes();
-      const [workStartHour, workStartMin] = settings.workingHoursStart.split(':').map(Number);
-      const [workEndHour, workEndMin] = settings.workingHoursEnd.split(':').map(Number);
-      const workStart = workStartHour * 60 + workStartMin;
-      const workEnd = workEndHour * 60 + workEndMin;
-
-      if (startHour < workStart || startHour >= workEnd) {
-        throw new BadRequestException(
-          `Las citas deben estar dentro del horario laboral: ${settings.workingHoursStart} - ${settings.workingHoursEnd}`,
-        );
-      }
-    }
+    this.assertWithinWorkingHours(settings, start);
 
     // CONFLICT DETECTION: Check for overlapping appointments
-    await this.checkConflicts(tenantId, psychologistId, start, end, null);
+    if (!settings?.allowDoubleBooking) {
+      await this.checkConflicts(tenantId, psychologistId, start, end, null);
+    }
 
     // Create appointment
     const appointment = await this.prisma.appointment.create({
@@ -138,6 +111,54 @@ export class AppointmentsService {
     });
 
     return appointment;
+  }
+
+  /**
+   * Validate that an appointment starts on a working day and inside working hours,
+   * evaluated in the tenant's own time zone (not the server's).
+   */
+  private assertWithinWorkingHours(
+    settings: {
+      workingDays: string[];
+      workingHoursStart: string;
+      workingHoursEnd: string;
+      timezone?: string | null;
+    } | null,
+    start: Date,
+  ) {
+    if (!settings) {
+      return;
+    }
+
+    const { dayOfWeek, minutesOfDay } = getZonedDateParts(start, settings.timezone);
+    const dayLabels: Record<string, string> = {
+      MONDAY: 'Lunes',
+      TUESDAY: 'Martes',
+      WEDNESDAY: 'Miércoles',
+      THURSDAY: 'Jueves',
+      FRIDAY: 'Viernes',
+      SATURDAY: 'Sábado',
+      SUNDAY: 'Domingo',
+    };
+    if (!settings.workingDays.includes(dayOfWeek)) {
+      const workingDayLabels = settings.workingDays
+        .map((d: string) => dayLabels[d] || d)
+        .join(', ');
+      throw new BadRequestException(
+        `No se pueden programar citas el día ${dayLabels[dayOfWeek] || dayOfWeek}. Días laborales: ${workingDayLabels}`,
+      );
+    }
+
+    const [workStartHour, workStartMin] = settings.workingHoursStart.split(':').map(Number);
+    const [workEndHour, workEndMin] = settings.workingHoursEnd.split(':').map(Number);
+    const workStart = workStartHour * 60 + workStartMin;
+    const workEnd = workEndHour * 60 + workEndMin;
+
+    if (minutesOfDay < workStart || minutesOfDay >= workEnd) {
+      throw new BadRequestException(
+        `Las citas deben estar dentro del horario laboral: ${settings.workingHoursStart} - ${settings.workingHoursEnd}`,
+      );
+    }
   }
 
   /**
@@ -261,7 +282,12 @@ export class AppointmentsService {
     return appointments;
   }
 
-  async findOne(tenantId: string, appointmentId: string) {
+  async findOne(tenantId: string, appointmentId: string, userRole?: string) {
+    // Clinical notes are only returned to roles allowed to read clinical records.
+    const canReadClinicalNotes =
+      !!userRole &&
+      (isAdminRole(userRole) || isProfessionalRole(userRole) || userRole === 'SOPORTE');
+
     const appointment = await this.prisma.appointment.findFirst({
       where: { id: appointmentId, tenantId },
       include: {
@@ -275,9 +301,11 @@ export class AppointmentsService {
             phone: true,
           },
         },
-        clinicalNotes: {
-          orderBy: { createdAt: 'desc' },
-        },
+        ...(canReadClinicalNotes && {
+          clinicalNotes: {
+            orderBy: { createdAt: 'desc' as const },
+          },
+        }),
       },
     });
 
@@ -301,23 +329,51 @@ export class AppointmentsService {
       throw new NotFoundException('Cita no encontrada');
     }
 
-    // If updating time, check conflicts
-    if (updateAppointmentDto.startTime || updateAppointmentDto.duration) {
+    let rescheduled = false;
+
+    // If the slot or the professional changes, validate it and check conflicts
+    if (
+      updateAppointmentDto.startTime ||
+      updateAppointmentDto.duration ||
+      updateAppointmentDto.psychologistId
+    ) {
       const newStart = updateAppointmentDto.startTime
         ? new Date(updateAppointmentDto.startTime)
         : existing.startTime;
+
+      if (isNaN(newStart.getTime())) {
+        throw new BadRequestException('Fecha de inicio inválida');
+      }
+
       const newDuration = updateAppointmentDto.duration || existing.duration;
       const newEnd = new Date(newStart.getTime() + newDuration * 60000);
+      const newPsychologistId = updateAppointmentDto.psychologistId || existing.psychologistId;
 
-      await this.checkConflicts(
-        tenantId,
-        updateAppointmentDto.psychologistId || existing.psychologistId,
-        newStart,
-        newEnd,
-        appointmentId,
-      );
+      rescheduled = newStart.getTime() !== existing.startTime.getTime();
+      const slotChanged =
+        rescheduled ||
+        newEnd.getTime() !== existing.endTime.getTime() ||
+        newPsychologistId !== existing.psychologistId;
 
-      updateAppointmentDto['endTime'] = newEnd;
+      const settings = await this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+      });
+
+      // Only re-validate the schedule when the appointment is actually moved.
+      if (rescheduled) {
+        if (newStart < new Date()) {
+          throw new BadRequestException('No se pueden mover citas al pasado');
+        }
+        this.assertWithinWorkingHours(settings, newStart);
+      }
+
+      if (slotChanged && !settings?.allowDoubleBooking) {
+        await this.checkConflicts(tenantId, newPsychologistId, newStart, newEnd, appointmentId);
+      }
+
+      if (updateAppointmentDto.startTime || updateAppointmentDto.duration) {
+        updateAppointmentDto['endTime'] = newEnd;
+      }
     }
 
     if (updateAppointmentDto.patientId) {
@@ -335,12 +391,14 @@ export class AppointmentsService {
       data: {
         ...dataToUpdate,
         ...(status && { status: status as any }),
+        // A moved appointment must be reminded again at its new time.
+        ...(rescheduled && { reminderSent24h: false, reminderSent2h: false }),
         ...(patientId && { patient: { connect: { id: patientId } } }),
         ...(psychologistId && { psychologist: { connect: { id: psychologistId } } }),
       },
       include: {
         patient: true,
-        psychologist: true,
+        psychologist: { select: PUBLIC_USER_SELECT },
       },
     });
   }
@@ -379,7 +437,7 @@ export class AppointmentsService {
       },
       include: {
         patient: true,
-        psychologist: true,
+        psychologist: { select: PUBLIC_USER_SELECT },
         tenant: {
           include: { settings: true },
         },
