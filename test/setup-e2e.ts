@@ -6,3 +6,6 @@ assertE2eDatabaseSafety(testDatabaseUrl);
 
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = testDatabaseUrl;
+// The suites issue many requests from one address within seconds; the production
+// rate limit (per handler) would reject them with 429 and hide the behaviour under test.
+process.env.THROTTLE_LIMIT = '10000';

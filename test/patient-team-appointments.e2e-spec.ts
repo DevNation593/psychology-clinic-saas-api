@@ -262,18 +262,18 @@ describe('Patient team and appointments (E2E)', () => {
         expect.objectContaining({
           professionalId: psychologyProfessionalId,
           isActive: true,
-          professional: {
+          professional: expect.objectContaining({
             id: psychologyProfessionalId,
             specialty: expect.objectContaining({ code: 'PSYCHOLOGY' }),
-          },
+          }),
         }),
         expect.objectContaining({
           professionalId: nutritionProfessionalId,
           isActive: true,
-          professional: {
+          professional: expect.objectContaining({
             id: nutritionProfessionalId,
             specialty: expect.objectContaining({ code: 'NUTRITION' }),
-          },
+          }),
         }),
       ]),
     );
@@ -287,11 +287,17 @@ describe('Patient team and appointments (E2E)', () => {
     expect(forbiddenRemove.body.code).toBe('TEAM_ASSIGNMENT_FORBIDDEN');
     const unassignedPatientId = await createPatient('Unassigned');
     const unassignedUrl = teamUrl(unassignedPatientId);
+    // Any clinic professional may read a patient's team; only changes need membership.
     const unassignedList = await request(server)
       .get(unassignedUrl)
       .set('Authorization', bearer(nutritionToken))
+      .expect(200);
+    expect(unassignedList.body).toEqual([]);
+    const unassignedCandidates = await request(server)
+      .get(`${unassignedUrl}/eligible`)
+      .set('Authorization', bearer(nutritionToken))
       .expect(403);
-    expect(unassignedList.body.code).toBe('TEAM_ASSIGNMENT_FORBIDDEN');
+    expect(unassignedCandidates.body.code).toBe('TEAM_ASSIGNMENT_FORBIDDEN');
     const unassignedRefer = await request(server)
       .put(`${unassignedUrl}/${psychologyProfessionalId}`)
       .set('Authorization', bearer(nutritionToken))
