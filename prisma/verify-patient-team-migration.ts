@@ -45,6 +45,14 @@ function deploy(schemaPath: string, url: string): string {
   return `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
 }
 
+/** Deploy output for failure messages, with connection credentials removed. */
+function describeOutput(output: string): string {
+  return output
+    .replace(/(postgres(?:ql)?:\/\/)[^@\s/]*@/gi, '$1***@')
+    .trim()
+    .slice(-2000);
+}
+
 function copyMigrations(destination: string, includeTarget: boolean): void {
   const source = join(__dirname, 'migrations');
   const target = join(destination, 'migrations');
@@ -154,7 +162,8 @@ export async function verifyPatientTeamMigration(
           !initial.includes('All migrations have been successfully applied') &&
           !initial.includes('Your database is now in sync')
         ) {
-          throw new Error(`Prior migrations failed in ${scenario}`);
+          throw new Error(`Prior migrations failed in ${scenario}
+${describeOutput(initial)}`);
         }
 
         if (scenario === 'fresh') {
@@ -220,7 +229,8 @@ export async function verifyPatientTeamMigration(
         const upgradeOutput = deploy(schemaPath, scopedUrl);
         if (scenario === 'upgrade') {
           if (!upgradeOutput.includes('All migrations have been successfully applied')) {
-            throw new Error('Upgrade migration failed');
+            throw new Error(`Upgrade migration failed
+${describeOutput(upgradeOutput)}`);
           }
           const assignments = await client.$queryRaw<AssignmentRow[]>`
             SELECT "patientId", "professionalId", "isActive" FROM "PatientProfessional" ORDER BY "patientId"
@@ -278,8 +288,12 @@ export async function verifyPatientTeamMigration(
             scenario === 'cross_tenant'
               ? /PATIENT_TEAM_CROSS_TENANT|APPOINTMENT_CROSS_TENANT/
               : /PROFESSIONAL_PROFILE_REQUIRED/;
-          if (!expected.test(upgradeOutput))
-            throw new Error(`Guard did not reject ${scenario} fixture`);
+          if (!expected.test(upgradeOutput)) {
+            throw new Error(
+              `Guard did not reject ${scenario} fixture
+${describeOutput(upgradeOutput)}`,
+            );
+          }
           const tables = await client.$queryRaw<CountRow[]>`
             SELECT COUNT(*)::bigint AS count FROM information_schema.tables
             WHERE table_schema = current_schema() AND table_name = 'PatientProfessional'
