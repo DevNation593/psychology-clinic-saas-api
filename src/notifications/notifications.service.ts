@@ -247,12 +247,23 @@ export class NotificationsService {
     psychologistId: string,
     appointment: any,
     hoursBefore: number,
+    reminderRule: string = `${hoursBefore}h`,
   ) {
     const title = '🔔 Recordatorio de cita';
-    const body = `Cita con ${appointment.patient.firstName} ${appointment.patient.lastName} en ${hoursBefore} horas`;
+    const totalMinutes = Math.round(hoursBefore * 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const timeLabel = [
+      hours > 0 ? `${hours} ${hours === 1 ? 'hora' : 'horas'}` : '',
+      minutes > 0 ? `${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const body = `Cita con ${appointment.patient.firstName} ${appointment.patient.lastName} en ${timeLabel}`;
 
     const data = {
       type: 'APPOINTMENT_REMINDER',
+      reminderRule,
       appointmentId: appointment.id,
       patientId: appointment.patientId,
       startTime: appointment.startTime.toISOString(),

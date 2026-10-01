@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { AppointmentStatus, Prisma } from '@prisma/client';
 import { toCanonicalRole } from '../common/roles/role-compatibility';
+import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
+import { getZonedDateParts } from '../common/utils/timezone';
 import { PatientTeamService } from '../patient-team/patient-team.service';
 import { TeamActor, TeamDb } from '../patient-team/patient-team.types';
 import { ProfessionalEligibilityService } from '../patient-team/professional-eligibility.service';
@@ -60,8 +62,11 @@ export class AppointmentsService {
       await this.findPatient(tx, tenantId, input.patientId);
       await this.authorizeCreate(tx, tenantId, input.patientId, reference.professionalId, actor);
       const specialtyId = await this.resolveSpecialty(tx, tenantId, reference);
-      await this.assertWorkingHours(tx, tenantId, start);
-      await this.checkConflicts(tx, tenantId, reference.professionalId, start, end);
+      const settings = await tx.tenantSettings.findUnique({ where: { tenantId } });
+      this.assertWorkingHours(settings, start);
+      if (!settings?.allowDoubleBooking) {
+        await this.checkConflicts(tx, tenantId, reference.professionalId, start, end);
+      }
       await this.team.ensureActive(tx, {
         tenantId,
         patientId: input.patientId,
@@ -193,8 +198,8 @@ export class AppointmentsService {
       const patientChanged = patientId !== existing.patientId;
       const professionalChanged = professionalId !== currentProfessionalId;
       const specialtyChanged = specialtyId !== existing.specialtyId;
-      const intervalChanged =
-        start.getTime() !== existing.startTime.getTime() || duration !== existing.duration;
+      const rescheduled = start.getTime() !== existing.startTime.getTime();
+      const intervalChanged = rescheduled || duration !== existing.duration;
       const reactivating =
         existing.status === AppointmentStatus.CANCELLED &&
         input.status !== undefined &&
@@ -224,12 +229,14 @@ export class AppointmentsService {
         specialtyId = resolved;
       }
       if (intervalChanged || reactivating) {
-        if (start < new Date())
-          throw new BadRequestException('No se pueden crear citas en el pasado');
+        if (start < new Date()) throw new BadRequestException('No se pueden mover citas al pasado');
       }
       if (professionalChanged || intervalChanged || reactivating) {
-        await this.assertWorkingHours(tx, tenantId, start);
-        await this.checkConflicts(tx, tenantId, professionalId, start, end, appointmentId);
+        const settings = await tx.tenantSettings.findUnique({ where: { tenantId } });
+        this.assertWorkingHours(settings, start);
+        if (!settings?.allowDoubleBooking) {
+          await this.checkConflicts(tx, tenantId, professionalId, start, end, appointmentId);
+        }
       }
       if (patientChanged || professionalChanged || reactivating) {
         await this.team.ensureActive(tx, {
@@ -246,6 +253,8 @@ export class AppointmentsService {
           ...(professionalChanged && { professionalId, psychologistId: professionalId }),
           ...((professionalChanged || specialtyChanged) && { specialtyId }),
           ...(intervalChanged && { startTime: start, endTime: end, duration }),
+          // A moved appointment must be reminded again at its new time.
+          ...(rescheduled && { reminderSent24h: false, reminderSent2h: false }),
           ...(input.title !== undefined && { title: input.title }),
           ...(input.description !== undefined && { description: input.description }),
           ...(input.location !== undefined && { location: input.location }),
@@ -461,10 +470,18 @@ export class AppointmentsService {
     return new Date(start.getTime() + duration * 60000);
   }
 
-  private async assertWorkingHours(db: TeamDb, tenantId: string, start: Date) {
-    const settings = await db.tenantSettings.findUnique({ where: { tenantId } });
+  /** Working days and hours are evaluated in the tenant's own time zone, not the server's. */
+  private assertWorkingHours(
+    settings: {
+      workingDays: string[];
+      workingHoursStart: string;
+      workingHoursEnd: string;
+      timezone?: string | null;
+    } | null,
+    start: Date,
+  ) {
     if (!settings) return;
-    const dayOfWeek = start.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+    const { dayOfWeek, minutesOfDay } = getZonedDateParts(start, settings.timezone);
     const dayLabels: Record<string, string> = {
       MONDAY: 'Lunes',
       TUESDAY: 'Martes',
@@ -480,10 +497,9 @@ export class AppointmentsService {
         `No se pueden programar citas el día ${dayLabels[dayOfWeek] || dayOfWeek}. Días laborales: ${days}`,
       );
     }
-    const minuteOfDay = start.getHours() * 60 + start.getMinutes();
     const [startHour, startMinute] = settings.workingHoursStart.split(':').map(Number);
     const [endHour, endMinute] = settings.workingHoursEnd.split(':').map(Number);
-    if (minuteOfDay < startHour * 60 + startMinute || minuteOfDay >= endHour * 60 + endMinute) {
+    if (minutesOfDay < startHour * 60 + startMinute || minutesOfDay >= endHour * 60 + endMinute) {
       throw new BadRequestException(
         `Las citas deben estar dentro del horario laboral: ${settings.workingHoursStart} - ${settings.workingHoursEnd}`,
       );
@@ -549,7 +565,11 @@ export class AppointmentsService {
     const now = new Date();
     const appointments = await this.prisma.appointment.findMany({
       where: { status: { in: ['SCHEDULED', 'CONFIRMED'] }, startTime: { gte: now } },
-      include: { patient: true, psychologist: true, tenant: { include: { settings: true } } },
+      include: {
+        patient: true,
+        psychologist: { select: PUBLIC_USER_SELECT },
+        tenant: { include: { settings: true } },
+      },
     });
     const needingReminders = [];
     for (const appointment of appointments) {

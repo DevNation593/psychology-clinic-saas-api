@@ -771,6 +771,62 @@ describe('AppointmentsService canonical appointments', () => {
     expect(prisma.appointment.update).toHaveBeenCalledTimes(1);
   });
 
+  it('evaluates working hours in the tenant time zone, not the server zone', async () => {
+    db.tenantSettings.findUnique.mockResolvedValue({
+      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+      workingHoursStart: '09:00',
+      workingHoursEnd: '18:00',
+      timezone: 'Asia/Tokyo', // UTC+9, no DST
+    });
+
+    // 01:00 UTC is 10:00 in Tokyo: inside working hours.
+    await expect(
+      create(createInput({ startTime: '2026-09-29T01:00:00.000Z' })),
+    ).resolves.toMatchObject({ id: 'appointment-1' });
+    // 15:00 UTC is 00:00 in Tokyo: outside working hours.
+    await expect(
+      create(createInput({ startTime: '2026-09-29T15:00:00.000Z' })),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('skips conflict detection on create and reschedule when the tenant allows double booking', async () => {
+    db.tenantSettings.findUnique.mockResolvedValue({
+      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+      workingHoursStart: '00:00',
+      workingHoursEnd: '23:59',
+      timezone: 'UTC',
+      allowDoubleBooking: true,
+    });
+
+    await create(createInput());
+    await update({ startTime: '2026-09-29T15:00:00.000Z' });
+
+    expect(db.appointment.findMany).not.toHaveBeenCalled();
+    expect(db.appointment.create).toHaveBeenCalledTimes(1);
+    expect(db.appointment.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets reminder flags only when the appointment start moves', async () => {
+    await update({ startTime: '2026-09-29T15:00:00.000Z' });
+    expect(db.appointment.update.mock.calls[0][0].data).toMatchObject({
+      reminderSent24h: false,
+      reminderSent2h: false,
+    });
+
+    db.appointment.update.mockClear();
+    await update({ title: 'Seguimiento' });
+    expect(db.appointment.update.mock.calls[0][0].data).not.toHaveProperty('reminderSent24h');
+    expect(db.appointment.update.mock.calls[0][0].data).not.toHaveProperty('reminderSent2h');
+  });
+
+  it('rejects moving an appointment into the past', async () => {
+    await expect(update({ startTime: '2026-09-28T11:00:00.000Z' })).rejects.toMatchObject({
+      status: 400,
+      message: 'No se pueden mover citas al pasado',
+    });
+    expect(db.appointment.update).not.toHaveBeenCalled();
+  });
+
   it('keeps reminder records using the psychologist relation', async () => {
     db.appointment.findMany.mockResolvedValue([
       row({
@@ -782,7 +838,9 @@ describe('AppointmentsService canonical appointments', () => {
     const reminders = await service.findAppointmentsNeedingReminders([24]);
     expect(reminders).toHaveLength(1);
     expect(reminders[0].appointment.psychologist).toMatchObject({ id: 'professional-1' });
-    expect(db.appointment.findMany.mock.calls[0][0].include.psychologist).toBe(true);
+    const { select } = db.appointment.findMany.mock.calls[0][0].include.psychologist;
+    expect(select).toMatchObject({ id: true, email: true });
+    expect(select.password).toBeUndefined();
   });
 });
 

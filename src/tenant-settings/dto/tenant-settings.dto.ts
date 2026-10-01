@@ -156,6 +156,10 @@ export class UpdateTenantSettingsDto {
   @IsArray()
   @IsOptional()
   @IsString({ each: true })
+  @Matches(/^\d+(h|m)$/, {
+    each: true,
+    message: 'reminderRules must use the format "<number>h" or "<number>m"',
+  })
   reminderRules?: string[];
 
   @ApiPropertyOptional({ example: true, description: 'Enable/disable reminders' })
