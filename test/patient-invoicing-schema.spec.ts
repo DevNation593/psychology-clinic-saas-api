@@ -16,7 +16,10 @@ describe('patient invoicing data model', () => {
     expect(field('Invoice', 'patientId')).toMatchObject({ type: 'String', isRequired: false });
     expect(field('Invoice', 'patient')).toMatchObject({ type: 'Patient', isRequired: false });
     expect(field('Invoice', 'patient')?.relationOnDelete).toBe('SetNull');
-    expect(field('Invoice', 'customerAddress')).toMatchObject({ type: 'String', isRequired: false });
+    expect(field('Invoice', 'customerAddress')).toMatchObject({
+      type: 'String',
+      isRequired: false,
+    });
   });
 
   it('keeps every existing invoice customer column required', () => {
