@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { assertSpecialtyStageDatabaseSafety } from '../test/helpers/assert-e2e-database';
 import { auditMasterRoles, hasBlockingIssues } from './audit-master-roles';
 
-const targetMigrations = ['20261001000000_add_master_role', '20261001000100_backfill_master_role'];
+const targetMigrations = ['20261002000000_add_master_role', '20261002000100_backfill_master_role'];
 const schemaPattern = /^master_role_[a-f0-9]+$/;
 
 type RoleRow = { id: string; role: string };
