@@ -80,7 +80,7 @@ export class TenantsService {
           password: hashedPassword,
           firstName: adminFirstName,
           lastName: adminLastName,
-          role: 'CLIENTE',
+          role: 'MASTER',
           isActive: true,
           emailVerified: true,
           activatedAt: new Date(),

@@ -338,7 +338,7 @@ export class AppointmentsService {
         message: 'Acceso denegado: El tenant no coincide',
       });
     }
-    if (!['ADMIN', 'ASISTENTE', 'PROFESIONAL'].includes(toCanonicalRole(actor.role) ?? '')) {
+    if (!['MASTER', 'ASISTENTE', 'PROFESIONAL'].includes(toCanonicalRole(actor.role) ?? '')) {
       throw this.appointmentForbidden();
     }
   }

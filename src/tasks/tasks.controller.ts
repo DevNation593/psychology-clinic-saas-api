@@ -13,7 +13,7 @@ import { RequireFeature } from '../common/decorators/require-feature.decorator';
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @Post()
   @ApiOperation({ summary: 'Create task' })
   @ApiResponse({ status: 201, description: 'Task created' })
@@ -54,7 +54,7 @@ export class TasksController {
     return this.tasksService.findOne(tenantId, taskId, user);
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @Patch(':taskId')
   @ApiOperation({ summary: 'Update task' })
   @ApiResponse({ status: 200, description: 'Task updated' })
@@ -67,7 +67,7 @@ export class TasksController {
     return this.tasksService.update(tenantId, taskId, updateTaskDto, user);
   }
 
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @Delete(':taskId')
   @ApiOperation({ summary: 'Delete task - Admin only' })
   @ApiResponse({ status: 200, description: 'Task deleted' })

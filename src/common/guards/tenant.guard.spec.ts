@@ -6,7 +6,7 @@ import { RlsContextService } from '../../prisma/rls-context.service';
 describe('TenantGuard scope errors', () => {
   const rls = new RlsContextService();
   const guard = new TenantGuard(new Reflector(), rls);
-  const user = { tenantId: 'tenant-1', userId: 'actor', role: 'ADMIN' };
+  const user = { tenantId: 'tenant-1', userId: 'actor', role: 'MASTER' };
   const context = (request: unknown) =>
     ({
       getHandler: () => () => undefined,

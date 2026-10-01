@@ -71,7 +71,7 @@ describe('Users - profile seat enforcement', () => {
                 u.tenantId === where.tenantId &&
                 u.id !== where.id?.not &&
                 u.isActive &&
-                where.role.in.includes(u.role),
+                u.role === where.role,
             ).length,
         ),
         findUnique: jest.fn(
@@ -133,7 +133,7 @@ describe('Users - profile seat enforcement', () => {
     );
   });
 
-  it.each(['PROFESIONAL', 'PSICOLOGO', 'ADMIN', 'CLIENTE'] as const)(
+  it.each(['PROFESIONAL', 'MASTER'] as const)(
     'active %s profile consumes one seat and mirrors legacy data',
     async (role) => {
       const result = await service.create(dto(role), 'actor');
@@ -146,7 +146,7 @@ describe('Users - profile seat enforcement', () => {
       });
     },
   );
-  it.each(['ADMIN', 'ASISTENTE'] as const)('%s without a profile consumes none', async (role) => {
+  it.each(['MASTER', 'ASISTENTE'] as const)('%s without a profile consumes none', async (role) => {
     await service.create(dto(role, { professionalProfile: undefined }), 'actor');
     expect(subscription.seatsPsychologistsUsed).toBe(0);
   });
@@ -159,7 +159,7 @@ describe('Users - profile seat enforcement', () => {
     expect(subscription.seatsPsychologistsUsed).toBe(0);
   });
   it('rejects the last occupied seat using live count', async () => {
-    seed({ role: 'ADMIN' });
+    seed({ role: 'MASTER' });
     subscription.seatsPsychologistsUsed = 0;
     await expect(service.create(dto(), 'actor')).rejects.toMatchObject({
       status: 409,
@@ -169,7 +169,7 @@ describe('Users - profile seat enforcement', () => {
   });
   it('normalizes nested, flat, legacy specialty in that order and mirrors title/license', async () => {
     const result = await service.create(
-      dto('ADMIN', {
+      dto('MASTER', {
         specialtyId: 'flat',
         specialtyIds: ['legacy'],
         professionalTitle: 'old',
@@ -190,14 +190,14 @@ describe('Users - profile seat enforcement', () => {
   it.each([{ specialtyId: 's' }, { specialtyIds: ['s'] }])(
     'accepts flat and legacy specialty input %j',
     async (input) => {
-      await service.create(dto('PSICOLOGO', { professionalProfile: undefined, ...input }), 'actor');
+      await service.create(dto('PROFESIONAL', { professionalProfile: undefined, ...input }), 'actor');
       expect(users[0].professionalProfile.specialtyId).toBe('s');
     },
   );
   it('invitation reserves a seat even if the supplied profile is inactive', async () => {
     await service.invite(
       't',
-      dto('ADMIN', { professionalProfile: { specialtyId: 's', isActive: false } }),
+      dto('MASTER', { professionalProfile: { specialtyId: 's', isActive: false } }),
       'actor',
     );
     expect(users[0]).toMatchObject({ isActive: false, professionalProfile: { isActive: true } });
@@ -239,8 +239,8 @@ describe('Users - profile seat enforcement', () => {
     expect(users[0]).toEqual(revoked);
     expect(subscription.seatsPsychologistsUsed).toBe(0);
 
-    seed({ id: 'other', role: 'ADMIN', managedByProvider: false });
-    seed({ id: 'backup-admin', role: 'CLIENTE', professionalProfile: null });
+    seed({ id: 'other', role: 'MASTER', managedByProvider: false });
+    seed({ id: 'backup-admin', role: 'MASTER', professionalProfile: null });
     await expect(service.grantPsychologistAccess('t', 'u')).rejects.toMatchObject({
       status: 409,
       response: { code: 'PROFESSIONAL_SEAT_LIMIT_REACHED' },
@@ -263,7 +263,7 @@ describe('Users - profile seat enforcement', () => {
   ])(
     'rejects creating an active profile on an inactive provider-managed account: %j',
     async (input) => {
-      seed({ role: 'ADMIN', isActive: false, professionalProfile: null });
+      seed({ role: 'MASTER', isActive: false, professionalProfile: null });
       subscription.seatsPsychologistsUsed = 0;
       const inactive = structuredClone(users[0]);
       await expect(service.update('t', 'u', input, 'actor')).rejects.toMatchObject({ status: 403 });
@@ -272,7 +272,7 @@ describe('Users - profile seat enforcement', () => {
     },
   );
   it('allows non-activating edits, inactive profile creation, and removal on an inactive managed account', async () => {
-    seed({ role: 'ADMIN', isActive: false, professionalProfile: null });
+    seed({ role: 'MASTER', isActive: false, professionalProfile: null });
     await service.update(
       't',
       'u',
@@ -328,7 +328,7 @@ describe('Users - profile seat enforcement', () => {
       isActive: false,
       managedByProvider: false,
     });
-    seed({ id: 'other', role: 'ADMIN' });
+    seed({ id: 'other', role: 'MASTER' });
     await expect(service.update('t', 'u', { isActive: true }, 'actor')).rejects.toMatchObject({
       response: { code: 'PROFESSIONAL_SEAT_LIMIT_REACHED' },
     });
@@ -364,7 +364,7 @@ describe('Users - profile seat enforcement', () => {
   });
   it('allows admin profile removal and frees its seat', async () => {
     seed({
-      role: 'ADMIN',
+      role: 'MASTER',
       professionalTitle: 'Clinical title',
       licenseNumber: 'LICENSE-1',
       professionalSpecialties: [{ specialtyId: 's', isPrimary: true }],
@@ -394,16 +394,11 @@ describe('Users - profile seat enforcement', () => {
     });
     expect(users).toHaveLength(1);
   });
-  it.each([
-    ['ADMIN', ['CLIENTE', 'ADMIN']],
-    ['CLIENTE', ['CLIENTE', 'ADMIN']],
-    ['PSICOLOGO', ['PSICOLOGO', 'PROFESIONAL']],
-    ['PROFESIONAL', ['PSICOLOGO', 'PROFESIONAL']],
-  ])('filters %s across both aliases', async (role, aliases) => {
-    await service.findAll('t', { role: role as string });
+  it.each(['MASTER', 'PROFESIONAL'])('filters %s by the exact role', async (role) => {
+    await service.findAll('t', { role });
     expect(db.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { tenantId: 't', role: { in: aliases } },
+        where: { tenantId: 't', role },
         select: expect.objectContaining({
           professionalProfile: { include: { specialty: true } },
           professionalTitle: true,
@@ -484,7 +479,7 @@ integration('Users - PostgreSQL serializable seat race', () => {
             email: email + '@test.invalid',
             firstName: 'Race',
             lastName: email,
-            role: 'ADMIN',
+            role: 'MASTER',
             professionalProfile: { specialtyId: specialty.id },
           },
           'fixture-actor',

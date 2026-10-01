@@ -14,7 +14,7 @@ describe('ProfessionalProfilesService', () => {
     service = new ProfessionalProfilesService(db as unknown as PrismaService);
   });
 
-  it.each(['PROFESIONAL', 'PSICOLOGO'])('%s requires a specialty', (role) => {
+  it.each(['PROFESIONAL'])('%s requires a specialty', (role) => {
     expect(() => service.validateRoleProfile(role)).toThrow(
       expect.objectContaining({
         status: 422,
@@ -22,7 +22,7 @@ describe('ProfessionalProfilesService', () => {
       }),
     );
   });
-  it.each(['ADMIN', 'CLIENTE'])('%s accepts an optional profile', (role) => {
+  it.each(['MASTER'])('%s accepts an optional profile', (role) => {
     expect(() => service.validateRoleProfile(role)).not.toThrow();
     expect(() => service.validateRoleProfile(role, { specialtyId: 's' })).not.toThrow();
   });

@@ -105,7 +105,7 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     });
     expect(created.body.admin).toMatchObject({
       email: `admin-primary-${suffix}@example.test`,
-      role: 'ADMIN',
+      role: 'MASTER',
       professionalProfile: { isActive: true, specialty: { code: 'PSYCHOLOGY' } },
     });
     expect(JSON.stringify(created.body)).not.toMatch(/password|\$2[aby]\$/i);

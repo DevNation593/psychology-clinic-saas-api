@@ -97,14 +97,14 @@ describe('Professional profile transition (E2E)', () => {
         password: TEST_PASSWORD,
         firstName: 'Legacy',
         lastName: 'Professional',
-        role: 'PSICOLOGO',
+        role: 'PROFESIONAL',
         professionalProfile: { specialtyId },
       },
       'fixture-actor',
     );
     legacyId = result.id;
     expect(result).toMatchObject({
-      role: 'PSICOLOGO',
+      role: 'PROFESIONAL',
       professionalProfile: { specialtyId, isActive: true, specialty: { id: specialtyId } },
       professionalSpecialties: [{ specialtyId, isPrimary: true }],
     });
@@ -142,7 +142,7 @@ describe('Professional profile transition (E2E)', () => {
         password: TEST_PASSWORD,
         firstName: 'Clinical',
         lastName: 'Admin',
-        role: 'CLIENTE',
+        role: 'MASTER',
         professionalProfile: { specialtyId },
       },
       'fixture-actor',
@@ -152,13 +152,13 @@ describe('Professional profile transition (E2E)', () => {
     const login = await auth.login({ email: result.email, password: TEST_PASSWORD });
     expect(login.user).toMatchObject({
       id: result.id,
-      role: 'CLIENTE',
+      role: 'MASTER',
       professionalProfile: { specialty: { id: specialtyId, name: 'Own specialty' } },
     });
     const token = await auth.refreshTokens(login.refreshToken);
     expect(token.user).toMatchObject({
       id: result.id,
-      role: 'CLIENTE',
+      role: 'MASTER',
       professionalProfile: { specialty: { id: specialtyId, name: 'Own specialty' } },
     });
   });
@@ -167,7 +167,7 @@ describe('Professional profile transition (E2E)', () => {
     const admin = await prisma.user.findFirstOrThrow({
       where: { tenantId, email: 'profiles-admin@test.invalid' },
     });
-    expect(admin.role).toBe('CLIENTE');
+    expect(admin.role).toBe('MASTER');
     expect((await users.findOne(tenantId, admin.id)).professionalProfile).toBeNull();
     expect((await subscription.getUsageMetrics(tenantId)).usage.seats.used).toBe(3);
   });
@@ -192,7 +192,7 @@ describe('Professional profile transition (E2E)', () => {
     expect(await profiles.countActiveProfiles(tenantId)).toBe(3);
   });
 
-  it.each(['PSICOLOGO', 'PROFESIONAL'])(
+  it.each(['PROFESIONAL'])(
     'filters %s across legacy and canonical professionals',
     async (role) => {
       const result = await users.findAll(tenantId, { role });
@@ -213,7 +213,7 @@ describe('Professional profile transition (E2E)', () => {
             password: TEST_PASSWORD,
             firstName: 'Race',
             lastName: name,
-            role: 'ADMIN',
+            role: 'MASTER',
             professionalProfile: { specialtyId, isActive: false },
           },
           'fixture-actor',

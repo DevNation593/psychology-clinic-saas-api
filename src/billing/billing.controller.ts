@@ -16,7 +16,7 @@ export class BillingController {
   constructor(private readonly billingService: BillingService) {}
 
   @Post('invoices')
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @ApiOperation({ summary: 'Emitir factura electrónica mediante Faktur' })
   createInvoice(
     @Param('tenantId') tenantId: string,
@@ -27,7 +27,7 @@ export class BillingController {
   }
 
   @Get('invoices')
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @ApiOperation({ summary: 'Listar facturas del tenant' })
   @ApiQuery({ name: 'patientId', required: false })
   listInvoices(@Param('tenantId') tenantId: string, @Query('patientId') patientId?: string) {
@@ -35,7 +35,7 @@ export class BillingController {
   }
 
   @Get('invoices/:invoiceId')
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @ApiOperation({ summary: 'Consultar una factura' })
   getInvoice(@Param('tenantId') tenantId: string, @Param('invoiceId') invoiceId: string) {
     return this.billingService.getInvoice(tenantId, invoiceId);

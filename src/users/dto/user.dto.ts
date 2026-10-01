@@ -77,7 +77,7 @@ export class CreateUserDto {
   @Type(() => ProfessionalProfileInputDto)
   professionalProfile?: ProfessionalProfileInputDto | null;
 
-  @ApiProperty({ enum: UserRole, example: 'ADMIN' })
+  @ApiProperty({ enum: UserRole, example: 'PROFESIONAL' })
   @IsEnum(UserRole)
   @IsNotEmpty()
   role: UserRole;

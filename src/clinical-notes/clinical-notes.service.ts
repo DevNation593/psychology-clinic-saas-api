@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
-import { isAdminRole } from '../common/roles/role-compatibility';
+import { isMasterRole } from '../common/roles/role-compatibility';
 import { CreateClinicalNoteDto, UpdateClinicalNoteDto } from './dto/clinical-note.dto';
 
 @Injectable()
@@ -78,7 +78,7 @@ export class ClinicalNotesService {
     const where: any = { tenantId };
 
     // In clinic tenants, filter notes by psychologist ownership
-    // For now, all CLIENTEs can see all notes in their tenant
+    // For now, all MASTERs can see all notes in their tenant
 
     if (filters?.patientId) {
       where.patientId = filters.patientId;
@@ -126,7 +126,7 @@ export class ClinicalNotesService {
       throw new NotFoundException('Nota clínica no encontrada');
     }
 
-    // Any CLIENTE in the tenant can read notes
+    // Any MASTER in the tenant can read notes
     // Ownership check removed with new role system
 
     // Create audit log entry for reading
@@ -150,7 +150,7 @@ export class ClinicalNotesService {
       throw new NotFoundException('Nota clínica no encontrada');
     }
 
-    // Any CLIENTE in the tenant can edit notes they authored
+    // Any PROFESIONAL in the tenant can edit notes they authored
     if (note.psychologistId !== userId) {
       throw new ForbiddenException('Solo puedes editar tus propias notas clínicas');
     }
@@ -179,8 +179,8 @@ export class ClinicalNotesService {
       throw new NotFoundException('Nota clínica no encontrada');
     }
 
-    // Admins can delete any note in the tenant; professionals only their own
-    if (!isAdminRole(userRole) && note.psychologistId !== userId) {
+    // Masters can delete any note in the tenant; professionals only their own
+    if (!isMasterRole(userRole) && note.psychologistId !== userId) {
       throw new ForbiddenException('Solo el autor o un administrador puede eliminar la nota');
     }
 

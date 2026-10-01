@@ -5,7 +5,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 
 @ApiTags('audit-log')
 @ApiBearerAuth('access-token')
-@Roles('CLIENTE')
+@Roles('MASTER')
 @Controller('tenants/:tenantId/audit-logs')
 export class AuditLogController {
   constructor(private readonly auditLogService: AuditLogService) {}

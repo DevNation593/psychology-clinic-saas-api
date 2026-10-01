@@ -33,7 +33,7 @@ describe('UsersService clinic team control', () => {
       id: `user-${users.length + 1}`,
       tenantId: 'tenant-1',
       email: `existing-${users.length + 1}@example.com`,
-      role: 'ADMIN',
+      role: 'MASTER',
       isActive: true,
       managedByProvider: false,
       password: 'seed-hash',
@@ -115,7 +115,7 @@ describe('UsersService clinic team control', () => {
                 u.tenantId === where.tenantId &&
                 u.id !== where.id?.not &&
                 u.isActive &&
-                where.role.in.includes(u.role),
+                u.role === where.role,
             ).length,
         ),
         create: jest.fn(async ({ data }) => {
@@ -225,11 +225,11 @@ describe('UsersService clinic team control', () => {
     });
   });
 
-  it.each(['ADMIN', 'CLIENTE', 'PROFESIONAL', 'PSICOLOGO', 'ASISTENTE'])(
+  it.each(['MASTER', 'PROFESIONAL', 'ASISTENTE'])(
     'accepts compatible team role %s',
     async (role) => {
       const input =
-        role === 'PROFESIONAL' || role === 'PSICOLOGO' ? professional({ role }) : member({ role });
+        role === 'PROFESIONAL' ? professional({ role }) : member({ role });
       await service.createForTenant('tenant-1', input as any, 'admin-1');
       expect(users[0].role).toBe(role);
       expect(users[0].managedByProvider).toBe(false);
@@ -250,11 +250,11 @@ describe('UsersService clinic team control', () => {
   });
 
   it('allows a nonclinical admin without a seat and a clinical admin with one mirrored specialty', async () => {
-    await service.createForTenant('tenant-1', member({ role: 'ADMIN' }) as any, 'admin-1');
+    await service.createForTenant('tenant-1', member({ role: 'MASTER' }) as any, 'admin-1');
     expect(subscription.seatsPsychologistsUsed).toBe(0);
     const result = await service.createForTenant(
       'tenant-1',
-      professional({ role: 'ADMIN', email: 'clinical@example.com' }) as any,
+      professional({ role: 'MASTER', email: 'clinical@example.com' }) as any,
       'admin-1',
     );
     expect(result.professionalProfile).toMatchObject({ specialtyId: 'specialty-1' });
@@ -338,7 +338,7 @@ describe('UsersService clinic team control', () => {
     expect(db.user.update).not.toHaveBeenCalled();
   });
 
-  it.each(['ADMIN', 'CLIENTE'])(
+  it.each(['MASTER'])(
     'protects the last effective %s admin in the same transaction',
     async (role) => {
       let insideTransaction = false;
@@ -365,7 +365,7 @@ describe('UsersService clinic team control', () => {
           tenantId: 'tenant-1',
           id: { not: 'admin-2' },
           isActive: true,
-          role: { in: ['ADMIN', 'CLIENTE'] },
+          role: 'MASTER',
         },
       });
       expect(db.user.update).not.toHaveBeenCalled();
@@ -373,7 +373,7 @@ describe('UsersService clinic team control', () => {
   );
 
   it('allows removal with another active admin in the same tenant', async () => {
-    seed({ id: 'admin-1', role: 'CLIENTE' });
+    seed({ id: 'admin-1', role: 'MASTER' });
     seed({ id: 'admin-2' });
     await service.deactivate('tenant-1', 'admin-2', 'admin-1');
     expect(users[1].isActive).toBe(false);
@@ -428,12 +428,12 @@ describe('UsersService clinic team control', () => {
   it.each([
     ['PROFESIONAL', { isActive: false }, false, false],
     [
-      'PSICOLOGO',
+      'PROFESIONAL',
       { professionalProfile: { specialtyId: 'specialty-1', isActive: false } },
       true,
       false,
     ],
-    ['ADMIN', { professionalProfile: null }, true, null],
+    ['MASTER', { professionalProfile: null }, true, null],
     ['PROFESIONAL', { role: 'ASISTENTE' }, true, null],
   ])(
     'deactivates treating assignments after %s loses clinical capacity through %j',
@@ -556,7 +556,7 @@ describe('UsersService clinic team control', () => {
     seed({ id: 'admin-1' });
     const target = seed({
       id: 'professional-1',
-      role: 'CLIENTE',
+      role: 'MASTER',
       professionalProfile: { specialtyId: 'specialty-1', isActive: true },
     });
     assignments.push({ tenantId: 'tenant-1', professionalId: target.id, isActive: true });
@@ -606,7 +606,7 @@ describe('UsersService clinic team control', () => {
     expect(db.user.update).not.toHaveBeenCalled();
     seed({
       id: 'legacy-user',
-      role: 'PSICOLOGO',
+      role: 'PROFESIONAL',
       managedByProvider: true,
       isActive: false,
       professionalProfile: { specialtyId: 'specialty-1', isActive: false },

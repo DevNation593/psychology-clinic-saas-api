@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, TenantType, UserRole } from '@prisma/client';
 import { CreateTenantUserDto, CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
 import { AuthService } from '../auth/auth.service';
-import { isAdminRole, isProfessionalRole } from '../common/roles/role-compatibility';
+import { isMasterRole, isProfessionalRole } from '../common/roles/role-compatibility';
 import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
 import { ProfessionalProfileInputDto } from '../professional-profiles/dto/professional-profile.dto';
 import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
@@ -132,7 +132,7 @@ export class UsersService {
     invitation: boolean,
   ) {
     const { role } = dto;
-    if (!isAdminRole(role) && !isProfessionalRole(role) && role !== UserRole.ASISTENTE) {
+    if (!isMasterRole(role) && !isProfessionalRole(role) && role !== UserRole.ASISTENTE) {
       throw new BadRequestException({
         code: 'TEAM_ROLE_NOT_ALLOWED',
         message: 'Rol no permitido para el equipo.',
@@ -242,13 +242,7 @@ export class UsersService {
 
   async findAll(tenantId: string, filters?: { role?: string; isActive?: boolean }) {
     const where: Prisma.UserWhereInput = { tenantId };
-    if (filters?.role) {
-      where.role = isProfessionalRole(filters.role)
-        ? { in: [UserRole.PSICOLOGO, UserRole.PROFESIONAL] }
-        : isAdminRole(filters.role)
-          ? { in: [UserRole.CLIENTE, UserRole.ADMIN] }
-          : (filters.role as UserRole);
-    }
+    if (filters?.role) where.role = filters.role as UserRole;
     if (filters?.isActive !== undefined) where.isActive = filters.isActive;
     return this.prisma.user.findMany({ where, select: userSelect, orderBy: { createdAt: 'desc' } });
   }
@@ -366,7 +360,7 @@ export class UsersService {
     }
     if (
       dto.role &&
-      !isAdminRole(dto.role) &&
+      !isMasterRole(dto.role) &&
       !isProfessionalRole(dto.role) &&
       dto.role !== UserRole.ASISTENTE
     ) {
@@ -381,7 +375,7 @@ export class UsersService {
         message: 'No puedes desactivar tu propia cuenta.',
       });
     }
-    if (isAdminRole(user.role) && dto.role && !isAdminRole(dto.role) && actorId === userId) {
+    if (isMasterRole(user.role) && dto.role && !isMasterRole(dto.role) && actorId === userId) {
       throw new ConflictException({
         code: 'CANNOT_DEMOTE_SELF',
         message: 'No puedes quitarte el rol administrador.',
@@ -389,15 +383,15 @@ export class UsersService {
     }
     if (
       user.isActive &&
-      isAdminRole(user.role) &&
-      (dto.isActive === false || (dto.role && !isAdminRole(dto.role)))
+      isMasterRole(user.role) &&
+      (dto.isActive === false || (dto.role && !isMasterRole(dto.role)))
     ) {
       const others = await tx.user.count({
         where: {
           tenantId,
           id: { not: userId },
           isActive: true,
-          role: { in: [UserRole.ADMIN, UserRole.CLIENTE] },
+          role: UserRole.MASTER,
         },
       });
       if (others === 0) {
@@ -472,7 +466,7 @@ export class UsersService {
     const willHaveClinicalCapacity =
       (dto.isActive ?? user.isActive) &&
       profile?.isActive === true &&
-      (isAdminRole(nextRole) || isProfessionalRole(nextRole));
+      (isMasterRole(nextRole) || isProfessionalRole(nextRole));
     const losesClinicalCapacity = hadClinicalCapacity && !willHaveClinicalCapacity;
     if (losesClinicalCapacity) {
       await this.patientTeam.assertNoFutureAppointmentsForProfessional(tx, tenantId, userId);
@@ -590,10 +584,10 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Only the same user, CLIENTE (admin) or SOPORTE can change the avatar.
+    // Only the same user, MASTER or SOPORTE can change the avatar.
     if (
       currentUserRole !== 'SOPORTE' &&
-      !isAdminRole(currentUserRole) &&
+      !isMasterRole(currentUserRole) &&
       currentUserId !== userId
     ) {
       throw new ForbiddenException('Solo puedes actualizar tu propio avatar');
@@ -650,7 +644,7 @@ export class UsersService {
   async listPendingPsychologists() {
     return this.prisma.user.findMany({
       where: {
-        role: { in: [UserRole.PSICOLOGO, UserRole.PROFESIONAL] },
+        role: UserRole.PROFESIONAL,
         managedByProvider: true,
         isActive: false,
       },

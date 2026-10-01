@@ -13,10 +13,10 @@ import { RequireFeature } from '../common/decorators/require-feature.decorator';
 export class ClinicalNotesController {
   constructor(private readonly clinicalNotesService: ClinicalNotesService) {}
 
-  @Roles('PSICOLOGO')
+  @Roles('PROFESIONAL')
   @Post()
   @ApiOperation({
-    summary: 'Create clinical note - Psychologist only',
+    summary: 'Create clinical note - Professional only',
     description: 'Creates audit log entry automatically',
   })
   @ApiResponse({ status: 201, description: 'Clinical note created' })
@@ -28,7 +28,7 @@ export class ClinicalNotesController {
     return this.clinicalNotesService.create(tenantId, user.userId, createDto);
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @Get()
   @ApiOperation({ summary: 'List clinical notes with filters' })
   @ApiQuery({ name: 'patientId', required: false })
@@ -48,7 +48,7 @@ export class ClinicalNotesController {
     );
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @Get(':noteId')
   @ApiOperation({
     summary: 'Get clinical note - Restricted access',
@@ -64,7 +64,7 @@ export class ClinicalNotesController {
     return this.clinicalNotesService.findOne(tenantId, noteId, user.userId, user.role);
   }
 
-  @Roles('PSICOLOGO')
+  @Roles('PROFESIONAL')
   @Patch(':noteId')
   @ApiOperation({
     summary: 'Update clinical note',
@@ -81,10 +81,10 @@ export class ClinicalNotesController {
     return this.clinicalNotesService.update(tenantId, noteId, user.userId, user.role, updateDto);
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @Delete(':noteId')
   @ApiOperation({
-    summary: 'Delete clinical note - Admin or author',
+    summary: 'Delete clinical note - Master or author',
     description:
       'Admins can delete any note; professionals only their own. Creates audit log entry.',
   })

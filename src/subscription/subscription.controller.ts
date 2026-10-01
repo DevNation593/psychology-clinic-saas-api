@@ -31,7 +31,7 @@ export class SubscriptionController {
   }
 
   @Post('upgrade')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @ApiOperation({ summary: 'Upgrade subscription plan (CLIENTE only)' })
   async upgradePlan(
     @Param('tenantId') tenantId: string,
@@ -42,7 +42,7 @@ export class SubscriptionController {
   }
 
   @Post('downgrade')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @ApiOperation({ summary: 'Schedule downgrade (CLIENTE only)' })
   async downgradePlan(
     @Param('tenantId') tenantId: string,
@@ -53,7 +53,7 @@ export class SubscriptionController {
   }
 
   @Post('features')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @ApiOperation({
     summary: 'Customize subscription modules/features (CLIENTE only)',
     description:
