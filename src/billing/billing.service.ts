@@ -1,9 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { FakturClient, FakturInvoiceResponse } from './faktur.client';
+import { resolveInvoiceCustomer } from './invoice-customer';
 
 @Injectable()
 export class BillingService {
@@ -77,22 +83,68 @@ export class BillingService {
       return existing;
     }
 
-    const invoice = await this.prisma.invoice.create({
-      data: {
-        tenantId,
-        subscriptionId: tenant.subscription?.id,
-        issuerId,
-        status: InvoiceStatus.PENDING,
-        subtotal: new Prisma.Decimal(dto.subtotal),
-        tax: new Prisma.Decimal(tax),
-        total: new Prisma.Decimal(total),
-        customerName: tenant.legalName || tenant.name,
-        customerEmail: tenant.email,
-        customerTaxIdType: tenant.taxIdentificationType,
-        customerTaxId: tenant.taxIdentificationNumber,
-        description: dto.description,
-        idempotencyKey,
+    // Resolved only after the idempotency check, so a repeated request is answered
+    // from the stored invoice without touching the patient again.
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: dto.patientId, tenantId, deletedAt: null },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        billingName: true,
+        billingTaxIdType: true,
+        billingTaxId: true,
+        billingEmail: true,
+        billingAddress: true,
       },
+    });
+    if (!patient) {
+      throw new NotFoundException('Paciente no encontrado');
+    }
+    const resolved = resolveInvoiceCustomer(patient, dto.customer);
+    if (!resolved.customer) {
+      throw new UnprocessableEntityException({
+        statusCode: 422,
+        code: 'INVOICE_CUSTOMER_INCOMPLETE',
+        message: 'Completa los datos del receptor de la factura.',
+        details: { fields: resolved.invalid },
+      });
+    }
+    const customer = resolved.customer;
+
+    const invoice = await this.prisma.$transaction(async (tx) => {
+      if (dto.saveCustomerToPatient) {
+        await tx.patient.update({
+          where: { id: patient.id },
+          data: {
+            billingName: customer.name,
+            billingTaxIdType: customer.taxIdType,
+            billingTaxId: customer.taxId,
+            billingEmail: customer.email,
+            billingAddress: customer.address,
+          },
+        });
+      }
+      return tx.invoice.create({
+        data: {
+          tenantId,
+          patientId: patient.id,
+          issuerId,
+          status: InvoiceStatus.PENDING,
+          subtotal: new Prisma.Decimal(dto.subtotal),
+          tax: new Prisma.Decimal(tax),
+          total: new Prisma.Decimal(total),
+          // Snapshot: later edits to the patient must not change an issued document.
+          customerName: customer.name,
+          customerEmail: customer.email,
+          customerTaxIdType: customer.taxIdType,
+          customerTaxId: customer.taxId,
+          customerAddress: customer.address,
+          description: dto.description,
+          idempotencyKey,
+        },
+      });
     });
 
     const usesTenantConfiguration = !!tenant.billingSettings?.apiKey;
@@ -118,7 +170,7 @@ export class BillingService {
             email: invoice.customerEmail,
             identificationType: invoice.customerTaxIdType,
             identificationNumber: invoice.customerTaxId,
-            address: tenant.address || undefined,
+            address: invoice.customerAddress || undefined,
           },
           description: invoice.description,
           subtotal: Number(invoice.subtotal),

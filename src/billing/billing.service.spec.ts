@@ -3,6 +3,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { FakturClient } from './faktur.client';
 import { BillingService } from './billing.service';
 
+const patientRow = (overrides: Record<string, unknown> = {}) => ({
+  id: 'patient-1',
+  firstName: 'Ana',
+  lastName: 'Vega',
+  email: 'ana@example.com',
+  billingName: 'Luis Vega',
+  billingTaxIdType: 'CEDULA',
+  billingTaxId: '1712345678',
+  billingEmail: 'luis@example.com',
+  billingAddress: 'Av. 1',
+  ...overrides,
+});
+
 describe('BillingService invoice issuer role compatibility', () => {
   const tenant = {
     id: 'tenant-1',
@@ -14,7 +27,15 @@ describe('BillingService invoice issuer role compatibility', () => {
   const prisma = {
     tenant: { findUnique: jest.fn() },
     user: { findFirst: jest.fn() },
-    invoice: { count: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
+    patient: { findFirst: jest.fn(), update: jest.fn() },
+    $transaction: jest.fn(),
+    invoice: {
+      count: jest.fn(),
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
     tenantSubscription: { update: jest.fn() },
     billingSettings: { update: jest.fn(), updateMany: jest.fn() },
   };
@@ -23,6 +44,10 @@ describe('BillingService invoice issuer role compatibility', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
+    prisma.$transaction.mockImplementation((callback: (tx: unknown) => unknown) =>
+      callback(prisma),
+    );
+    prisma.patient.findFirst.mockResolvedValue(patientRow());
     prisma.tenant.findUnique.mockResolvedValue(tenant);
     prisma.user.findFirst.mockImplementation(async ({ where }) => {
       const issuer = {
@@ -47,7 +72,11 @@ describe('BillingService invoice issuer role compatibility', () => {
 
   it('accepts a canonical ADMIN issuer while retaining tenant and active checks', async () => {
     await expect(
-      service.createInvoice('tenant-1', 'issuer-1', { subtotal: 20, description: 'Consulta' }),
+      service.createInvoice('tenant-1', 'issuer-1', {
+        patientId: 'patient-1',
+        subtotal: 20,
+        description: 'Consulta',
+      }),
     ).rejects.toThrow('Completa los datos fiscales del tenant antes de facturar');
 
     expect(prisma.user.findFirst).toHaveBeenCalledWith({
@@ -76,12 +105,21 @@ describe('BillingService invoice issuer role compatibility', () => {
     });
 
     await expect(
-      service.createInvoice('tenant-1', 'issuer-1', { subtotal: 20, description: 'Consulta' }),
+      service.createInvoice('tenant-1', 'issuer-1', {
+        patientId: 'patient-1',
+        subtotal: 20,
+        description: 'Consulta',
+      }),
     ).rejects.toThrow(BadRequestException);
   });
 
   describe('issuing', () => {
-    const dto = { subtotal: 20, description: 'Consulta', idempotencyKey: 'period-2026-09' };
+    const dto = {
+      patientId: 'patient-1',
+      subtotal: 20,
+      description: 'Consulta',
+      idempotencyKey: 'period-2026-09',
+    };
 
     beforeEach(() => {
       prisma.tenant.findUnique.mockResolvedValue({
@@ -157,6 +195,123 @@ describe('BillingService invoice issuer role compatibility', () => {
 
       expect(prisma.invoice.update).toHaveBeenCalledTimes(1);
       expect(prisma.invoice.update.mock.calls[0][0].data.status).toBe('ISSUED');
+    });
+
+    describe('to a patient', () => {
+      it('issues to the payer stored on the patient and links the invoice', async () => {
+        await service.createInvoice('tenant-1', 'issuer-1', dto);
+
+        expect(prisma.patient.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'patient-1', tenantId: 'tenant-1', deletedAt: null },
+          }),
+        );
+        expect(prisma.invoice.create.mock.calls[0][0].data).toMatchObject({
+          patientId: 'patient-1',
+          customerName: 'Luis Vega',
+          customerEmail: 'luis@example.com',
+          customerTaxIdType: 'CEDULA',
+          customerTaxId: '1712345678',
+          customerAddress: 'Av. 1',
+        });
+        expect(prisma.invoice.create.mock.calls[0][0].data).not.toHaveProperty('subscriptionId');
+        expect(faktur.issueInvoice.mock.calls[0][0].customer).toEqual({
+          legalName: 'Luis Vega',
+          email: 'luis@example.com',
+          identificationType: 'CEDULA',
+          identificationNumber: '1712345678',
+          address: 'Av. 1',
+        });
+      });
+
+      it('issues to a third party given in the request without changing the patient', async () => {
+        await service.createInvoice('tenant-1', 'issuer-1', {
+          ...dto,
+          customer: { name: 'Seguros Andina S.A.', taxIdType: 'RUC', taxId: '1790000000001' },
+        });
+
+        expect(prisma.invoice.create.mock.calls[0][0].data).toMatchObject({
+          patientId: 'patient-1',
+          customerName: 'Seguros Andina S.A.',
+          customerTaxIdType: 'RUC',
+          customerTaxId: '1790000000001',
+          customerEmail: 'luis@example.com',
+        });
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
+
+      it('saves the resolved payer on the patient when asked', async () => {
+        prisma.patient.findFirst.mockResolvedValue(
+          patientRow({
+            billingName: null,
+            billingTaxIdType: null,
+            billingTaxId: null,
+            billingEmail: null,
+            billingAddress: null,
+          }),
+        );
+        await service.createInvoice('tenant-1', 'issuer-1', {
+          ...dto,
+          customer: { taxIdType: 'CEDULA', taxId: '171 234 5678' },
+          saveCustomerToPatient: true,
+        });
+
+        expect(prisma.patient.update).toHaveBeenCalledWith({
+          where: { id: 'patient-1' },
+          data: {
+            billingName: 'Ana Vega',
+            billingTaxIdType: 'CEDULA',
+            billingTaxId: '1712345678',
+            billingEmail: 'ana@example.com',
+            billingAddress: null,
+          },
+        });
+      });
+
+      it('keeps the saved payer when the provider then fails', async () => {
+        faktur.issueInvoice.mockRejectedValue(new Error('Faktur no disponible'));
+        await expect(
+          service.createInvoice('tenant-1', 'issuer-1', { ...dto, saveCustomerToPatient: true }),
+        ).rejects.toThrow('Faktur no disponible');
+
+        expect(prisma.patient.update).toHaveBeenCalledTimes(1);
+        expect(prisma.invoice.update.mock.calls[0][0].data).toMatchObject({ status: 'FAILED' });
+      });
+
+      it('answers 404 for a patient that is missing, archived or in another clinic', async () => {
+        prisma.patient.findFirst.mockResolvedValue(null);
+        await expect(service.createInvoice('tenant-1', 'issuer-1', dto)).rejects.toMatchObject({
+          status: 404,
+          message: 'Paciente no encontrado',
+        });
+        expect(prisma.invoice.create).not.toHaveBeenCalled();
+        expect(faktur.issueInvoice).not.toHaveBeenCalled();
+      });
+
+      it('rejects an incomplete payer before creating the invoice or reserving a sequential', async () => {
+        prisma.patient.findFirst.mockResolvedValue(
+          patientRow({ billingTaxIdType: null, billingTaxId: null }),
+        );
+        await expect(service.createInvoice('tenant-1', 'issuer-1', dto)).rejects.toMatchObject({
+          status: 422,
+          response: {
+            code: 'INVOICE_CUSTOMER_INCOMPLETE',
+            details: { fields: ['taxIdType', 'taxId'] },
+          },
+        });
+        expect(prisma.invoice.create).not.toHaveBeenCalled();
+        expect(prisma.billingSettings.update).not.toHaveBeenCalled();
+        expect(faktur.issueInvoice).not.toHaveBeenCalled();
+      });
+
+      it('returns an existing invoice for a repeated key without re-reading or saving the patient', async () => {
+        prisma.invoice.findFirst.mockResolvedValue({ id: 'existing' });
+        await expect(
+          service.createInvoice('tenant-1', 'issuer-1', { ...dto, saveCustomerToPatient: true }),
+        ).resolves.toEqual({ id: 'existing' });
+        expect(prisma.patient.findFirst).not.toHaveBeenCalled();
+        expect(prisma.patient.update).not.toHaveBeenCalled();
+      });
     });
   });
 });
