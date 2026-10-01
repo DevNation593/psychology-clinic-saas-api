@@ -55,6 +55,11 @@ export class FakturClient {
       );
     }
 
+    // The base URL can be configured per tenant: never send the API key over plain HTTP in production.
+    if (process.env.NODE_ENV === 'production' && !/^https:\/\//i.test(baseUrl)) {
+      throw new ServiceUnavailableException('La URL de Faktur debe usar HTTPS.');
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
@@ -91,7 +96,9 @@ export class FakturClient {
       if (error instanceof BadGatewayException || error instanceof ServiceUnavailableException) {
         throw error;
       }
-      throw new BadGatewayException('No fue posible conectar con Faktur para emitir el comprobante.');
+      throw new BadGatewayException(
+        'No fue posible conectar con Faktur para emitir el comprobante.',
+      );
     } finally {
       clearTimeout(timeout);
     }

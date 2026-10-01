@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bull';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
 import { PatientsModule } from './patients/patients.module';
+import { PatientTeamModule } from './patient-team/patient-team.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ClinicalNotesModule } from './clinical-notes/clinical-notes.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -19,6 +21,7 @@ import { TenantSettingsModule } from './tenant-settings/tenant-settings.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { BillingModule } from './billing/billing.module';
 import { SpecialtyRecordsModule } from './specialty-records/specialty-records.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 import { HealthController } from './health.controller';
 import './common/utils/bigint-json';
 
@@ -64,6 +67,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     TenantsModule,
     UsersModule,
     PatientsModule,
+    PatientTeamModule,
     AppointmentsModule,
     ClinicalNotesModule,
     TasksModule,
@@ -75,6 +79,13 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     SpecialtiesModule,
     BillingModule,
     SpecialtyRecordsModule,
+    OnboardingModule,
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

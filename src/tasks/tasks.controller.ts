@@ -22,7 +22,7 @@ export class TasksController {
     @Body() createTaskDto: CreateTaskDto,
     @CurrentUser() user: any,
   ) {
-    return this.tasksService.create(tenantId, user.userId, createTaskDto);
+    return this.tasksService.create(tenantId, user, createTaskDto);
   }
 
   @Get()
@@ -38,15 +38,20 @@ export class TasksController {
     @Query('assignedToId') assignedToId?: string,
     @Query('status') status?: string,
     @Query('priority') priority?: string,
+    @CurrentUser() user?: any,
   ) {
-    return this.tasksService.findAll(tenantId, { patientId, assignedToId, status, priority });
+    return this.tasksService.findAll(tenantId, { patientId, assignedToId, status, priority }, user);
   }
 
   @Get(':taskId')
   @ApiOperation({ summary: 'Get task details' })
   @ApiResponse({ status: 200, description: 'Task found' })
-  async findOne(@Param('tenantId') tenantId: string, @Param('taskId') taskId: string) {
-    return this.tasksService.findOne(tenantId, taskId);
+  async findOne(
+    @Param('tenantId') tenantId: string,
+    @Param('taskId') taskId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.tasksService.findOne(tenantId, taskId, user);
   }
 
   @Roles('CLIENTE', 'PSICOLOGO')
@@ -57,8 +62,9 @@ export class TasksController {
     @Param('tenantId') tenantId: string,
     @Param('taskId') taskId: string,
     @Body() updateTaskDto: UpdateTaskDto,
+    @CurrentUser() user: any,
   ) {
-    return this.tasksService.update(tenantId, taskId, updateTaskDto);
+    return this.tasksService.update(tenantId, taskId, updateTaskDto, user);
   }
 
   @Roles('CLIENTE')

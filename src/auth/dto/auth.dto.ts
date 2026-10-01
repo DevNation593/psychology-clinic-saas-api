@@ -56,5 +56,8 @@ export class AuthResponseDto {
     lastName: string;
     role: string;
     tenantId: string;
+    professionalProfile?: {
+      specialty: { id: string; code: string; name: string };
+    };
   };
 }

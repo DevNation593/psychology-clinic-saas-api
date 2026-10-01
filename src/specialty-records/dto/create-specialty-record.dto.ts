@@ -10,7 +10,9 @@ export class CreateSpecialtyRecordDto {
   @IsString()
   moduleKey: string;
 
-  @ApiProperty({ example: { weightKg: 72.5, heightCm: 168, bmi: 25.7, dietaryGoals: 'Reducir grasa corporal' } })
+  @ApiProperty({
+    example: { weightKg: 72.5, heightCm: 168, bmi: 25.7, dietaryGoals: 'Reducir grasa corporal' },
+  })
   @IsObject()
   data: Record<string, unknown>;
 

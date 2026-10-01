@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { RlsContext, RlsContextService } from './rls-context.service';
+import { assertTestDatabaseSafety } from './test-database-safety';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -61,9 +62,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'usageMetrics',
       'invoice',
       'specialtyRecord',
+      'professionalProfile',
       'user',
       'refreshToken',
       'patient',
+      'patientProfessional',
       'appointment',
       'clinicalNote',
       'task',
@@ -115,9 +118,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   // Helper method to clean database (for testing)
   // Models ordered so child tables are deleted before parent tables (FK constraints).
   async cleanDatabase() {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('Cannot clean database in production');
-    }
+    assertTestDatabaseSafety(process.env.NODE_ENV, process.env.DATABASE_URL);
 
     const orderedModels = [
       'auditLog',
@@ -126,9 +127,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'nextSessionPlan',
       'task',
       'clinicalNote',
+      'patientProfessional',
       'appointment',
       'refreshToken',
       'patient',
+      'professionalProfile',
       'user',
       'subscriptionEvent',
       'usageMetrics',

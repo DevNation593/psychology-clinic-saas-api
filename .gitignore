@@ -40,8 +40,10 @@ lerna-debug.log*
 .env.*.local
 
 # Prisma
-prisma/migrations/**/migration.sql
 
 # Other
 .vercel
 *.tsbuildinfo
+
+# Isolated Codex worktrees
+/.worktrees/

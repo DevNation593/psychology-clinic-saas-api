@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { InvoiceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { FakturClient } from './faktur.client';
+import { FakturClient, FakturInvoiceResponse } from './faktur.client';
 
 @Injectable()
 export class BillingService {
@@ -21,7 +22,12 @@ export class BillingService {
       throw new NotFoundException('Tenant no encontrado');
     }
     const issuer = await this.prisma.user.findFirst({
-      where: { id: issuerId, tenantId, isActive: true, role: { in: ['CLIENTE', 'PSICOLOGO'] } },
+      where: {
+        id: issuerId,
+        tenantId,
+        isActive: true,
+        role: { in: ['CLIENTE', 'PSICOLOGO', 'ADMIN', 'PROFESIONAL'] },
+      },
       select: { id: true },
     });
     if (!issuer) {
@@ -31,7 +37,9 @@ export class BillingService {
       throw new BadRequestException('Completa los datos fiscales del tenant antes de facturar');
     }
     if (tenant.billingSettings && !tenant.billingSettings.isEnabled) {
-      throw new BadRequestException('La facturación electrónica está desactivada en la configuración');
+      throw new BadRequestException(
+        'La facturación electrónica está desactivada en la configuración',
+      );
     }
 
     const periodStart = new Date();
@@ -53,8 +61,18 @@ export class BillingService {
 
     const tax = dto.tax ?? 0;
     const total = Number((dto.subtotal + tax).toFixed(2));
-    const idempotencyKey = dto.idempotencyKey || `${tenantId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const existing = await this.prisma.invoice.findUnique({ where: { idempotencyKey } });
+    // Keys are namespaced per tenant so a client-supplied key can never resolve
+    // to (or collide with) another tenant's invoice. Invoices created before the
+    // namespace existed were stored under the raw key and must still match.
+    const idempotencyKey = `${tenantId}:${dto.idempotencyKey || randomUUID()}`;
+    const existing = await this.prisma.invoice.findFirst({
+      where: {
+        tenantId,
+        idempotencyKey: {
+          in: dto.idempotencyKey ? [idempotencyKey, dto.idempotencyKey] : [idempotencyKey],
+        },
+      },
+    });
     if (existing) {
       return existing;
     }
@@ -77,59 +95,94 @@ export class BillingService {
       },
     });
 
-    try {
-      const providerResponse = await this.fakturClient.issueInvoice({
-        idempotencyKey,
-        customer: {
-          legalName: invoice.customerName,
-          email: invoice.customerEmail,
-          identificationType: invoice.customerTaxIdType,
-          identificationNumber: invoice.customerTaxId,
-          address: tenant.address || undefined,
-        },
-        description: invoice.description,
-        subtotal: Number(invoice.subtotal),
-        tax: Number(invoice.tax),
-        total: Number(invoice.total),
-        currency: invoice.currency,
-      }, tenant.billingSettings?.apiKey ? {
-        apiKey: tenant.billingSettings.apiKey,
-        apiUrl: tenant.billingSettings.apiUrl || undefined,
-        invoicePath: tenant.billingSettings.invoicePath,
-        environment: tenant.billingSettings.environment,
-        establishment: tenant.billingSettings.establishment || undefined,
-        emissionPoint: tenant.billingSettings.emissionPoint || undefined,
-        nextSequential: tenant.billingSettings.nextSequential,
-      } : undefined);
+    const usesTenantConfiguration = !!tenant.billingSettings?.apiKey;
+    let sequential: number | undefined;
+    let providerResponse: FakturInvoiceResponse;
 
-      const issuedInvoice = await this.prisma.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          status: InvoiceStatus.ISSUED,
-          externalId: this.readString(providerResponse, 'externalId', 'id'),
-          accessKey: this.readString(providerResponse, 'accessKey', 'claveAcceso'),
-          authorizationNumber: this.readString(providerResponse, 'authorizationNumber', 'numeroAutorizacion'),
-          xmlUrl: this.readString(providerResponse, 'xmlUrl', 'xml'),
-          pdfUrl: this.readString(providerResponse, 'pdfUrl', 'pdf'),
-          providerResponse: providerResponse as Prisma.InputJsonValue,
-          errorMessage: null,
+    try {
+      if (usesTenantConfiguration) {
+        // Reserve the sequential atomically so concurrent invoices never share one.
+        const reserved = await this.prisma.billingSettings.update({
+          where: { tenantId },
+          data: { nextSequential: { increment: 1 } },
+          select: { nextSequential: true },
+        });
+        sequential = reserved.nextSequential - 1;
+      }
+
+      providerResponse = await this.fakturClient.issueInvoice(
+        {
+          idempotencyKey,
+          customer: {
+            legalName: invoice.customerName,
+            email: invoice.customerEmail,
+            identificationType: invoice.customerTaxIdType,
+            identificationNumber: invoice.customerTaxId,
+            address: tenant.address || undefined,
+          },
+          description: invoice.description,
+          subtotal: Number(invoice.subtotal),
+          tax: Number(invoice.tax),
+          total: Number(invoice.total),
+          currency: invoice.currency,
         },
-      });
-      await this.prisma.tenantSubscription.update({
-        where: { tenantId },
-        data: { monthlyElectronicInvoicesUsed: { increment: 1 } },
-      });
-      return issuedInvoice;
+        usesTenantConfiguration
+          ? {
+              apiKey: tenant.billingSettings.apiKey,
+              apiUrl: tenant.billingSettings.apiUrl || undefined,
+              invoicePath: tenant.billingSettings.invoicePath,
+              environment: tenant.billingSettings.environment,
+              establishment: tenant.billingSettings.establishment || undefined,
+              emissionPoint: tenant.billingSettings.emissionPoint || undefined,
+              nextSequential: sequential,
+            }
+          : undefined,
+      );
     } catch (error) {
+      if (sequential !== undefined) {
+        // Hand the unused sequential back, unless a later invoice already took the next one.
+        await this.prisma.billingSettings
+          .updateMany({
+            where: { tenantId, nextSequential: sequential + 1 },
+            data: { nextSequential: sequential },
+          })
+          .catch(() => undefined);
+      }
       await this.prisma.invoice.update({
         where: { id: invoice.id },
         data: {
           status: InvoiceStatus.FAILED,
-          errorMessage: error instanceof Error ? error.message : 'Error desconocido al emitir en Faktur',
+          errorMessage:
+            error instanceof Error ? error.message : 'Error desconocido al emitir en Faktur',
         },
       });
       throw error;
     }
+
+    // From here on the document exists at the provider: bookkeeping failures
+    // must not mark it as failed.
+    const issuedInvoice = await this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: InvoiceStatus.ISSUED,
+        externalId: this.readString(providerResponse, 'externalId', 'id'),
+        accessKey: this.readString(providerResponse, 'accessKey', 'claveAcceso'),
+        authorizationNumber: this.readString(
+          providerResponse,
+          'authorizationNumber',
+          'numeroAutorizacion',
+        ),
+        xmlUrl: this.readString(providerResponse, 'xmlUrl', 'xml'),
+        pdfUrl: this.readString(providerResponse, 'pdfUrl', 'pdf'),
+        providerResponse: providerResponse as Prisma.InputJsonValue,
+        errorMessage: null,
+      },
+    });
+    await this.prisma.tenantSubscription.update({
+      where: { tenantId },
+      data: { monthlyElectronicInvoicesUsed: { increment: 1 } },
+    });
+    return issuedInvoice;
   }
 
   listInvoices(tenantId: string) {

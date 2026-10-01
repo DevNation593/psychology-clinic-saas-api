@@ -1,10 +1,34 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { toCanonicalRole } from '../common/roles/role-compatibility';
 import { PrismaService } from '../prisma/prisma.service';
+import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
 import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
+
+export type TaskActor = { userId: string; role: string };
 
 @Injectable()
 export class TasksService {
   constructor(private prisma: PrismaService) {}
+
+  private isProfessional(actor: TaskActor): boolean {
+    return toCanonicalRole(actor.role) === 'PROFESIONAL';
+  }
+
+  /** A professional only works with tasks they created or were assigned; other roles see the clinic's. */
+  private visibilityFilter(actor: TaskActor) {
+    if (!this.isProfessional(actor)) return {};
+    return { AND: [{ OR: [{ createdById: actor.userId }, { assignedToId: actor.userId }] }] };
+  }
+
+  private assertCanAssign(actor: TaskActor, assignedToId: string | undefined) {
+    if (this.isProfessional(actor) && assignedToId && assignedToId !== actor.userId) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'TASK_ASSIGNMENT_FORBIDDEN',
+        message: 'Solo puedes asignarte tareas a ti mismo.',
+      });
+    }
+  }
 
   private async assertAssignableUserBelongsToTenant(tenantId: string, userId: string) {
     const user = await this.prisma.user.findFirst({
@@ -16,8 +40,14 @@ export class TasksService {
     }
   }
 
-  async create(tenantId: string, createdById: string, createTaskDto: CreateTaskDto) {
+  async create(tenantId: string, actor: TaskActor, createTaskDto: CreateTaskDto) {
     const { patientId, dueDate, ...taskData } = createTaskDto;
+    const createdById = actor.userId;
+    this.assertCanAssign(actor, taskData.assignedToId);
+    // A professional's task is their own unless an administrator assigns it elsewhere.
+    if (this.isProfessional(actor) && !taskData.assignedToId) {
+      taskData.assignedToId = actor.userId;
+    }
 
     // Verify patient belongs to tenant
     const patient = await this.prisma.patient.findFirst({
@@ -83,14 +113,17 @@ export class TasksService {
 
   async findAll(
     tenantId: string,
-    filters?: {
-      patientId?: string;
-      assignedToId?: string;
-      status?: string;
-      priority?: string;
-    },
+    filters:
+      | {
+          patientId?: string;
+          assignedToId?: string;
+          status?: string;
+          priority?: string;
+        }
+      | undefined,
+    actor: TaskActor,
   ) {
-    const where: any = { tenantId };
+    const where: any = { tenantId, ...this.visibilityFilter(actor) };
 
     if (filters?.patientId) {
       where.patientId = filters.patientId;
@@ -139,13 +172,13 @@ export class TasksService {
     return tasks;
   }
 
-  async findOne(tenantId: string, taskId: string) {
+  async findOne(tenantId: string, taskId: string, actor: TaskActor) {
     const task = await this.prisma.task.findFirst({
-      where: { id: taskId, tenantId },
+      where: { id: taskId, tenantId, ...this.visibilityFilter(actor) },
       include: {
         patient: true,
-        createdBy: true,
-        assignedTo: true,
+        createdBy: { select: PUBLIC_USER_SELECT },
+        assignedTo: { select: PUBLIC_USER_SELECT },
       },
     });
 
@@ -156,14 +189,16 @@ export class TasksService {
     return task;
   }
 
-  async update(tenantId: string, taskId: string, updateTaskDto: UpdateTaskDto) {
+  async update(tenantId: string, taskId: string, updateTaskDto: UpdateTaskDto, actor: TaskActor) {
     const task = await this.prisma.task.findFirst({
-      where: { id: taskId, tenantId },
+      where: { id: taskId, tenantId, ...this.visibilityFilter(actor) },
     });
 
     if (!task) {
       throw new NotFoundException('Tarea no encontrada');
     }
+
+    this.assertCanAssign(actor, updateTaskDto.assignedToId);
 
     const updateData: any = { ...updateTaskDto };
 
@@ -181,8 +216,8 @@ export class TasksService {
       data: updateData,
       include: {
         patient: true,
-        createdBy: true,
-        assignedTo: true,
+        createdBy: { select: PUBLIC_USER_SELECT },
+        assignedTo: { select: PUBLIC_USER_SELECT },
       },
     });
   }

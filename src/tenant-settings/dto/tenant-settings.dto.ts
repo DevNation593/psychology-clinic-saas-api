@@ -12,7 +12,10 @@ import {
 } from 'class-validator';
 
 export class UpdateTenantSettingsDto {
-  @ApiPropertyOptional({ example: 'sk_test_xxx', description: 'API key de Faktur. Se almacena en el servidor.' })
+  @ApiPropertyOptional({
+    example: 'sk_test_xxx',
+    description: 'API key de Faktur. Se almacena en el servidor.',
+  })
   @IsString()
   @IsOptional()
   fakturApiKey?: string;
@@ -153,6 +156,10 @@ export class UpdateTenantSettingsDto {
   @IsArray()
   @IsOptional()
   @IsString({ each: true })
+  @Matches(/^\d+(h|m)$/, {
+    each: true,
+    message: 'reminderRules must use the format "<number>h" or "<number>m"',
+  })
   reminderRules?: string[];
 
   @ApiPropertyOptional({ example: true, description: 'Enable/disable reminders' })

@@ -2,6 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { areRolesEquivalent } from '../roles/role-compatibility';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -33,12 +34,7 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('Rol de usuario no encontrado');
     }
 
-    // SOPORTE bypasses all role checks (full system access for support/debugging)
-    if (user.role === 'SOPORTE') {
-      return true;
-    }
-
-    const hasRole = requiredRoles.some((role) => user.role === role);
+    const hasRole = requiredRoles.some((role) => areRolesEquivalent(user.role, role));
 
     if (!hasRole) {
       throw new ForbiddenException(`Required roles: ${requiredRoles.join(', ')}`);

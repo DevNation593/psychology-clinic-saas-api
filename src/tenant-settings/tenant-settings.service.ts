@@ -156,7 +156,6 @@ export class TenantSettingsService {
           isEnabled: fakturEnabled,
         },
       });
-
     });
 
     return this.findOne(tenantId);

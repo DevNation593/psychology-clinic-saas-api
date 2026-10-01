@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSpecialtyRecordDto } from './dto/create-specialty-record.dto';
@@ -30,12 +35,7 @@ export class SpecialtyRecordsService {
     });
   }
 
-  async create(
-    tenantId: string,
-    patientId: string,
-    userId: string,
-    dto: CreateSpecialtyRecordDto,
-  ) {
+  async create(tenantId: string, patientId: string, userId: string, dto: CreateSpecialtyRecordDto) {
     await this.assertPatient(tenantId, patientId);
 
     const specialty = await this.prisma.specialty.findFirst({
@@ -71,7 +71,8 @@ export class SpecialtyRecordsService {
     }
 
     const missingFields = (MODULE_FIELDS[dto.moduleKey] || []).filter(
-      (field) => dto.data[field] === undefined || dto.data[field] === null || dto.data[field] === '',
+      (field) =>
+        dto.data[field] === undefined || dto.data[field] === null || dto.data[field] === '',
     );
     if (missingFields.length > 0) {
       throw new BadRequestException(`Faltan campos: ${missingFields.join(', ')}`);
