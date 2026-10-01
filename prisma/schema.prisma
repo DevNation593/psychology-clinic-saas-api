@@ -207,6 +207,8 @@ model Invoice {
   subscription   TenantSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   issuerId       String
   issuer         User               @relation("IssuedInvoices", fields: [issuerId], references: [id], onDelete: Restrict)
+  patientId      String?
+  patient        Patient?            @relation(fields: [patientId], references: [id], onDelete: SetNull)
 
   documentType InvoiceDocumentType @default(INVOICE)
   status       InvoiceStatus       @default(PENDING)
@@ -219,6 +221,7 @@ model Invoice {
   customerEmail String
   customerTaxIdType String
   customerTaxId String
+  customerAddress String?
   description String
   externalId String?
   accessKey  String?
@@ -235,6 +238,7 @@ model Invoice {
   @@index([status])
   @@index([externalId])
   @@index([tenantId, issuerId, createdAt])
+  @@index([tenantId, patientId, createdAt])
 }
 
 model TenantSettings {
@@ -505,6 +509,13 @@ model Patient {
   currentMedication String?
   notes             String? // General notes (not clinical)
 
+  // Billing recipient for this patient's invoices. May be the patient or a third party.
+  billingName      String?
+  billingTaxIdType String? // RUC, CEDULA or PASSPORT
+  billingTaxId     String?
+  billingEmail     String?
+  billingAddress   String?
+
   isActive  Boolean   @default(true)
   deletedAt DateTime? // Soft delete
 
@@ -518,6 +529,7 @@ model Patient {
   nextSessionPlans NextSessionPlan[]
   specialtyRecords SpecialtyRecord[]
   professionalAssignments PatientProfessional[]
+  invoices         Invoice[]
 
   @@index([tenantId])
   @@index([tenantId, isActive])
