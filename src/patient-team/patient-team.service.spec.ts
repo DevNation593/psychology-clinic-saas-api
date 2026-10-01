@@ -139,7 +139,23 @@ describe('PatientTeamService', () => {
     },
   );
 
-  it.each(['list', 'listEligible', 'assign'])(
+  it.each(['PROFESIONAL', 'PSICOLOGO'])(
+    'lets an unassigned %s read the team of a patient in their clinic',
+    async (role) => {
+      db.patientProfessional.findUnique.mockResolvedValue(null);
+      db.patientProfessional.findMany.mockResolvedValue([assignment()]);
+      db.tenantSpecialty.findMany.mockResolvedValue([{ specialtyId: 'nutrition' }]);
+
+      const team = await call('list', { ...actor, role });
+
+      expect(team).toEqual([expect.objectContaining({ professionalId: 'target', isActive: true })]);
+      expect(db.patientProfessional.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tenantId: 'tenant-1', patientId: 'patient-1' } }),
+      );
+    },
+  );
+
+  it.each(['listEligible', 'assign'])(
     '%s rejects an unassigned professional before resolving eligibility',
     async (method) => {
       db.patientProfessional.findUnique.mockResolvedValue(null);

@@ -40,7 +40,7 @@ export class PatientTeamService {
 
   async list(tenantId: string, patientId: string, actor: TeamActor) {
     this.assertActorScope(tenantId, actor);
-    await this.authorize(this.prisma, tenantId, patientId, actor);
+    this.authorizeRead(actor);
     await this.findPatient(this.prisma, tenantId, patientId);
     const rows = await this.prisma.patientProfessional.findMany({
       where: { tenantId, patientId },
@@ -272,6 +272,14 @@ export class PatientTeamService {
     if (role === 'ADMIN' || role === 'ASISTENTE') return;
     if (role !== 'PROFESIONAL' || administrativeOnly) throw this.teamForbidden();
     await this.assertActiveMembership(db, tenantId, patientId, actor.userId);
+  }
+
+  /** Reading is open to every clinical role of the clinic; changing the team still needs membership. */
+  private authorizeRead(actor: TeamActor) {
+    const role = toCanonicalRole(actor.role);
+    if (role !== 'ADMIN' && role !== 'ASISTENTE' && role !== 'PROFESIONAL') {
+      throw this.teamForbidden();
+    }
   }
 
   private teamForbidden() {
