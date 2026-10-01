@@ -1,14 +1,20 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import {
+  assertSeedTopology,
+  buildCanonicalSeedRelations,
+  DEMO_SEED_TOPOLOGY,
+  resolvePrimaryProfessionalId,
+  type SeedPatientKey,
+  type SeedProfessionalKey,
+  type SeedSpecialtyKey,
+} from './seed-topology';
 
 const prisma = new PrismaClient();
 
 const DEMO_PASSWORD = 'Password123!';
 
-type SpecialtyCatalog = Record<
-  'psychology' | 'nutrition' | 'physiotherapy' | 'dentistry',
-  { id: string }
->;
+type SpecialtyCatalog = Record<SeedSpecialtyKey, { id: string }>;
 
 async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
   const specialties = await Promise.all([
@@ -103,6 +109,7 @@ async function clearDatabase() {
   await prisma.task.deleteMany();
   await prisma.clinicalNote.deleteMany();
   await prisma.appointment.deleteMany();
+  await prisma.patientProfessional.deleteMany();
   await prisma.patient.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.subscriptionEvent.deleteMany();
@@ -114,6 +121,13 @@ async function clearDatabase() {
 }
 
 async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog) {
+  const professionalDefinition = (key: SeedProfessionalKey) =>
+    DEMO_SEED_TOPOLOGY.professionals.find((professional) => professional.key === key)!;
+  const adminDefinition = professionalDefinition('clinicAdmin');
+  const psychologyDefinition = professionalDefinition('psychology');
+  const nutritionDefinition = professionalDefinition('nutrition');
+  const physiotherapyDefinition = professionalDefinition('physiotherapy');
+
   const tenant = await prisma.tenant.create({
     data: {
       name: 'Demo Consultorio Integral',
@@ -156,11 +170,11 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       pricePerSeat: 29,
       currency: 'USD',
       seatsPsychologistsMax: 10,
-      seatsPsychologistsUsed: 2,
+      seatsPsychologistsUsed: 4,
       maxActivePatients: 500,
       storageGB: 5,
       monthlyNotificationsLimit: 5000,
-      includedSpecialties: 3,
+      includedSpecialties: 4,
       specialtyPrice: 15,
       monthlyElectronicInvoicesLimit: 50,
       featureClinicalNotes: true,
@@ -243,11 +257,25 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       firstName: 'Daniela',
       lastName: 'Mendoza',
       phone: '+593999000010',
-      role: 'CLIENTE',
+      role: adminDefinition.role,
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-45),
       avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Daniela%20Mendoza',
+      professionalTitle: 'Odontóloga y administradora',
+      professionalProfile: {
+        create: {
+          specialtyId: catalog[adminDefinition.specialtyKey].id,
+          professionalTitle: 'Odontóloga y administradora',
+          isActive: true,
+        },
+      },
+      professionalSpecialties: {
+        create: {
+          specialtyId: catalog[adminDefinition.specialtyKey].id,
+          isPrimary: true,
+        },
+      },
     },
   });
 
@@ -259,7 +287,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       firstName: 'Ana',
       lastName: 'Vega',
       phone: '+593999000011',
-      role: 'PSICOLOGO',
+      role: psychologyDefinition.role,
       managedByProvider: true,
       isActive: true,
       emailVerified: true,
@@ -268,13 +296,13 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       professionalTitle: 'Psicóloga clínica',
       professionalProfile: {
         create: {
-          specialtyId: catalog.psychology.id,
+          specialtyId: catalog[psychologyDefinition.specialtyKey].id,
           professionalTitle: 'Psicóloga clínica',
           isActive: true,
         },
       },
       professionalSpecialties: {
-        create: { specialtyId: catalog.psychology.id, isPrimary: true },
+        create: { specialtyId: catalog[psychologyDefinition.specialtyKey].id, isPrimary: true },
       },
     },
   });
@@ -282,12 +310,12 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
   const psych2 = await prisma.user.create({
     data: {
       tenantId: tenant.id,
-      email: 'psic.luis@psic.com',
+      email: 'nutri.luis@psic.com',
       password: hashedPassword,
       firstName: 'Luis',
       lastName: 'Paredes',
       phone: '+593999000012',
-      role: 'PSICOLOGO',
+      role: nutritionDefinition.role,
       managedByProvider: true,
       isActive: true,
       emailVerified: true,
@@ -296,13 +324,44 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       professionalTitle: 'Nutricionista',
       professionalProfile: {
         create: {
-          specialtyId: catalog.nutrition.id,
+          specialtyId: catalog[nutritionDefinition.specialtyKey].id,
           professionalTitle: 'Nutricionista',
           isActive: true,
         },
       },
       professionalSpecialties: {
-        create: { specialtyId: catalog.nutrition.id, isPrimary: true },
+        create: { specialtyId: catalog[nutritionDefinition.specialtyKey].id, isPrimary: true },
+      },
+    },
+  });
+
+  const physiotherapist = await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      email: 'fisio.sofia@psic.com',
+      password: hashedPassword,
+      firstName: 'Sofía',
+      lastName: 'Cedeño',
+      phone: '+593999000014',
+      role: physiotherapyDefinition.role,
+      managedByProvider: true,
+      isActive: true,
+      emailVerified: true,
+      activatedAt: daysFromNow(-25),
+      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Sofia%20Cedeno',
+      professionalTitle: 'Fisioterapeuta',
+      professionalProfile: {
+        create: {
+          specialtyId: catalog[physiotherapyDefinition.specialtyKey].id,
+          professionalTitle: 'Fisioterapeuta',
+          isActive: true,
+        },
+      },
+      professionalSpecialties: {
+        create: {
+          specialtyId: catalog[physiotherapyDefinition.specialtyKey].id,
+          isPrimary: true,
+        },
       },
     },
   });
@@ -323,6 +382,15 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
     },
   });
 
+  const professionalIds: Partial<Record<SeedProfessionalKey, string>> = {
+    clinicAdmin: admin.id,
+    psychology: psych1.id,
+    nutrition: psych2.id,
+    physiotherapy: physiotherapist.id,
+  };
+  const primaryProfessionalId = (patientKey: SeedPatientKey) =>
+    resolvePrimaryProfessionalId(DEMO_SEED_TOPOLOGY, patientKey, professionalIds);
+
   const patient1 = await prisma.patient.create({
     data: {
       tenantId: tenant.id,
@@ -335,7 +403,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       address: 'La Carolina, Quito',
       emergencyContactName: 'Paula Ortega',
       emergencyContactPhone: '+593999100002',
-      assignedPsychologistId: psych1.id,
+      assignedPsychologistId: primaryProfessionalId('valeria'),
       notes: 'Paciente con seguimiento semanal por ansiedad social.',
     },
   });
@@ -351,7 +419,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       gender: 'MALE',
       emergencyContactName: 'Rosa Salazar',
       emergencyContactPhone: '+593999100004',
-      assignedPsychologistId: psych1.id,
+      assignedPsychologistId: primaryProfessionalId('jorge'),
       currentMedication: 'Escitalopram 10mg',
     },
   });
@@ -364,7 +432,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       phone: '+593999100005',
       dateOfBirth: new Date('2001-11-20'),
       gender: 'FEMALE',
-      assignedPsychologistId: psych2.id,
+      assignedPsychologistId: primaryProfessionalId('camila'),
     },
   });
 
@@ -377,16 +445,37 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       phone: '+593999100006',
       dateOfBirth: new Date('1979-06-18'),
       gender: 'MALE',
-      assignedPsychologistId: psych2.id,
+      assignedPsychologistId: primaryProfessionalId('andres'),
     },
   });
 
+  const canonicalRelations = buildCanonicalSeedRelations(
+    DEMO_SEED_TOPOLOGY,
+    {
+      tenants: { clinic: tenant.id },
+      professionals: professionalIds,
+      patients: {
+        valeria: patient1.id,
+        jorge: patient2.id,
+        camila: patient3.id,
+        andres: patient4.id,
+      },
+      specialties: {
+        psychology: catalog.psychology.id,
+        nutrition: catalog.nutrition.id,
+        physiotherapy: catalog.physiotherapy.id,
+        dentistry: catalog.dentistry.id,
+      },
+      assigners: { clinic: admin.id },
+    },
+    'clinic',
+  );
+
+  await prisma.patientProfessional.createMany({ data: canonicalRelations.memberships });
+
   const completedAppointment = await prisma.appointment.create({
     data: {
-      tenantId: tenant.id,
-      patientId: patient1.id,
-      psychologistId: psych1.id,
-      specialtyId: catalog.psychology.id,
+      ...canonicalRelations.appointments['valeria-psychology'],
       title: 'Sesion de seguimiento ansiedad',
       description: 'Revision de avances y ajuste de tecnicas',
       startTime: daysFromNow(-3),
@@ -400,10 +489,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
 
   await prisma.appointment.create({
     data: {
-      tenantId: tenant.id,
-      patientId: patient2.id,
-      psychologistId: psych1.id,
-      specialtyId: catalog.psychology.id,
+      ...canonicalRelations.appointments['jorge-psychology'],
       title: 'TCC - gestion de estres',
       startTime: daysFromNow(1),
       endTime: new Date(daysFromNow(1).getTime() + 60 * 60 * 1000),
@@ -417,10 +503,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
 
   await prisma.appointment.create({
     data: {
-      tenantId: tenant.id,
-      patientId: patient3.id,
-      psychologistId: psych2.id,
-      specialtyId: catalog.nutrition.id,
+      ...canonicalRelations.appointments['camila-nutrition'],
       title: 'Evaluacion inicial',
       startTime: daysFromNow(2),
       endTime: new Date(daysFromNow(2).getTime() + 60 * 60 * 1000),
@@ -433,11 +516,8 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
 
   await prisma.appointment.create({
     data: {
-      tenantId: tenant.id,
-      patientId: patient4.id,
-      psychologistId: psych2.id,
-      specialtyId: catalog.nutrition.id,
-      title: 'Consulta cancelada',
+      ...canonicalRelations.appointments['andres-dentistry'],
+      title: 'Control odontológico cancelado',
       startTime: daysFromNow(-1),
       endTime: new Date(daysFromNow(-1).getTime() + 60 * 60 * 1000),
       duration: 60,
@@ -446,6 +526,33 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       cancelledAt: daysFromNow(-1),
       cancelledBy: assistant.id,
       location: 'Consultorio 3',
+      isOnline: false,
+    },
+  });
+
+  await prisma.appointment.create({
+    data: {
+      ...canonicalRelations.appointments['valeria-nutrition'],
+      title: 'Valoración nutricional',
+      description: 'Evaluación de hábitos y objetivos alimenticios',
+      startTime: daysFromNow(3),
+      endTime: new Date(daysFromNow(3).getTime() + 45 * 60 * 1000),
+      duration: 45,
+      status: 'SCHEDULED',
+      location: 'Consultorio 1',
+      isOnline: false,
+    },
+  });
+
+  await prisma.appointment.create({
+    data: {
+      ...canonicalRelations.appointments['camila-physiotherapy'],
+      title: 'Evaluación funcional',
+      startTime: daysFromNow(4),
+      endTime: new Date(daysFromNow(4).getTime() + 60 * 60 * 1000),
+      duration: 60,
+      status: 'CONFIRMED',
+      location: 'Sala de rehabilitación',
       isOnline: false,
     },
   });
@@ -500,7 +607,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       {
         tenantId: tenant.id,
         patientId: patient4.id,
-        professionalId: psych2.id,
+        professionalId: physiotherapist.id,
         specialtyId: catalog.physiotherapy.id,
         moduleKey: 'physiotherapy.evolution',
         data: {
@@ -509,6 +616,19 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
           progress: 'Mejora funcional moderada.',
         },
         notes: 'Continuar ejercicios de movilidad.',
+      },
+      {
+        tenantId: tenant.id,
+        patientId: patient4.id,
+        professionalId: admin.id,
+        specialtyId: catalog.dentistry.id,
+        moduleKey: 'dentistry.treatments',
+        data: {
+          procedure: 'Profilaxis y valoración preventiva',
+          tooth: 'General',
+          result: 'Sin hallazgos urgentes',
+        },
+        notes: 'Programar control semestral.',
       },
     ],
   });
@@ -540,8 +660,8 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         tenantId: tenant.id,
         patientId: patient4.id,
         createdById: admin.id,
-        assignedToId: psych2.id,
-        title: 'Actualizar historia de medicacion',
+        assignedToId: physiotherapist.id,
+        title: 'Actualizar plan de rehabilitación',
         status: 'COMPLETED',
         priority: 'LOW',
         completedAt: daysFromNow(-2),
@@ -656,7 +776,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         tenantId: tenant.id,
         periodStart: daysFromNow(-30),
         periodEnd: daysFromNow(-1),
-        seatsPsychologistsUsed: 2,
+        seatsPsychologistsUsed: 4,
         activePatientsCount: 4,
         storageUsedGB: 0.63,
         notificationsSent: 61,
@@ -670,7 +790,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         tenantId: tenant.id,
         periodStart: daysFromNow(-1),
         periodEnd: daysFromNow(29),
-        seatsPsychologistsUsed: 2,
+        seatsPsychologistsUsed: 4,
         activePatientsCount: 4,
         storageUsedGB: 0.81,
         notificationsSent: 97,
@@ -689,12 +809,16 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       admin,
       psych1,
       psych2,
+      physiotherapist,
       assistant,
     },
   };
 }
 
 async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCatalog) {
+  const professionalDefinition = DEMO_SEED_TOPOLOGY.professionals.find(
+    (professional) => professional.key === 'personalPsychology',
+  )!;
   const tenant = await prisma.tenant.create({
     data: {
       name: 'Demo Consultorio Personal',
@@ -790,7 +914,7 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
       password: hashedPassword,
       firstName: 'Carla',
       lastName: 'Noboa',
-      role: 'CLIENTE',
+      role: 'ADMIN',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-4),
@@ -804,36 +928,59 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
       password: hashedPassword,
       firstName: 'Miguel',
       lastName: 'Arias',
-      role: 'PSICOLOGO',
+      role: professionalDefinition.role,
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-4),
       professionalTitle: 'Psicólogo clínico',
       professionalProfile: {
         create: {
-          specialtyId: catalog.psychology.id,
+          specialtyId: catalog[professionalDefinition.specialtyKey].id,
           professionalTitle: 'Psicólogo clínico',
           isActive: true,
         },
       },
       professionalSpecialties: {
-        create: { specialtyId: catalog.psychology.id, isPrimary: true },
+        create: {
+          specialtyId: catalog[professionalDefinition.specialtyKey].id,
+          isPrimary: true,
+        },
       },
     },
   });
 
-  await prisma.patient.create({
+  const professionalIds: Partial<Record<SeedProfessionalKey, string>> = {
+    personalPsychology: psych.id,
+  };
+  const patient = await prisma.patient.create({
     data: {
       tenantId: tenant.id,
       firstName: 'Priscila',
       lastName: 'Viteri',
       email: 'priscila.viteri@email.com',
       phone: '+593999200010',
-      assignedPsychologistId: psych.id,
+      assignedPsychologistId: resolvePrimaryProfessionalId(
+        DEMO_SEED_TOPOLOGY,
+        'priscila',
+        professionalIds,
+      ),
     },
   });
 
-  return { tenant, admin };
+  const canonicalRelations = buildCanonicalSeedRelations(
+    DEMO_SEED_TOPOLOGY,
+    {
+      tenants: { personal: tenant.id },
+      professionals: professionalIds,
+      patients: { priscila: patient.id },
+      specialties: { psychology: catalog.psychology.id },
+      assigners: { personal: admin.id },
+    },
+    'personal',
+  );
+  await prisma.patientProfessional.createMany({ data: canonicalRelations.memberships });
+
+  return { tenant, admin, psych, patient };
 }
 
 async function seedOwnerTenant(hashedPassword: string) {
@@ -939,6 +1086,7 @@ async function seedOwnerTenant(hashedPassword: string) {
 
 async function main() {
   console.log('🌱 Starting deterministic demo seed...');
+  assertSeedTopology(DEMO_SEED_TOPOLOGY);
   await clearDatabase();
 
   const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, 10);
@@ -956,14 +1104,15 @@ async function main() {
   console.log('  owner@psic.com (SOPORTE)');
   console.log('');
   console.log(`Clinic tenant: ${mainTenant.tenant.name}`);
-  console.log('  admin.demo@psic.com (CLIENTE)');
-  console.log('  psic.ana@psic.com (PSICOLOGO)');
-  console.log('  psic.luis@psic.com (PSICOLOGO)');
+  console.log('  admin.demo@psic.com (ADMIN / Odontología)');
+  console.log('  psic.ana@psic.com (PROFESIONAL / Psicología)');
+  console.log('  nutri.luis@psic.com (PROFESIONAL / Nutrición)');
+  console.log('  fisio.sofia@psic.com (PROFESIONAL / Fisioterapia)');
   console.log('  asistente.demo@psic.com (ASISTENTE)');
   console.log('');
   console.log(`Personal tenant: ${personalTenant.tenant.name}`);
-  console.log('  admin.trial@psic.com (CLIENTE)');
-  console.log('  psic.trial@psic.com (PSICOLOGO)');
+  console.log('  admin.trial@psic.com (ADMIN)');
+  console.log('  psic.trial@psic.com (PROFESIONAL / Psicología)');
 }
 
 main()
