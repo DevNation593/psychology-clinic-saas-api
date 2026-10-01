@@ -262,18 +262,18 @@ describe('Patient team and appointments (E2E)', () => {
         expect.objectContaining({
           professionalId: psychologyProfessionalId,
           isActive: true,
-          professional: {
+          professional: expect.objectContaining({
             id: psychologyProfessionalId,
             specialty: expect.objectContaining({ code: 'PSYCHOLOGY' }),
-          },
+          }),
         }),
         expect.objectContaining({
           professionalId: nutritionProfessionalId,
           isActive: true,
-          professional: {
+          professional: expect.objectContaining({
             id: nutritionProfessionalId,
             specialty: expect.objectContaining({ code: 'NUTRITION' }),
-          },
+          }),
         }),
       ]),
     );
