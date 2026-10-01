@@ -43,7 +43,9 @@ export async function auditMasterRoles(client: AuditClient): Promise<MasterRoleA
 
   return {
     // Only tenants that actually have clinic users need a MASTER; support or empty tenants do not.
-    tenantsWithoutMaster: withoutMaster.filter((t) => tenantsWithClinicUsers.has(t.id)).map((t) => t.id),
+    tenantsWithoutMaster: withoutMaster
+      .filter((t) => tenantsWithClinicUsers.has(t.id))
+      .map((t) => t.id),
     tenantsWithoutClinicUsers: withoutMaster
       .filter((t) => !tenantsWithClinicUsers.has(t.id))
       .map((t) => t.id),

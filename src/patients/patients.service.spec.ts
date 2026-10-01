@@ -219,36 +219,37 @@ describe('PatientsService legacy assignment compatibility', () => {
     expect(tx.patientProfessional.updateMany).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['PROFESIONAL', 'professional-1'],
-  ])('denies an unassigned %s adding %s through the legacy pointer', async (role, targetId) => {
-    team.assertActiveMembership.mockRejectedValue(assignmentForbidden());
+  it.each([['PROFESIONAL', 'professional-1']])(
+    'denies an unassigned %s adding %s through the legacy pointer',
+    async (role, targetId) => {
+      team.assertActiveMembership.mockRejectedValue(assignmentForbidden());
 
-    await expect(
-      service.update(
+      await expect(
+        service.update(
+          'tenant-1',
+          'patient-1',
+          { assignedPsychologistId: targetId },
+          'professional-1',
+          role,
+        ),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: {
+          statusCode: 403,
+          code: 'TEAM_ASSIGNMENT_FORBIDDEN',
+        },
+      });
+
+      expect(team.assertActiveMembership).toHaveBeenCalledWith(
+        tx,
         'tenant-1',
         'patient-1',
-        { assignedPsychologistId: targetId },
         'professional-1',
-        role,
-      ),
-    ).rejects.toMatchObject({
-      status: 403,
-      response: {
-        statusCode: 403,
-        code: 'TEAM_ASSIGNMENT_FORBIDDEN',
-      },
-    });
-
-    expect(team.assertActiveMembership).toHaveBeenCalledWith(
-      tx,
-      'tenant-1',
-      'patient-1',
-      'professional-1',
-    );
-    expect(tx.patient.update).not.toHaveBeenCalled();
-    expect(team.ensureActive).not.toHaveBeenCalled();
-  });
+      );
+      expect(tx.patient.update).not.toHaveBeenCalled();
+      expect(team.ensureActive).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(['MASTER', 'ASISTENTE'])(
     'lets %s activate a legacy assignee without a team membership check',

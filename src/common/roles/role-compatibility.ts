@@ -1,4 +1,10 @@
-export type CanonicalRole = 'MASTER' | 'PROFESIONAL' | 'ASISTENTE' | 'SOPORTE' | 'PACIENTE' | 'ADMIN';
+export type CanonicalRole =
+  | 'MASTER'
+  | 'PROFESIONAL'
+  | 'ASISTENTE'
+  | 'SOPORTE'
+  | 'PACIENTE'
+  | 'ADMIN';
 
 const CANONICAL_ROLES: readonly string[] = [
   'MASTER',

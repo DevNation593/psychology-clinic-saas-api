@@ -8,7 +8,11 @@ function fakeClient(tenantIds: string[], users: Row[]) {
   return {
     tenant: { findMany: async () => tenantIds.map((id) => ({ id })) },
     user: {
-      findMany: async ({ where }: { where: { role: string | { in: string[] }; professionalProfile?: null } }) => {
+      findMany: async ({
+        where,
+      }: {
+        where: { role: string | { in: string[] }; professionalProfile?: null };
+      }) => {
         const roles = typeof where.role === 'string' ? [where.role] : where.role.in;
         return users.filter(
           (user) =>
@@ -28,10 +32,13 @@ describe('master role migration', () => {
 
   it('reports a clean database as non-blocking', async () => {
     const audit = await auditMasterRoles(
-      fakeClient(['t1'], [
-        { id: 'u1', tenantId: 't1', role: 'MASTER' },
-        { id: 'u2', tenantId: 't1', role: 'PROFESIONAL', professionalProfile: { id: 'p' } },
-      ]) as never,
+      fakeClient(
+        ['t1'],
+        [
+          { id: 'u1', tenantId: 't1', role: 'MASTER' },
+          { id: 'u2', tenantId: 't1', role: 'PROFESIONAL', professionalProfile: { id: 'p' } },
+        ],
+      ) as never,
     );
     expect(audit).toEqual({
       tenantsWithoutMaster: [],
@@ -46,13 +53,16 @@ describe('master role migration', () => {
 
   it('flags tenants with zero or several masters and leftover legacy or admin roles', async () => {
     const audit = await auditMasterRoles(
-      fakeClient(['t1', 't2'], [
-        { id: 'u1', tenantId: 't1', role: 'MASTER' },
-        { id: 'u2', tenantId: 't1', role: 'MASTER' },
-        { id: 'u3', tenantId: 't1', role: 'CLIENTE' },
-        { id: 'u4', tenantId: 't2', role: 'PSICOLOGO' },
-        { id: 'u5', tenantId: 't2', role: 'ADMIN' },
-      ]) as never,
+      fakeClient(
+        ['t1', 't2'],
+        [
+          { id: 'u1', tenantId: 't1', role: 'MASTER' },
+          { id: 'u2', tenantId: 't1', role: 'MASTER' },
+          { id: 'u3', tenantId: 't1', role: 'CLIENTE' },
+          { id: 'u4', tenantId: 't2', role: 'PSICOLOGO' },
+          { id: 'u5', tenantId: 't2', role: 'ADMIN' },
+        ],
+      ) as never,
     );
     expect(audit.tenantsWithoutMaster).toEqual(['t2']);
     expect(audit.tenantsWithMultipleMasters).toEqual(['t1']);
@@ -63,10 +73,13 @@ describe('master role migration', () => {
 
   it('treats a support-only tenant as informational, not blocking', async () => {
     const audit = await auditMasterRoles(
-      fakeClient(['t1', 'support'], [
-        { id: 'u1', tenantId: 't1', role: 'MASTER' },
-        { id: 'u2', tenantId: 'support', role: 'SOPORTE' },
-      ]) as never,
+      fakeClient(
+        ['t1', 'support'],
+        [
+          { id: 'u1', tenantId: 't1', role: 'MASTER' },
+          { id: 'u2', tenantId: 'support', role: 'SOPORTE' },
+        ],
+      ) as never,
     );
     expect(audit.tenantsWithoutMaster).toEqual([]);
     expect(audit.tenantsWithoutClinicUsers).toEqual(['support']);
@@ -83,9 +96,10 @@ describe('master role migration', () => {
 
   it('blocks a tenant with only professionals and no master', async () => {
     const audit = await auditMasterRoles(
-      fakeClient(['t1'], [
-        { id: 'u1', tenantId: 't1', role: 'PROFESIONAL', professionalProfile: { id: 'p' } },
-      ]) as never,
+      fakeClient(
+        ['t1'],
+        [{ id: 'u1', tenantId: 't1', role: 'PROFESIONAL', professionalProfile: { id: 'p' } }],
+      ) as never,
     );
     expect(audit.tenantsWithoutMaster).toEqual(['t1']);
     expect(audit.tenantsWithoutClinicUsers).toEqual([]);
@@ -94,10 +108,13 @@ describe('master role migration', () => {
 
   it('lists professionals without a profile without blocking', async () => {
     const audit = await auditMasterRoles(
-      fakeClient(['t1'], [
-        { id: 'u1', tenantId: 't1', role: 'MASTER' },
-        { id: 'u2', tenantId: 't1', role: 'PROFESIONAL' },
-      ]) as never,
+      fakeClient(
+        ['t1'],
+        [
+          { id: 'u1', tenantId: 't1', role: 'MASTER' },
+          { id: 'u2', tenantId: 't1', role: 'PROFESIONAL' },
+        ],
+      ) as never,
     );
     expect(audit.professionalsWithoutProfile).toEqual(['u2']);
     expect(hasBlockingIssues(audit)).toBe(false);
@@ -114,7 +131,8 @@ describe('master role migration', () => {
         timeout: 30000,
         env: {
           ...process.env,
-          DATABASE_URL_TEST: 'postgresql://secret-user:secret-password@127.0.0.1:1/psic_clinic_test',
+          DATABASE_URL_TEST:
+            'postgresql://secret-user:secret-password@127.0.0.1:1/psic_clinic_test',
         },
       },
     );

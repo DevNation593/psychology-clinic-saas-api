@@ -38,7 +38,10 @@ function deploy(schemaPath: string, url: string): string {
   ) {
     // Credentials are stripped before the output reaches a log.
     throw new Error(
-      `Migration deploy failed\n${output.replace(/(postgres(?:ql)?:\/\/)[^@\s/]*@/gi, '$1***@').trim().slice(-2000)}`,
+      `Migration deploy failed\n${output
+        .replace(/(postgres(?:ql)?:\/\/)[^@\s/]*@/gi, '$1***@')
+        .trim()
+        .slice(-2000)}`,
     );
   }
   return output;

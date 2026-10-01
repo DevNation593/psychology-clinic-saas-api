@@ -148,11 +148,11 @@ describe('Master role (E2E)', () => {
       await call(method, path.replace('TENANT', tenantId), tokens.PROFESIONAL).expect(403);
     });
 
-    it.each([
-      ...masterOnly('TENANT'),
-      ['get', '/api/v1/tenants/TENANT/appointments'] as Route,
-    ])('an ADMIN of the tenant gets 403 on %s %s', async (method, path) => {
-      await call(method, path.replace('TENANT', tenantId), tokens.ADMIN).expect(403);
-    });
+    it.each([...masterOnly('TENANT'), ['get', '/api/v1/tenants/TENANT/appointments'] as Route])(
+      'an ADMIN of the tenant gets 403 on %s %s',
+      async (method, path) => {
+        await call(method, path.replace('TENANT', tenantId), tokens.ADMIN).expect(403);
+      },
+    );
   });
 });
