@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
+import { isAdminRole } from '../common/roles/role-compatibility';
 import { CreateClinicalNoteDto, UpdateClinicalNoteDto } from './dto/clinical-note.dto';
 
 @Injectable()
@@ -115,7 +117,7 @@ export class ClinicalNotesService {
       where: { id: noteId, tenantId },
       include: {
         patient: true,
-        psychologist: true,
+        psychologist: { select: PUBLIC_USER_SELECT },
         appointment: true,
       },
     });
@@ -158,7 +160,7 @@ export class ClinicalNotesService {
       data: updateDto,
       include: {
         patient: true,
-        psychologist: true,
+        psychologist: { select: PUBLIC_USER_SELECT },
       },
     });
 
@@ -177,9 +179,9 @@ export class ClinicalNotesService {
       throw new NotFoundException('Nota clínica no encontrada');
     }
 
-    // Only the note's author can delete
-    if (note.psychologistId !== userId) {
-      throw new ForbiddenException('Solo el autor puede eliminar notas clínicas');
+    // Admins can delete any note in the tenant; professionals only their own
+    if (!isAdminRole(userRole) && note.psychologistId !== userId) {
+      throw new ForbiddenException('Solo el autor o un administrador puede eliminar la nota');
     }
 
     await this.prisma.clinicalNote.delete({

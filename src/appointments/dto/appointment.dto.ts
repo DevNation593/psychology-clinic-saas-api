@@ -1,10 +1,13 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { AppointmentStatus } from '@prisma/client';
 import {
   IsString,
   IsNotEmpty,
   IsOptional,
   IsDateString,
-  IsNumber,
+  IsInt,
+  Min,
+  Max,
   IsEnum,
   IsBoolean,
 } from 'class-validator';
@@ -15,10 +18,20 @@ export class CreateAppointmentDto {
   @IsNotEmpty()
   patientId: string;
 
-  @ApiProperty({ example: 'psychologist-user-id' })
+  @ApiPropertyOptional({ example: 'professional-user-id' })
   @IsString()
-  @IsNotEmpty()
-  psychologistId: string;
+  @IsOptional()
+  professionalId?: string;
+
+  @ApiPropertyOptional({ example: 'psychologist-user-id' })
+  @IsString()
+  @IsOptional()
+  psychologistId?: string;
+
+  @ApiPropertyOptional({ example: 'specialty-id' })
+  @IsString()
+  @IsOptional()
+  specialtyId?: string;
 
   @ApiPropertyOptional({ example: 'Sesión de terapia cognitivo-conductual' })
   @IsString()
@@ -36,8 +49,9 @@ export class CreateAppointmentDto {
   startTime: string;
 
   @ApiProperty({ example: 60 })
-  @IsNumber()
-  @IsNotEmpty()
+  @IsInt()
+  @Min(15)
+  @Max(240)
   duration: number; // minutes
 
   @ApiPropertyOptional({ example: 'Consultorio 1' })
@@ -57,12 +71,20 @@ export class CreateAppointmentDto {
 }
 
 export class UpdateAppointmentDto extends PartialType(CreateAppointmentDto) {
-  @ApiPropertyOptional({
-    enum: ['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW'],
-  })
-  @IsEnum(['SCHEDULED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW'])
+  @ApiPropertyOptional({ enum: AppointmentStatus })
+  @IsEnum(AppointmentStatus)
   @IsOptional()
-  status?: string;
+  status?: AppointmentStatus;
+}
+
+export class ListAppointmentsQueryDto {
+  @IsString() @IsOptional() professionalId?: string;
+  @IsString() @IsOptional() psychologistId?: string;
+  @IsString() @IsOptional() specialtyId?: string;
+  @IsString() @IsOptional() patientId?: string;
+  @IsEnum(AppointmentStatus) @IsOptional() status?: AppointmentStatus;
+  @IsDateString() @IsOptional() from?: string;
+  @IsDateString() @IsOptional() to?: string;
 }
 
 export class CancelAppointmentDto {

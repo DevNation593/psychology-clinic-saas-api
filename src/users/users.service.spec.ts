@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
 import { UsersService } from './users.service';
+import { PatientTeamService } from '../patient-team/patient-team.service';
 
 describe('UsersService self profile updates', () => {
   const db = {
@@ -29,6 +30,7 @@ describe('UsersService self profile updates', () => {
       db as unknown as PrismaService,
       {} as AuthService,
       {} as ProfessionalProfilesService,
+      {} as PatientTeamService,
     );
   });
 

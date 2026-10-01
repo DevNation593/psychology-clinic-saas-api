@@ -1,5 +1,6 @@
 import { SubscriptionService } from '../src/subscription/subscription.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { Decimal } from '@prisma/client/runtime/library';
 
 describe('Subscription professional seats', () => {
   const tenantId = 'clinic-1';
@@ -79,5 +80,86 @@ describe('Subscription professional seats', () => {
     expect(result.canDowngrade).toBe(false);
     expect(result.errors.join(' ')).toContain('2 profesionales activos');
     expect(db.user.count).not.toHaveBeenCalled();
+  });
+
+  it('charges both commercial and specialty add-ons when customizing features', async () => {
+    const subscription = {
+      planType: 'CLINIC_BASIC',
+      status: 'ACTIVE',
+      currency: 'USD',
+      specialtyPrice: new Decimal(15),
+    };
+    db.tenantSubscription.findUnique.mockResolvedValue({
+      ...subscription,
+      specialtyPrice: new Decimal(12),
+    });
+    db.tenantSpecialty = { count: jest.fn().mockResolvedValue(2) };
+    db.applyRlsContext = jest.fn().mockResolvedValue(undefined);
+    const tx = {
+      tenantSubscription: {
+        findUnique: jest.fn().mockResolvedValue(subscription),
+        update: jest.fn().mockImplementation(async ({ data }) => data),
+      },
+      tenantSpecialty: { count: jest.fn().mockResolvedValue(4) },
+      subscriptionEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    db.$transaction = jest
+      .fn()
+      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockImplementation(async (callback) => callback(tx));
+
+    const result = await service.customizeFeatures(tenantId, 'user-1', [
+      'clinicalNotes',
+      'attachments',
+      'advancedAnalytics',
+      'advancedAnalytics',
+    ]);
+    const updated = await tx.tenantSubscription.update.mock.results[0].value;
+
+    expect(updated.basePrice.toNumber()).toBe(139);
+    expect(result.pricing).toMatchObject({
+      featureAddonsPrice: 10,
+      specialtyAddonsPrice: 30,
+      totalMonthly: 139,
+      addonsCost: 10,
+    });
+    expect(tx.tenantSubscription.findUnique).toHaveBeenCalled();
+    expect(tx.tenantSpecialty.count).toHaveBeenCalled();
+    expect(db.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('charges selected specialties above the new plan allowance on upgrade', async () => {
+    const subscription = {
+      planType: 'CLINIC_BASIC',
+      basePrice: new Decimal(99),
+      specialtyPrice: new Decimal(12),
+      currentPeriodEnd: null,
+      featureClinicalNotes: true,
+      featureSSO: true,
+      featureWhatsAppIntegration: false,
+    };
+    db.tenantSubscription.findUnique.mockResolvedValue({ ...subscription, featureSSO: false });
+    db.tenant = { findUnique: jest.fn().mockResolvedValue({ tenantType: 'CLINIC' }) };
+    db.tenantSpecialty = { count: jest.fn().mockResolvedValue(2) };
+    db.applyRlsContext = jest.fn().mockResolvedValue(undefined);
+    const tx = {
+      tenant: { findUnique: jest.fn().mockResolvedValue({ tenantType: 'CLINIC' }) },
+      tenantSubscription: {
+        findUnique: jest.fn().mockResolvedValue(subscription),
+        update: jest.fn().mockImplementation(async ({ data }) => data),
+      },
+      tenantSpecialty: { count: jest.fn().mockResolvedValue(5) },
+      subscriptionEvent: { create: jest.fn().mockResolvedValue({}) },
+    };
+    db.$transaction = jest.fn().mockImplementation(async (callback) => callback(tx));
+
+    const result = await service.upgradePlan(tenantId, 'user-1', 'CLINIC_PRO');
+
+    expect(result.subscription.basePrice.toNumber()).toBe(249);
+    expect(result.subscription.featureSSO).toBe(true);
+    expect(result.subscription.featureWhatsAppIntegration).toBe(false);
+    expect(result.billing.proratedCharge).toBe(249);
+    expect(tx.tenantSubscription.findUnique).toHaveBeenCalled();
+    expect(tx.tenantSpecialty.count).toHaveBeenCalled();
   });
 });

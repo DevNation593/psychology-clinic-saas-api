@@ -52,7 +52,7 @@ export class ClinicalNotesController {
   @Get(':noteId')
   @ApiOperation({
     summary: 'Get clinical note - Restricted access',
-    description: 'Psychologists can only read their own notes. Creates audit log entry.',
+    description: 'Readable by admins and professionals of the tenant. Creates audit log entry.',
   })
   @ApiResponse({ status: 200, description: 'Clinical note found' })
   @ApiResponse({ status: 403, description: 'Access denied' })
@@ -81,11 +81,12 @@ export class ClinicalNotesController {
     return this.clinicalNotesService.update(tenantId, noteId, user.userId, user.role, updateDto);
   }
 
-  @Roles('CLIENTE')
+  @Roles('CLIENTE', 'PSICOLOGO')
   @Delete(':noteId')
   @ApiOperation({
-    summary: 'Delete clinical note - Admin only',
-    description: 'Creates audit log entry.',
+    summary: 'Delete clinical note - Admin or author',
+    description:
+      'Admins can delete any note; professionals only their own. Creates audit log entry.',
   })
   @ApiResponse({ status: 200, description: 'Clinical note deleted' })
   async remove(

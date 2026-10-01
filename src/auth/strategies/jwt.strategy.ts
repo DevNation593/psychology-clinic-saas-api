@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getActivityWriteIntervalMs, getInactivityTimeoutMs } from '../session-inactivity';
 
 interface JwtPayload {
   sub: string; // userId
@@ -10,8 +11,6 @@ interface JwtPayload {
   tenantId: string;
   role: string;
 }
-
-const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -41,11 +40,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         }),
     );
 
-    if (!user || !user.isActive || !user.tenant.isActive) {
+    if (!user || !user.isActive || !user.tenant.isActive || user.tenantId !== payload.tenantId) {
       throw new UnauthorizedException('User or tenant is inactive');
     }
 
-    if (user.lastActivityAt && Date.now() - user.lastActivityAt.getTime() > INACTIVITY_TIMEOUT_MS) {
+    const idleMs = user.lastActivityAt ? Date.now() - user.lastActivityAt.getTime() : null;
+
+    if (idleMs !== null && idleMs > getInactivityTimeoutMs()) {
       await this.prisma.refreshToken.updateMany({
         where: { userId: user.id, isRevoked: false },
         data: { isRevoked: true },
@@ -53,16 +54,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('La sesión expiró por inactividad');
     }
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { lastActivityAt: new Date() },
-    });
+    if (idleMs === null || idleMs > getActivityWriteIntervalMs()) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { lastActivityAt: new Date() },
+      });
+    }
 
     return {
-      userId: payload.sub,
-      email: payload.email,
-      tenantId: payload.tenantId,
-      role: payload.role,
+      userId: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      role: user.role,
     };
   }
 }

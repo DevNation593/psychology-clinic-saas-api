@@ -158,6 +158,7 @@ model Tenant {
   subscription       TenantSubscription?
   users              User[]
   patients           Patient[]
+  patientProfessionals PatientProfessional[]
   specialtyRecords   SpecialtyRecord[]
   appointments       Appointment[]
   clinicalNotes      ClinicalNote[]
@@ -434,7 +435,10 @@ model User {
 
   // Relations
   refreshTokens           RefreshToken[]
-  assignedAppointments    Appointment[]
+  assignedAppointments    Appointment[]          @relation("LegacyAppointmentPsychologist")
+  professionalAppointments Appointment[]         @relation("AppointmentProfessional")
+  patientAssignments PatientProfessional[]       @relation("PatientTeamProfessional")
+  patientAssignmentsMade PatientProfessional[]   @relation("PatientTeamAssigner")
   assignedPatients        Patient[]               @relation("AssignedPatients")
   clinicalNotes           ClinicalNote[]
   tasksCreated            Task[]                  @relation("TaskCreator")
@@ -513,10 +517,31 @@ model Patient {
   tasks            Task[]
   nextSessionPlans NextSessionPlan[]
   specialtyRecords SpecialtyRecord[]
+  professionalAssignments PatientProfessional[]
 
   @@index([tenantId])
   @@index([tenantId, isActive])
   @@index([lastName])
+}
+
+model PatientProfessional {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patientId      String
+  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  professionalId String
+  professional   User     @relation("PatientTeamProfessional", fields: [professionalId], references: [id], onDelete: Restrict)
+  assignedAt     DateTime @default(now())
+  assignedById   String?
+  assignedBy     User?    @relation("PatientTeamAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([patientId, professionalId])
+  @@index([tenantId, patientId, isActive])
+  @@index([tenantId, professionalId, isActive])
 }
 
 // ============================================
@@ -666,11 +691,13 @@ model Appointment {
   patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   psychologistId String
-  psychologist   User       @relation(fields: [psychologistId], references: [id], onDelete: Restrict)
+  psychologist   User       @relation("LegacyAppointmentPsychologist", fields: [psychologistId], references: [id], onDelete: Restrict)
+  professionalId String?
+  professional   User?      @relation("AppointmentProfessional", fields: [professionalId], references: [id], onDelete: Restrict)
   specialtyId    String?
   specialty      Specialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
 
-  title       String  @default("Sesión de terapia")
+  title       String  @default("Consulta")
   description String?
 
   startTime DateTime
@@ -704,9 +731,12 @@ model Appointment {
   @@index([tenantId])
   @@index([patientId])
   @@index([psychologistId])
+  @@index([professionalId])
   @@index([startTime])
   @@index([status])
   @@index([tenantId, psychologistId, startTime])
+  @@index([tenantId, professionalId, startTime])
+  @@index([tenantId, patientId, professionalId, startTime])
 }
 
 // ============================================

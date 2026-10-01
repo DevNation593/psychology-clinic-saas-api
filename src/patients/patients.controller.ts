@@ -3,7 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { PatientsService } from './patients.service';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('patients')
 @ApiBearerAuth('access-token')
@@ -11,14 +11,14 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('ADMIN', 'ASISTENTE', 'PROFESIONAL')
   @Post()
   @ApiOperation({ summary: 'Create new patient' })
   @ApiResponse({ status: 201, description: 'Patient created' })
   async create(
     @Param('tenantId') tenantId: string,
     @Body() createPatientDto: CreatePatientDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.patientsService.create(tenantId, createPatientDto, user.userId, user.role);
   }
@@ -39,7 +39,7 @@ export class PatientsController {
     return this.patientsService.findOne(tenantId, patientId);
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('ADMIN', 'ASISTENTE', 'PROFESIONAL')
   @Patch(':patientId')
   @ApiOperation({ summary: 'Update patient' })
   @ApiResponse({ status: 200, description: 'Patient updated' })
@@ -47,18 +47,25 @@ export class PatientsController {
     @Param('tenantId') tenantId: string,
     @Param('patientId') patientId: string,
     @Body() updatePatientDto: UpdatePatientDto,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.patientsService.update(tenantId, patientId, updatePatientDto);
+    return this.patientsService.update(
+      tenantId,
+      patientId,
+      updatePatientDto,
+      user.userId,
+      user.role,
+    );
   }
 
-  @Roles('CLIENTE')
+  @Roles('ADMIN')
   @Delete(':patientId')
   @ApiOperation({ summary: 'Soft delete patient - Admin only' })
   @ApiResponse({ status: 200, description: 'Patient deleted' })
   async remove(
     @Param('tenantId') tenantId: string,
     @Param('patientId') patientId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.patientsService.softDelete(tenantId, patientId, user.userId, user.role);
   }

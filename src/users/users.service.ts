@@ -8,12 +8,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, TenantType, UserRole } from '@prisma/client';
-import { CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
+import { CreateTenantUserDto, CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
 import { AuthService } from '../auth/auth.service';
 import { isAdminRole, isProfessionalRole } from '../common/roles/role-compatibility';
 import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
 import { ProfessionalProfileInputDto } from '../professional-profiles/dto/professional-profile.dto';
 import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
+import { PatientTeamService } from '../patient-team/patient-team.service';
 
 const professionalFields = {
   professionalTitle: true,
@@ -64,10 +65,11 @@ export class UsersService {
     private prisma: PrismaService,
     private authService: AuthService,
     private profiles: ProfessionalProfilesService,
+    private patientTeam: PatientTeamService,
   ) {}
 
   private resolveProfileInput(
-    dto: CreateUserDto | UpdateUserDto,
+    dto: CreateTenantUserDto | InviteUserDto | UpdateUserDto,
   ): ProfessionalProfileInputDto | undefined {
     const specialtyId =
       dto.professionalProfile?.specialtyId ?? dto.specialtyId ?? dto.specialtyIds?.[0];
@@ -109,18 +111,47 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto, createdBy: string) {
-    return this.createOrInvite(dto, createdBy, false);
+    const { tenantId, ...tenantDto } = dto;
+    return this.createForTenant(tenantId, tenantDto as CreateTenantUserDto, createdBy);
+  }
+
+  async createForTenant(tenantId: string, dto: CreateTenantUserDto, actorId: string) {
+    return this.createOrInvite(tenantId, dto, actorId, false);
   }
 
   async invite(tenantId: string, dto: InviteUserDto, invitedBy: string) {
-    const user = await this.createOrInvite({ ...dto, tenantId }, invitedBy, true);
+    const user = await this.createOrInvite(tenantId, dto, invitedBy, true);
     await this.sendInvitationEmail(tenantId, user.id, user.email);
     return user;
   }
 
-  private async createOrInvite(dto: CreateUserDto, actorId: string, invitation: boolean) {
-    const { tenantId, email, password, role } = dto;
-    await this.ensureClinicPlan(tenantId);
+  private async createOrInvite(
+    tenantId: string,
+    dto: CreateTenantUserDto | InviteUserDto,
+    actorId: string,
+    invitation: boolean,
+  ) {
+    const { role } = dto;
+    if (!isAdminRole(role) && !isProfessionalRole(role) && role !== UserRole.ASISTENTE) {
+      throw new BadRequestException({
+        code: 'TEAM_ROLE_NOT_ALLOWED',
+        message: 'Rol no permitido para el equipo.',
+      });
+    }
+    if (dto.specialtyIds && dto.specialtyIds.length > 1) {
+      throw new BadRequestException({
+        code: 'PROFESSIONAL_SPECIALTY_REQUIRED',
+        message: 'El profesional debe tener exactamente una especialidad.',
+      });
+    }
+    const password = 'password' in dto ? dto.password : undefined;
+    if (!invitation && !password) {
+      throw new BadRequestException({
+        code: 'INITIAL_PASSWORD_REQUIRED',
+        message: 'La contraseña inicial es obligatoria.',
+      });
+    }
+    const email = dto.email.trim().toLowerCase();
     const profile = this.resolveProfileInput(dto);
     if (invitation && profile) profile.isActive = true;
     this.profiles.validateRoleProfile(role, profile);
@@ -128,72 +159,71 @@ export class UsersService {
       password ?? Math.random().toString(36).slice(-12),
     );
 
-    return this.mutate(
-      tenantId,
-      async (tx) => {
-        const existing = await tx.user.findUnique({
-          where: { tenantId_email: { tenantId, email } },
-        });
-        if (existing) throw new ConflictException('Este email ya está registrado en esta clínica');
-        if (profile) {
-          await this.profiles.assertSpecialtyEnabled(tenantId, profile.specialtyId, tx);
-          if (profile.isActive) await this.checkSeatAvailability(tenantId, tx);
-        }
-        const tenant = isProfessionalRole(role)
-          ? await tx.tenant.findUnique({ where: { id: tenantId } })
-          : null;
-        const managedByProvider =
-          isProfessionalRole(role) && tenant?.tenantType === TenantType.CLINIC;
-        const user = await tx.user.create({
-          data: {
-            tenantId,
-            email,
-            password: hashedPassword,
-            firstName: dto.firstName,
-            lastName: dto.lastName,
-            phone: dto.phone,
-            role,
-            professionalTitle: profile?.professionalTitle ?? dto.professionalTitle,
-            licenseNumber: profile?.licenseNumber ?? dto.licenseNumber,
-            professionalProfile: profile ? { create: profile } : undefined,
-            professionalSpecialties: profile
-              ? { create: { specialtyId: profile.specialtyId, isPrimary: true } }
-              : undefined,
-            isActive: !invitation && !managedByProvider,
-            managedByProvider,
-            emailVerified: !invitation && !!password,
-            activatedAt: !invitation && password && !managedByProvider ? new Date() : null,
-            invitedAt: invitation ? new Date() : undefined,
-            invitedBy: invitation ? actorId : undefined,
-          },
-          select: userSelect,
-        });
-        await this.profiles.syncStoredSeatCount(tenantId, tx);
-        // Strip defensively for adapters that return extra fields.
-        const { password: _, ...safe } = user as typeof user & { password?: string };
-        return safe;
-      },
-      actorId,
-    );
+    try {
+      return await this.mutate(
+        tenantId,
+        async (tx) => {
+          await this.ensureClinicTeam(tenantId, tx);
+          const existing = await tx.user.findFirst({
+            where: { tenantId, email: { equals: email, mode: 'insensitive' } },
+          });
+          if (existing)
+            throw new ConflictException('Este email ya está registrado en esta clínica');
+          if (profile) {
+            await this.profiles.assertSpecialtyEnabled(tenantId, profile.specialtyId, tx);
+            if (profile.isActive) await this.checkSeatAvailability(tenantId, tx);
+          }
+          const user = await tx.user.create({
+            data: {
+              tenantId,
+              email,
+              password: hashedPassword,
+              firstName: dto.firstName,
+              lastName: dto.lastName,
+              phone: dto.phone,
+              role,
+              professionalTitle: profile?.professionalTitle ?? dto.professionalTitle,
+              licenseNumber: profile?.licenseNumber ?? dto.licenseNumber,
+              professionalProfile: profile ? { create: profile } : undefined,
+              professionalSpecialties: profile
+                ? { create: { specialtyId: profile.specialtyId, isPrimary: true } }
+                : undefined,
+              isActive: !invitation,
+              managedByProvider: false,
+              emailVerified: !invitation && !!password,
+              activatedAt: !invitation ? new Date() : null,
+              invitedAt: invitation ? new Date() : undefined,
+              invitedBy: invitation ? actorId : undefined,
+            },
+            select: userSelect,
+          });
+          await this.profiles.syncStoredSeatCount(tenantId, tx);
+          // Strip defensively for adapters that return extra fields.
+          const { password: _, ...safe } = user as typeof user & { password?: string };
+          return safe;
+        },
+        actorId,
+      );
+    } catch (error) {
+      const prismaError = error as { code?: string; meta?: { target?: string[] } };
+      if (prismaError.code === 'P2002' && prismaError.meta?.target?.includes('email')) {
+        throw new ConflictException('Este email ya está registrado en esta clínica');
+      }
+      throw error;
+    }
   }
 
-  private async ensureClinicPlan(tenantId: string) {
-    const subscription = await this.prisma.tenantSubscription.findUnique({
-      where: { tenantId },
-    });
-
-    if (!subscription) {
-      throw new ForbiddenException('No se encontró suscripción para esta clínica');
-    }
-
-    const personalPlans = ['TRIAL', 'PERSONAL_BASIC', 'PERSONAL_PRO'];
-    if (personalPlans.includes(subscription.planType)) {
+  private async ensureClinicTeam(tenantId: string, tx: Prisma.TransactionClient) {
+    const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
+    const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
+    if (
+      tenant?.tenantType !== TenantType.CLINIC ||
+      !subscription ||
+      (subscription.status !== 'ACTIVE' && subscription.status !== 'TRIALING')
+    ) {
       throw new ForbiddenException({
-        error: 'TEAM_NOT_AVAILABLE',
-        message:
-          'El módulo de equipo no está disponible en planes individuales. Actualiza a un plan de clínica para gestionar múltiples usuarios.',
-        currentPlan: subscription.planType,
-        upgradeUrl: `/tenants/${tenantId}/subscription/upgrade?reason=team`,
+        code: 'TEAM_NOT_AVAILABLE',
+        message: 'La administración de equipo no está disponible para este consultorio.',
       });
     }
   }
@@ -232,8 +262,20 @@ export class UsersService {
     return user;
   }
 
-  async update(tenantId: string, userId: string, dto: UpdateUserDto) {
-    return this.mutate(tenantId, (tx) => this.updateInTransaction(tx, tenantId, userId, dto));
+  async update(tenantId: string, userId: string, dto: UpdateUserDto, actorId: string) {
+    try {
+      return await this.mutate(
+        tenantId,
+        (tx) => this.updateInTransaction(tx, tenantId, userId, dto, {}, undefined, actorId),
+        actorId,
+      );
+    } catch (error) {
+      const prismaError = error as { code?: string; meta?: { target?: string[] } };
+      if (prismaError.code === 'P2002' && prismaError.meta?.target?.includes('email')) {
+        throw new ConflictException('Este email ya está registrado en esta clínica');
+      }
+      throw error;
+    }
   }
 
   async updateSelf(tenantId: string, userId: string, dto: UpdateSelfProfileDto) {
@@ -300,6 +342,7 @@ export class UsersService {
     dto: UpdateUserDto,
     extra: Pick<Prisma.UserUpdateInput, 'password' | 'emailVerified' | 'activatedAt'> = {},
     accessFlow?: 'provider' | 'activation',
+    actorId?: string,
   ) {
     const user = await tx.user.findFirst({
       where: { id: userId, tenantId },
@@ -308,9 +351,82 @@ export class UsersService {
     if (!user) throw new NotFoundException('Usuario no encontrado');
     if (accessFlow === 'provider' && !user.managedByProvider)
       throw new BadRequestException('Este usuario no es gestionado por el proveedor');
+    if (accessFlow === 'activation') {
+      if (user.managedByProvider) {
+        throw new ForbiddenException(
+          'El acceso de este usuario debe ser concedido por el proveedor',
+        );
+      }
+      if (user.isActive || !user.invitedAt || user.activatedAt) {
+        throw new ConflictException({
+          code: 'ACTIVATION_NOT_PENDING',
+          message: 'Esta cuenta no tiene una invitación pendiente de activación.',
+        });
+      }
+    }
+    if (
+      dto.role &&
+      !isAdminRole(dto.role) &&
+      !isProfessionalRole(dto.role) &&
+      dto.role !== UserRole.ASISTENTE
+    ) {
+      throw new BadRequestException({
+        code: 'TEAM_ROLE_NOT_ALLOWED',
+        message: 'Rol no permitido para el equipo.',
+      });
+    }
+    if (dto.isActive === false && actorId === userId) {
+      throw new ConflictException({
+        code: 'CANNOT_DEACTIVATE_SELF',
+        message: 'No puedes desactivar tu propia cuenta.',
+      });
+    }
+    if (isAdminRole(user.role) && dto.role && !isAdminRole(dto.role) && actorId === userId) {
+      throw new ConflictException({
+        code: 'CANNOT_DEMOTE_SELF',
+        message: 'No puedes quitarte el rol administrador.',
+      });
+    }
+    if (
+      user.isActive &&
+      isAdminRole(user.role) &&
+      (dto.isActive === false || (dto.role && !isAdminRole(dto.role)))
+    ) {
+      const others = await tx.user.count({
+        where: {
+          tenantId,
+          id: { not: userId },
+          isActive: true,
+          role: { in: [UserRole.ADMIN, UserRole.CLIENTE] },
+        },
+      });
+      if (others === 0) {
+        throw new ConflictException({
+          code: 'LAST_ACTIVE_ADMIN_REQUIRED',
+          message: 'El consultorio debe conservar al menos un administrador activo.',
+        });
+      }
+    }
+    const normalizedEmail = dto.email?.trim().toLowerCase();
+    if (normalizedEmail && normalizedEmail !== user.email.toLowerCase()) {
+      const existing = await tx.user.findFirst({
+        where: {
+          tenantId,
+          id: { not: userId },
+          email: { equals: normalizedEmail, mode: 'insensitive' },
+        },
+      });
+      if (existing) throw new ConflictException('Este email ya está registrado en esta clínica');
+    }
     const current = user.professionalProfile;
-    const remove = dto.professionalProfile === null;
     const input = this.resolveProfileInput(dto);
+    const nextRole = dto.role ?? user.role;
+    const remove =
+      dto.professionalProfile === null ||
+      (dto.role === UserRole.ASISTENTE &&
+        current &&
+        dto.professionalProfile === undefined &&
+        !input);
     const profile = remove
       ? undefined
       : (input ??
@@ -338,6 +454,12 @@ export class UsersService {
     }
     const activatesUser = !user.isActive && (dto.isActive ?? user.isActive);
     const activatesProfile = !current?.isActive && profile?.isActive;
+    if (activatesProfile && !user.isActive && !activatesUser && !user.managedByProvider) {
+      throw new ConflictException({
+        code: 'INACTIVE_ACCOUNT_PROFILE',
+        message: 'Activa la cuenta antes de activar su perfil profesional.',
+      });
+    }
     if (
       user.managedByProvider &&
       accessFlow !== 'provider' &&
@@ -345,7 +467,16 @@ export class UsersService {
     ) {
       throw new ForbiddenException('El acceso de este usuario debe ser concedido por el proveedor');
     }
-    this.profiles.validateRoleProfile(dto.role ?? user.role, profile);
+    this.profiles.validateRoleProfile(nextRole, profile);
+    const hadClinicalCapacity = user.isActive && current?.isActive === true;
+    const willHaveClinicalCapacity =
+      (dto.isActive ?? user.isActive) &&
+      profile?.isActive === true &&
+      (isAdminRole(nextRole) || isProfessionalRole(nextRole));
+    const losesClinicalCapacity = hadClinicalCapacity && !willHaveClinicalCapacity;
+    if (losesClinicalCapacity) {
+      await this.patientTeam.assertNoFutureAppointmentsForProfessional(tx, tenantId, userId);
+    }
     if (profile) {
       if (!current || profile.specialtyId !== current.specialtyId) {
         await this.profiles.assertSpecialtyEnabled(tenantId, profile.specialtyId, tx);
@@ -356,7 +487,7 @@ export class UsersService {
     const updated = await tx.user.update({
       where: { id: userId },
       data: {
-        email: dto.email,
+        email: normalizedEmail,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phone: dto.phone,
@@ -378,27 +509,33 @@ export class UsersService {
       },
       select: userSelect,
     });
+    if (losesClinicalCapacity) {
+      await this.patientTeam.deactivateAllForProfessional(tx, tenantId, userId);
+    }
     await this.profiles.syncStoredSeatCount(tenantId, tx);
     const { password: _, ...safe } = updated as typeof updated & { password?: string };
     return safe;
   }
 
-  async deactivate(tenantId: string, userId: string) {
-    await this.update(tenantId, userId, { isActive: false });
+  async deactivate(tenantId: string, userId: string, actorId: string) {
+    await this.update(tenantId, userId, { isActive: false }, actorId);
     return { message: 'Usuario desactivado exitosamente' };
   }
 
-  async activate(tenantId: string, userId: string, password: string) {
+  async activate(tenantId: string, userId: string, password: string, actorId: string) {
     const hashedPassword = await this.authService.hashPassword(password);
-    return this.mutate(tenantId, (tx) =>
-      this.updateInTransaction(
-        tx,
-        tenantId,
-        userId,
-        { isActive: true },
-        { password: hashedPassword, emailVerified: true, activatedAt: new Date() },
-        'activation',
-      ),
+    return this.mutate(
+      tenantId,
+      (tx) =>
+        this.updateInTransaction(
+          tx,
+          tenantId,
+          userId,
+          { isActive: true },
+          { password: hashedPassword, emailVerified: true, activatedAt: new Date() },
+          'activation',
+        ),
+      actorId,
     );
   }
 

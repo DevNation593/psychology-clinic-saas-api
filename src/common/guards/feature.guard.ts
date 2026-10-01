@@ -11,7 +11,10 @@ export class FeatureGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const requiredFeature = this.reflector.get<string>(REQUIRE_FEATURE_KEY, context.getHandler());
+    const requiredFeature = this.reflector.getAllAndOverride<string>(REQUIRE_FEATURE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (!requiredFeature) {
       return true; // No feature requirement
@@ -34,7 +37,11 @@ export class FeatureGuard implements CanActivate {
     });
 
     if (!subscription) {
-      return false;
+      throw new ForbiddenException({
+        error: 'FEATURE_NOT_AVAILABLE',
+        message: 'No se encontró una suscripción para el consultorio.',
+        feature: requiredFeature,
+      });
     }
 
     const configuredModules = await this.prisma.tenantModule.findMany({

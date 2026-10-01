@@ -1,11 +1,13 @@
 import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'node:crypto';
 import { LoginDto, AuthResponseDto } from './dto/auth.dto';
-import type { StringValue } from 'ms';
+import { getInactivityTimeoutMs } from './session-inactivity';
+
+type JwtExpiresIn = NonNullable<JwtSignOptions['expiresIn']>;
 
 @Injectable()
 export class AuthService {
@@ -116,7 +118,10 @@ export class AuthService {
             throw new UnauthorizedException('Usuario o tenant inactivo');
           }
 
-          if (user.lastActivityAt && Date.now() - user.lastActivityAt.getTime() > 60 * 60 * 1000) {
+          if (
+            user.lastActivityAt &&
+            Date.now() - user.lastActivityAt.getTime() > getInactivityTimeoutMs()
+          ) {
             await this.prisma.refreshToken.updateMany({
               where: { userId: user.id, isRevoked: false },
               data: { isRevoked: true },
@@ -176,7 +181,9 @@ export class AuthService {
   async requestPasswordReset(email: string): Promise<void> {
     // Avoid email enumeration: always return success.
     const user = await this.prisma.user.findFirst({
-      where: { email, isActive: true },
+      where: { email, isActive: true, tenant: { isActive: true } },
+      // Deterministic choice when the same email exists in several tenants.
+      orderBy: { updatedAt: 'desc' },
     });
 
     if (!user) {
@@ -190,35 +197,49 @@ export class AuthService {
         type: 'password-reset',
       },
       {
-        secret:
-          this.configService.get<string>('JWT_RESET_SECRET') ||
-          this.configService.get<string>('JWT_ACCESS_SECRET'),
-        expiresIn: (this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h') as StringValue,
+        secret: this.getResetSecret(user.password),
+        expiresIn: (this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h') as JwtExpiresIn,
       },
     );
 
     // Integrate with your email provider in production.
-    // Logging keeps the flow testable in development environments.
-    this.logger.debug(`Password reset token generated for ${email}: ${token}`);
+    // The token grants account access, so it is only logged outside production
+    // to keep the flow testable in development environments.
+    if (this.configService.get<string>('NODE_ENV') !== 'production') {
+      this.logger.debug(`Password reset token generated for ${email}: ${token}`);
+    } else {
+      this.logger.warn(
+        `Password reset requested for user ${user.id} but no email provider is configured`,
+      );
+    }
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
     try {
-      const payload = this.jwtService.verify(token, {
-        secret:
-          this.configService.get<string>('JWT_RESET_SECRET') ||
-          this.configService.get<string>('JWT_ACCESS_SECRET'),
-      }) as { sub: string; tenantId: string; type?: string };
+      const unverified = this.jwtService.decode(token) as {
+        sub?: string;
+        tenantId?: string;
+      } | null;
 
-      if (payload.type !== 'password-reset') {
+      if (!unverified?.sub || !unverified.tenantId) {
         throw new BadRequestException('Token de restablecimiento inválido');
       }
 
       const user = await this.prisma.user.findFirst({
-        where: { id: payload.sub, tenantId: payload.tenantId, isActive: true },
+        where: { id: unverified.sub, tenantId: unverified.tenantId, isActive: true },
       });
 
       if (!user) {
+        throw new BadRequestException('Token de restablecimiento inválido');
+      }
+
+      // The current password hash is part of the signing secret, so the token
+      // stops being valid as soon as the password changes (single use).
+      const payload = this.jwtService.verify(token, {
+        secret: this.getResetSecret(user.password),
+      }) as { sub: string; tenantId: string; type?: string };
+
+      if (payload.type !== 'password-reset') {
         throw new BadRequestException('Token de restablecimiento inválido');
       }
 
@@ -251,6 +272,13 @@ export class AuthService {
     }
   }
 
+  private getResetSecret(passwordHash: string): string {
+    const baseSecret =
+      this.configService.get<string>('JWT_RESET_SECRET') ||
+      this.configService.get<string>('JWT_ACCESS_SECRET');
+    return `${baseSecret}:${passwordHash}`;
+  }
+
   private async generateTokens(user: any, familyId?: string) {
     const payload = {
       sub: user.id,
@@ -261,20 +289,20 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_ACCESS_SECRET'),
-      expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRATION') || '15m') as StringValue,
+      expiresIn: (this.configService.get<string>('JWT_ACCESS_EXPIRATION') || '15m') as JwtExpiresIn,
     });
 
     const refreshToken = this.jwtService.sign(
-      { ...payload, jti: uuidv4() },
+      { ...payload, jti: randomUUID() },
       {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
         expiresIn: (this.configService.get<string>('JWT_REFRESH_EXPIRATION') ||
-          '7d') as StringValue,
+          '7d') as JwtExpiresIn,
       },
     );
 
     // Store refresh token with family tracking
-    const tokenFamilyId = familyId || uuidv4();
+    const tokenFamilyId = familyId || randomUUID();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
 
