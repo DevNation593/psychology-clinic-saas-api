@@ -11,6 +11,11 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { FakturClient, FakturInvoiceResponse } from './faktur.client';
 import { resolveInvoiceCustomer } from './invoice-customer';
 
+const invoiceInclude = {
+  issuer: { select: { id: true, firstName: true, lastName: true, role: true } },
+  patient: { select: { id: true, firstName: true, lastName: true } },
+} satisfies Prisma.InvoiceInclude;
+
 @Injectable()
 export class BillingService {
   constructor(
@@ -237,10 +242,11 @@ export class BillingService {
     return issuedInvoice;
   }
 
-  listInvoices(tenantId: string) {
+  listInvoices(tenantId: string, filters: { patientId?: string } = {}) {
+    const patientId = filters.patientId?.trim();
     return this.prisma.invoice.findMany({
-      where: { tenantId },
-      include: { issuer: { select: { id: true, firstName: true, lastName: true, role: true } } },
+      where: { tenantId, ...(patientId && { patientId }) },
+      include: invoiceInclude,
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -248,7 +254,7 @@ export class BillingService {
   async getInvoice(tenantId: string, invoiceId: string) {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, tenantId },
-      include: { issuer: { select: { id: true, firstName: true, lastName: true, role: true } } },
+      include: invoiceInclude,
     });
     if (!invoice) {
       throw new NotFoundException('Comprobante no encontrado');
