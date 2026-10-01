@@ -1,8 +1,10 @@
 import { Prisma } from '@prisma/client';
+import { ConflictException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
+import { PatientTeamService } from '../patient-team/patient-team.service';
 
 describe('UsersService clinic team control', () => {
   let service: UsersService;
@@ -10,6 +12,12 @@ describe('UsersService clinic team control', () => {
   let users: any[];
   let tenant: any;
   let subscription: any;
+  let assignments: { tenantId: string; professionalId: string; isActive: boolean }[];
+  let patientTeam: {
+    assertNoFutureAppointmentsForProfessional: jest.Mock;
+    deactivateAllForProfessional: jest.Mock;
+  };
+  let operations: string[];
   const member = (extra: Record<string, unknown> = {}) => ({
     email: ' Member@Example.COM ',
     password: 'Password123!',
@@ -38,6 +46,8 @@ describe('UsersService clinic team control', () => {
 
   beforeEach(() => {
     users = [];
+    assignments = [];
+    operations = [];
     tenant = { id: 'tenant-1', tenantType: 'CLINIC' };
     subscription = {
       tenantId: 'tenant-1',
@@ -52,7 +62,10 @@ describe('UsersService clinic team control', () => {
       tenant: { findUnique: jest.fn(async () => tenant) },
       tenantSubscription: {
         findUnique: jest.fn(async () => subscription),
-        update: jest.fn(async ({ data }) => Object.assign(subscription, data)),
+        update: jest.fn(async ({ data }) => {
+          operations.push('subscription.update');
+          return Object.assign(subscription, data);
+        }),
       },
       tenantSpecialty: {
         findUnique: jest.fn(async ({ where }) =>
@@ -118,6 +131,7 @@ describe('UsersService clinic team control', () => {
           return user;
         }),
         update: jest.fn(async ({ where, data }) => {
+          operations.push('user.update');
           const user = users.find((u) => u.id === where.id);
           const { professionalProfile, professionalSpecialties, ...fields } = data;
           Object.assign(
@@ -140,10 +154,31 @@ describe('UsersService clinic team control', () => {
         }),
       },
     };
+    patientTeam = {
+      assertNoFutureAppointmentsForProfessional: jest.fn(async () => {
+        operations.push('appointment.guard');
+      }),
+      deactivateAllForProfessional: jest.fn(async (tx, tenantId, professionalId) => {
+        operations.push('team.deactivate');
+        let count = 0;
+        for (const assignment of assignments) {
+          if (
+            assignment.tenantId === tenantId &&
+            assignment.professionalId === professionalId &&
+            assignment.isActive
+          ) {
+            assignment.isActive = false;
+            count++;
+          }
+        }
+        return count;
+      }),
+    };
     service = new UsersService(
       db as PrismaService,
       { hashPassword: jest.fn().mockResolvedValue('secure-hash') } as unknown as AuthService,
       new ProfessionalProfilesService(db as PrismaService),
+      patientTeam as unknown as PatientTeamService,
     );
   });
 
@@ -388,6 +423,149 @@ describe('UsersService clinic team control', () => {
     await service.deactivate('tenant-1', 'professional-1', 'admin-1');
     await service.deactivate('tenant-1', 'professional-1', 'admin-1');
     expect(subscription.seatsPsychologistsUsed).toBe(0);
+  });
+
+  it.each([
+    ['PROFESIONAL', { isActive: false }, false, false],
+    [
+      'PSICOLOGO',
+      { professionalProfile: { specialtyId: 'specialty-1', isActive: false } },
+      true,
+      false,
+    ],
+    ['ADMIN', { professionalProfile: null }, true, null],
+    ['PROFESIONAL', { role: 'ASISTENTE' }, true, null],
+  ])(
+    'deactivates treating assignments after %s loses clinical capacity through %j',
+    async (role, change, expectedAccountActive, expectedProfileActive) => {
+      seed({ id: 'admin-1' });
+      const target = seed({
+        id: 'professional-1',
+        role,
+        professionalProfile: { specialtyId: 'specialty-1', isActive: true },
+      });
+      assignments.push(
+        { tenantId: 'tenant-1', professionalId: 'professional-1', isActive: true },
+        { tenantId: 'tenant-1', professionalId: 'professional-1', isActive: false },
+        { tenantId: 'tenant-2', professionalId: 'professional-1', isActive: true },
+        { tenantId: 'tenant-1', professionalId: 'another-professional', isActive: true },
+      );
+
+      await service.update('tenant-1', target.id, change as any, 'admin-1');
+
+      expect(target.isActive).toBe(expectedAccountActive);
+      expect(target.professionalProfile?.isActive ?? null).toBe(expectedProfileActive);
+      expect(assignments.map((row) => row.isActive)).toEqual([false, false, true, true]);
+      expect(patientTeam.assertNoFutureAppointmentsForProfessional).toHaveBeenCalledWith(
+        db,
+        'tenant-1',
+        target.id,
+      );
+      expect(patientTeam.deactivateAllForProfessional).toHaveBeenCalledWith(
+        db,
+        'tenant-1',
+        target.id,
+      );
+      expect(operations.indexOf('appointment.guard')).toBeLessThan(
+        operations.indexOf('user.update'),
+      );
+      expect(operations.indexOf('user.update')).toBeLessThan(operations.indexOf('team.deactivate'));
+    },
+  );
+
+  it('preserves the future appointment conflict and leaves user, profile, seats, and team untouched', async () => {
+    seed({ id: 'admin-1' });
+    const target = seed({
+      id: 'professional-1',
+      role: 'PROFESIONAL',
+      professionalProfile: { specialtyId: 'specialty-1', isActive: true },
+    });
+    assignments.push({ tenantId: 'tenant-1', professionalId: target.id, isActive: true });
+    const conflict = new ConflictException({
+      statusCode: 409,
+      code: 'PROFESSIONAL_HAS_FUTURE_APPOINTMENTS',
+      message: 'Cancela o reasigna las citas futuras.',
+      details: { appointments: [{ id: 'appointment-1', patientId: 'patient-1' }] },
+    });
+    patientTeam.assertNoFutureAppointmentsForProfessional.mockRejectedValue(conflict);
+
+    await expect(
+      service.update(
+        'tenant-1',
+        target.id,
+        { professionalProfile: { specialtyId: 'specialty-1', isActive: false } },
+        'admin-1',
+      ),
+    ).rejects.toBe(conflict);
+
+    expect(operations).toEqual([]);
+    expect(db.user.update).not.toHaveBeenCalled();
+    expect(db.tenantSubscription.update).not.toHaveBeenCalled();
+    expect(patientTeam.deactivateAllForProfessional).not.toHaveBeenCalled();
+    expect(target.professionalProfile.isActive).toBe(true);
+    expect(assignments[0].isActive).toBe(true);
+  });
+
+  it('checks future appointments before specialty validation on a combined deactivation edit', async () => {
+    seed({ id: 'admin-1' });
+    const target = seed({
+      id: 'professional-1',
+      role: 'PROFESIONAL',
+      professionalProfile: { specialtyId: 'specialty-1', isActive: true },
+    });
+    const conflict = new ConflictException({
+      statusCode: 409,
+      code: 'PROFESSIONAL_HAS_FUTURE_APPOINTMENTS',
+      details: { appointments: [{ id: 'appointment-1' }] },
+    });
+    patientTeam.assertNoFutureAppointmentsForProfessional.mockRejectedValue(conflict);
+
+    await expect(
+      service.update(
+        'tenant-1',
+        target.id,
+        { professionalProfile: { specialtyId: 'disabled-specialty', isActive: false } },
+        'admin-1',
+      ),
+    ).rejects.toBe(conflict);
+
+    expect(db.tenantSpecialty.findUnique).not.toHaveBeenCalled();
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it('does not reactivate historical assignments when clinical capacity returns', async () => {
+    seed({ id: 'admin-1' });
+    const target = seed({
+      id: 'professional-1',
+      role: 'PROFESIONAL',
+      isActive: false,
+      professionalProfile: { specialtyId: 'specialty-1', isActive: false },
+    });
+    assignments.push({ tenantId: 'tenant-1', professionalId: target.id, isActive: false });
+
+    await service.update('tenant-1', target.id, { isActive: true }, 'admin-1');
+
+    expect(target.isActive).toBe(true);
+    expect(target.professionalProfile.isActive).toBe(true);
+    expect(assignments[0].isActive).toBe(false);
+    expect(patientTeam.assertNoFutureAppointmentsForProfessional).not.toHaveBeenCalled();
+    expect(patientTeam.deactivateAllForProfessional).not.toHaveBeenCalled();
+  });
+
+  it('does not guard or deactivate assignments for metadata edits with omitted activity', async () => {
+    seed({ id: 'admin-1' });
+    const target = seed({
+      id: 'professional-1',
+      role: 'CLIENTE',
+      professionalProfile: { specialtyId: 'specialty-1', isActive: true },
+    });
+    assignments.push({ tenantId: 'tenant-1', professionalId: target.id, isActive: true });
+
+    await service.update('tenant-1', target.id, { firstName: 'Updated' }, 'admin-1');
+
+    expect(assignments[0].isActive).toBe(true);
+    expect(patientTeam.assertNoFutureAppointmentsForProfessional).not.toHaveBeenCalled();
+    expect(patientTeam.deactivateAllForProfessional).not.toHaveBeenCalled();
   });
 
   it('does not reactivate a clinical profile while its direct account stays inactive', async () => {

@@ -60,10 +60,15 @@ export class CreatePatientDto {
   @IsOptional()
   emergencyContactPhone?: string;
 
-  @ApiPropertyOptional({ description: 'ID del psicólogo asignado al paciente' })
+  @ApiPropertyOptional({
+    description:
+      'Campo de compatibilidad: un ID no nulo asigna o reactiva al profesional en el equipo tratante; null solo borra este vínculo legado.',
+    deprecated: true,
+    nullable: true,
+  })
   @IsString()
   @IsOptional()
-  assignedPsychologistId?: string;
+  assignedPsychologistId?: string | null;
 
   @ApiPropertyOptional({ example: 'Alergia a penicilina' })
   @IsString()

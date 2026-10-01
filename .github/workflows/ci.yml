@@ -42,6 +42,9 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Verify patient-team migration upgrade
+        run: npm run prisma:verify-patient-team-migration
+
       - name: Apply Prisma migrations
         run: npx prisma migrate deploy
 

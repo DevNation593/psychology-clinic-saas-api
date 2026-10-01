@@ -1,21 +1,22 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Patch, Param, Query } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AppointmentsService } from './appointments.service';
 import {
   CreateAppointmentDto,
   UpdateAppointmentDto,
   CancelAppointmentDto,
+  ListAppointmentsQueryDto,
 } from './dto/appointment.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('appointments')
 @ApiBearerAuth('access-token')
+@Roles('ADMIN', 'ASISTENTE', 'PROFESIONAL')
 @Controller('tenants/:tenantId/appointments')
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}
 
-  @Roles('CLIENTE', 'PSICOLOGO')
   @Post()
   @ApiOperation({
     summary: 'Create appointment with conflict detection',
@@ -28,49 +29,39 @@ export class AppointmentsController {
     schema: {
       example: {
         statusCode: 409,
+        code: 'APPOINTMENT_CONFLICT',
         error: 'APPOINTMENT_CONFLICT',
         message: 'This time slot conflicts with existing appointment(s)',
-        conflicts: [
-          {
-            id: 'appointment-id',
-            patient: 'Juan Pérez',
-            startTime: '2024-03-15T10:00:00Z',
-            endTime: '2024-03-15T11:00:00Z',
-          },
-        ],
+        details: {
+          conflicts: [
+            {
+              id: 'appointment-id',
+              patient: 'Juan Pérez',
+              startTime: '2024-03-15T10:00:00Z',
+              endTime: '2024-03-15T11:00:00Z',
+            },
+          ],
+        },
       },
     },
   })
   async create(
     @Param('tenantId') tenantId: string,
     @Body() createAppointmentDto: CreateAppointmentDto,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.appointmentsService.create(tenantId, createAppointmentDto);
+    return this.appointmentsService.create(tenantId, createAppointmentDto, actor);
   }
 
   @Get()
   @ApiOperation({ summary: 'List appointments with filters' })
-  @ApiQuery({ name: 'psychologistId', required: false })
-  @ApiQuery({ name: 'patientId', required: false })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'from', required: false, description: 'ISO date string' })
-  @ApiQuery({ name: 'to', required: false, description: 'ISO date string' })
   @ApiResponse({ status: 200, description: 'Appointments list' })
   async findAll(
     @Param('tenantId') tenantId: string,
-    @Query('psychologistId') psychologistId?: string,
-    @Query('patientId') patientId?: string,
-    @Query('status') status?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
+    @Query() filters: ListAppointmentsQueryDto,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.appointmentsService.findAll(tenantId, {
-      psychologistId,
-      patientId,
-      status,
-      from,
-      to,
-    });
+    return this.appointmentsService.findAll(tenantId, filters, actor);
   }
 
   @Get(':appointmentId')
@@ -80,12 +71,11 @@ export class AppointmentsController {
   async findOne(
     @Param('tenantId') tenantId: string,
     @Param('appointmentId') appointmentId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.appointmentsService.findOne(tenantId, appointmentId, user.role);
+    return this.appointmentsService.findOne(tenantId, appointmentId, actor);
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
   @Patch(':appointmentId')
   @ApiOperation({ summary: 'Update appointment (checks conflicts if time changed)' })
   @ApiResponse({ status: 200, description: 'Appointment updated' })
@@ -94,11 +84,11 @@ export class AppointmentsController {
     @Param('tenantId') tenantId: string,
     @Param('appointmentId') appointmentId: string,
     @Body() updateAppointmentDto: UpdateAppointmentDto,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.appointmentsService.update(tenantId, appointmentId, updateAppointmentDto);
+    return this.appointmentsService.update(tenantId, appointmentId, updateAppointmentDto, actor);
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
   @Post(':appointmentId/cancel')
   @ApiOperation({ summary: 'Cancel appointment' })
   @ApiResponse({ status: 200, description: 'Appointment cancelled' })
@@ -106,8 +96,8 @@ export class AppointmentsController {
     @Param('tenantId') tenantId: string,
     @Param('appointmentId') appointmentId: string,
     @Body() cancelDto: CancelAppointmentDto,
-    @CurrentUser() user: any,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.appointmentsService.cancel(tenantId, appointmentId, user.userId, cancelDto.reason);
+    return this.appointmentsService.cancel(tenantId, appointmentId, cancelDto.reason, actor);
   }
 }

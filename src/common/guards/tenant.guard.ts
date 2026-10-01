@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  CanActivate,
-  ExecutionContext,
-  ForbiddenException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { RlsContextService } from '../../prisma/rls-context.service';
@@ -57,14 +51,22 @@ export class TenantGuard implements CanActivate {
     // If tenantId is provided in params, validate it
     if (tenantIdFromParams) {
       if (tenantIdFromParams !== user.tenantId) {
-        throw new ForbiddenException('Acceso denegado: El tenant no coincide');
+        throw new ForbiddenException({
+          statusCode: 403,
+          code: 'TENANT_SCOPE_VIOLATION',
+          message: 'Acceso denegado: El tenant no coincide',
+        });
       }
     }
 
     // If tenantId is provided in body, validate and ensure it matches
     if (tenantIdFromBody) {
       if (tenantIdFromBody !== user.tenantId) {
-        throw new ForbiddenException('Acceso denegado: No puede crear recursos para otro tenant');
+        throw new ForbiddenException({
+          statusCode: 403,
+          code: 'TENANT_SCOPE_VIOLATION',
+          message: 'Acceso denegado: No puede crear recursos para otro tenant',
+        });
       }
     }
 

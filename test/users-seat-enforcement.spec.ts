@@ -7,6 +7,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { RlsContextService } from '../src/prisma/rls-context.service';
+import { PatientTeamService } from '../src/patient-team/patient-team.service';
 
 describe('Users - profile seat enforcement', () => {
   let service: UsersService;
@@ -125,6 +126,10 @@ describe('Users - profile seat enforcement', () => {
       prisma,
       { hashPassword: async () => 'hash' } as unknown as AuthService,
       new ProfessionalProfilesService(prisma),
+      {
+        assertNoFutureAppointmentsForProfessional: jest.fn().mockResolvedValue(undefined),
+        deactivateAllForProfessional: jest.fn().mockResolvedValue(0),
+      } as unknown as PatientTeamService,
     );
   });
 
@@ -469,6 +474,7 @@ integration('Users - PostgreSQL serializable seat race', () => {
       prisma,
       { hashPassword: async () => 'hash' } as unknown as AuthService,
       profiles,
+      {} as PatientTeamService,
     );
     const results = await Promise.allSettled(
       ['a', 'b'].map((email) =>
