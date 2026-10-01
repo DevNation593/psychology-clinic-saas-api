@@ -181,7 +181,7 @@ export class ClinicalNotesService {
 
     // Masters can delete any note in the tenant; professionals only their own
     if (!isMasterRole(userRole) && note.psychologistId !== userId) {
-      throw new ForbiddenException('Solo el autor o un administrador puede eliminar la nota');
+      throw new ForbiddenException('Solo el autor o el titular de la cuenta puede eliminar la nota');
     }
 
     await this.prisma.clinicalNote.delete({

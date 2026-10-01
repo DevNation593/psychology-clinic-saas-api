@@ -60,7 +60,7 @@ export class PatientsController {
 
   @Roles('MASTER')
   @Delete(':patientId')
-  @ApiOperation({ summary: 'Soft delete patient - Admin only' })
+  @ApiOperation({ summary: 'Soft delete patient - Master only' })
   @ApiResponse({ status: 200, description: 'Patient deleted' })
   async remove(
     @Param('tenantId') tenantId: string,

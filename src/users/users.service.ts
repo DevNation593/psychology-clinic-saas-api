@@ -441,7 +441,13 @@ export class UsersService {
     ) {
       throw new ForbiddenException('El acceso de este usuario debe ser concedido por el proveedor');
     }
-    this.profiles.validateRoleProfile(nextRole, profile);
+    // Skip when nothing role/profile related changes, so profile-less professionals left by the
+    // data migration can still be deactivated or edited.
+    const touchesRoleOrProfile =
+      (dto.role !== undefined && dto.role !== user.role) ||
+      input !== undefined ||
+      dto.professionalProfile !== undefined;
+    if (touchesRoleOrProfile) this.profiles.validateRoleProfile(nextRole, profile);
     const hadClinicalCapacity = user.isActive && current?.isActive === true;
     const willHaveClinicalCapacity =
       (dto.isActive ?? user.isActive) &&

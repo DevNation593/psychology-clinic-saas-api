@@ -35,6 +35,7 @@ describe('master role migration', () => {
     );
     expect(audit).toEqual({
       tenantsWithoutMaster: [],
+      tenantsWithoutClinicUsers: [],
       tenantsWithMultipleMasters: [],
       legacyRoleUsers: [],
       tenantAdmins: [],
@@ -57,6 +58,37 @@ describe('master role migration', () => {
     expect(audit.tenantsWithMultipleMasters).toEqual(['t1']);
     expect(audit.legacyRoleUsers).toEqual(['u3', 'u4']);
     expect(audit.tenantAdmins).toEqual(['u5']);
+    expect(hasBlockingIssues(audit)).toBe(true);
+  });
+
+  it('treats a support-only tenant as informational, not blocking', async () => {
+    const audit = await auditMasterRoles(
+      fakeClient(['t1', 'support'], [
+        { id: 'u1', tenantId: 't1', role: 'MASTER' },
+        { id: 'u2', tenantId: 'support', role: 'SOPORTE' },
+      ]) as never,
+    );
+    expect(audit.tenantsWithoutMaster).toEqual([]);
+    expect(audit.tenantsWithoutClinicUsers).toEqual(['support']);
+    expect(hasBlockingIssues(audit)).toBe(false);
+  });
+
+  it('treats a tenant with zero users as informational, not blocking', async () => {
+    const audit = await auditMasterRoles(
+      fakeClient(['t1', 'empty'], [{ id: 'u1', tenantId: 't1', role: 'MASTER' }]) as never,
+    );
+    expect(audit.tenantsWithoutClinicUsers).toEqual(['empty']);
+    expect(hasBlockingIssues(audit)).toBe(false);
+  });
+
+  it('blocks a tenant with only professionals and no master', async () => {
+    const audit = await auditMasterRoles(
+      fakeClient(['t1'], [
+        { id: 'u1', tenantId: 't1', role: 'PROFESIONAL', professionalProfile: { id: 'p' } },
+      ]) as never,
+    );
+    expect(audit.tenantsWithoutMaster).toEqual(['t1']);
+    expect(audit.tenantsWithoutClinicUsers).toEqual([]);
     expect(hasBlockingIssues(audit)).toBe(true);
   });
 

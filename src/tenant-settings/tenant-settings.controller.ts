@@ -25,7 +25,7 @@ export class TenantSettingsController {
   @Roles('MASTER')
   @Patch()
   @ApiOperation({
-    summary: 'Update tenant settings - Admin only',
+    summary: 'Update tenant settings - Master only',
     description:
       'Update working hours, appointment duration, reminder rules, timezone, locale, etc.',
   })

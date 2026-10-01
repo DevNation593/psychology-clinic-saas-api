@@ -69,7 +69,7 @@ export class TasksController {
 
   @Roles('MASTER')
   @Delete(':taskId')
-  @ApiOperation({ summary: 'Delete task - Admin only' })
+  @ApiOperation({ summary: 'Delete task - Master only' })
   @ApiResponse({ status: 200, description: 'Task deleted' })
   async remove(@Param('tenantId') tenantId: string, @Param('taskId') taskId: string) {
     return this.tasksService.delete(tenantId, taskId);

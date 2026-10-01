@@ -136,7 +136,9 @@ export async function verifyMasterRoleMigration(
     let rejected = false;
     try {
       await addUser(client, 'a_second_master', 'tenant_a', 'MASTER', '2026-04-01');
-    } catch {
+    } catch (error) {
+      const detail = `${error instanceof Error ? error.message : ''} ${JSON.stringify((error as { meta?: unknown }).meta ?? '')}`;
+      if (!detail.includes('User_tenantId_master_key') && !detail.includes('23505')) throw error;
       rejected = true;
     }
     if (!rejected) throw new Error('A second MASTER was accepted for the same tenant');

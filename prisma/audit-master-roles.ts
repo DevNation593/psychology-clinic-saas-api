@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 
 export type MasterRoleAudit = {
   tenantsWithoutMaster: string[];
+  tenantsWithoutClinicUsers: string[];
   tenantsWithMultipleMasters: string[];
   legacyRoleUsers: string[];
   tenantAdmins: string[];
@@ -33,8 +34,19 @@ export async function auditMasterRoles(client: AuditClient): Promise<MasterRoleA
     select: { id: true, tenantId: true },
   });
 
+  const clinicUsers = await client.user.findMany({
+    where: { role: { in: ['PROFESIONAL', 'ASISTENTE', 'ADMIN'] } },
+    select: { id: true, tenantId: true },
+  });
+  const tenantsWithClinicUsers = new Set(clinicUsers.map((user) => user.tenantId));
+  const withoutMaster = tenants.filter((t) => !mastersPerTenant.has(t.id));
+
   return {
-    tenantsWithoutMaster: tenants.filter((t) => !mastersPerTenant.has(t.id)).map((t) => t.id),
+    // Only tenants that actually have clinic users need a MASTER; support or empty tenants do not.
+    tenantsWithoutMaster: withoutMaster.filter((t) => tenantsWithClinicUsers.has(t.id)).map((t) => t.id),
+    tenantsWithoutClinicUsers: withoutMaster
+      .filter((t) => !tenantsWithClinicUsers.has(t.id))
+      .map((t) => t.id),
     tenantsWithMultipleMasters: tenants
       .filter((t) => (mastersPerTenant.get(t.id) ?? 0) > 1)
       .map((t) => t.id),

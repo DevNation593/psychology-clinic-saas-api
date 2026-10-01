@@ -683,6 +683,27 @@ describe('UsersService clinic team control', () => {
       ).resolves.toBeDefined();
     });
 
+    // The data migration leaves surplus administrators as PROFESIONAL without a profile.
+    it('deactivates and edits a profile-less professional', async () => {
+      seed({ role: 'MASTER' });
+      const orphan = seed({ role: 'PROFESIONAL', professionalProfile: null });
+      await expect(
+        service.update('tenant-1', orphan.id, { firstName: 'Nuevo' } as never, 'user-1'),
+      ).resolves.toBeDefined();
+      expect((orphan as Record<string, unknown>).firstName).toBe('Nuevo');
+      await expect(service.deactivate('tenant-1', orphan.id, 'user-1')).resolves.toBeDefined();
+      expect(orphan.isActive).toBe(false);
+    });
+
+    it('still requires a profile when changing an assistant to professional', async () => {
+      seed({ role: 'MASTER' });
+      const assistant = seed({ role: 'ASISTENTE' });
+      await expect(
+        service.update('tenant-1', assistant.id, { role: 'PROFESIONAL' } as never, 'user-1'),
+      ).rejects.toMatchObject({ response: { code: 'PROFESSIONAL_SPECIALTY_REQUIRED' } });
+      expect(assistant.role).toBe('ASISTENTE');
+    });
+
     // Provider-managed access is granted and revoked by support, outside the clinic's team rules.
     it('lets the provider flow revoke access of a provider-managed master', async () => {
       const master = seed({ role: 'MASTER', managedByProvider: true });

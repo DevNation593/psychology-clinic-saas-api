@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
+import { AuthService } from './../src/auth/auth.service';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { TenantsService } from './../src/tenants/tenants.service';
@@ -96,5 +97,62 @@ describe('Master role (E2E)', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
+  });
+  describe('role sweeps on MASTER-only endpoints', () => {
+    type Route = [method: 'post' | 'put' | 'patch' | 'delete' | 'get', path: string];
+    const masterOnly = (id: string): Route[] => [
+      ['post', `/api/v1/tenants/${id}/users`],
+      ['patch', `/api/v1/tenants/${id}/users/placeholder-user`],
+      ['delete', `/api/v1/tenants/${id}/users/placeholder-user`],
+      ['patch', `/api/v1/tenants/${id}`],
+      ['patch', `/api/v1/tenants/${id}/settings`],
+      ['post', `/api/v1/tenants/${id}/subscription/upgrade`],
+      ['post', `/api/v1/tenants/${id}/subscription/downgrade`],
+      ['post', `/api/v1/tenants/${id}/subscription/features`],
+      ['put', `/api/v1/tenants/${id}/specialties`],
+      ['post', `/api/v1/tenants/${id}/specialties`],
+      ['patch', `/api/v1/tenants/${id}/modules/placeholder-module`],
+      ['get', `/api/v1/tenants/${id}/audit-logs`],
+      ['delete', `/api/v1/tenants/${id}/patients/placeholder-patient`],
+      ['delete', `/api/v1/tenants/${id}/tasks/placeholder-task`],
+    ];
+    const tokens: Record<'PROFESIONAL' | 'ADMIN', string> = { PROFESIONAL: '', ADMIN: '' };
+
+    beforeAll(async () => {
+      const password = await app.get<AuthService>(AuthService).hashPassword(TEST_PASSWORD);
+      for (const role of ['PROFESIONAL', 'ADMIN'] as const) {
+        const email = `${role.toLowerCase()}-sweep@tenant.test`;
+        await prisma.user.create({
+          data: {
+            tenantId,
+            email,
+            password,
+            firstName: role,
+            lastName: 'Sweep',
+            role,
+            isActive: true,
+          },
+        });
+        const login = await request(app.getHttpServer())
+          .post('/api/v1/auth/login')
+          .send({ email, password: TEST_PASSWORD })
+          .expect(200);
+        tokens[role] = login.body.accessToken;
+      }
+    });
+
+    const call = (method: Route[0], path: string, bearer: string) =>
+      request(app.getHttpServer())[method](path).set('Authorization', `Bearer ${bearer}`).send({});
+
+    it.each(masterOnly('TENANT'))('a PROFESIONAL gets 403 on %s %s', async (method, path) => {
+      await call(method, path.replace('TENANT', tenantId), tokens.PROFESIONAL).expect(403);
+    });
+
+    it.each([
+      ...masterOnly('TENANT'),
+      ['get', '/api/v1/tenants/TENANT/appointments'] as Route,
+    ])('an ADMIN of the tenant gets 403 on %s %s', async (method, path) => {
+      await call(method, path.replace('TENANT', tenantId), tokens.ADMIN).expect(403);
+    });
   });
 });

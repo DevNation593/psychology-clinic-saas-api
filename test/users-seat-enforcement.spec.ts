@@ -479,7 +479,7 @@ integration('Users - PostgreSQL serializable seat race', () => {
             email: email + '@test.invalid',
             firstName: 'Race',
             lastName: email,
-            role: 'MASTER',
+            role: 'PROFESIONAL',
             professionalProfile: { specialtyId: specialty.id },
           },
           'fixture-actor',
