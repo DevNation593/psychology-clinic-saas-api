@@ -1,6 +1,6 @@
 ## Billing
 
-All billing routes require a JWT and the `CLIENTE` role (or `SOPORTE`). The
+All billing routes require a JWT and the `MASTER` role (or `SOPORTE`). The
 tenant must have fiscal data before an invoice can be issued.
 
 ### Issue invoice

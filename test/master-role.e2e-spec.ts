@@ -1,0 +1,100 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import request from 'supertest';
+import { AppModule } from './../src/app.module';
+import { PrismaService } from './../src/prisma/prisma.service';
+import { TenantsService } from './../src/tenants/tenants.service';
+import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
+
+jest.setTimeout(30000);
+
+describe('Master role (E2E)', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  let tenantId: string;
+  let masterId: string;
+  let token: string;
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
+    await app.init();
+    prisma = app.get<PrismaService>(PrismaService);
+
+    await prisma.cleanDatabase();
+    const tenant = await createTestTenant(app.get<TenantsService>(TenantsService), 1);
+    tenantId = tenant.id;
+
+    const login = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'admin+1@tenant.test', password: TEST_PASSWORD })
+      .expect(200);
+    token = login.body.accessToken;
+
+    const owner = await prisma.user.findFirstOrThrow({ where: { tenantId } });
+    masterId = owner.id;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('creates the clinic owner as the only MASTER', async () => {
+    const owners = await prisma.user.findMany({ where: { tenantId }, select: { role: true } });
+    expect(owners).toEqual([{ role: 'MASTER' }]);
+  });
+
+  it.each(['MASTER', 'ADMIN'])('refuses to create a %s team member', async (role) => {
+    const response = await request(app.getHttpServer())
+      .post(`/api/v1/tenants/${tenantId}/users`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        email: `extra-${role.toLowerCase()}@tenant.test`,
+        password: TEST_PASSWORD,
+        firstName: 'Extra',
+        lastName: 'User',
+        role,
+      })
+      .expect(400);
+    expect(response.body.code).toBe('ROLE_NOT_ASSIGNABLE');
+  });
+
+  it('refuses to deactivate the MASTER', async () => {
+    const response = await request(app.getHttpServer())
+      .delete(`/api/v1/tenants/${tenantId}/users/${masterId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(400);
+    expect(response.body.code).toBe('MASTER_IMMUTABLE');
+  });
+
+  it('refuses to demote the MASTER', async () => {
+    const response = await request(app.getHttpServer())
+      .patch(`/api/v1/tenants/${tenantId}/users/${masterId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ role: 'ASISTENTE' })
+      .expect(400);
+    expect(response.body.code).toBe('MASTER_IMMUTABLE');
+  });
+
+  it('rejects a second MASTER at the database level', async () => {
+    await expect(
+      prisma.user.create({
+        data: {
+          tenantId,
+          email: 'second-master@tenant.test',
+          password: 'not-a-real-hash',
+          firstName: 'Second',
+          lastName: 'Master',
+          role: 'MASTER',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+});
