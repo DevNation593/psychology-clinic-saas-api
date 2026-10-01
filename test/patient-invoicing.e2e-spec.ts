@@ -1,4 +1,4 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { BadGatewayException, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
@@ -161,6 +161,63 @@ describe('Patient invoicing (E2E)', () => {
       .set(auth(token))
       .expect(200);
     expect(invoice.body.customerName).toBe('Primer Pagador');
+  });
+
+  it('keeps the saved payer and a failed invoice when the provider rejects, and does not re-issue on replay', async () => {
+    const patient = await createPatient({ firstName: 'Falla', lastName: 'Proveedor' });
+    faktur.issueInvoice.mockRejectedValue(new BadGatewayException('Faktur no disponible'));
+    const body = {
+      patientId: patient.id,
+      idempotencyKey: 'provider-down-1',
+      customer: { taxIdType: 'CEDULA', taxId: '1712345678' },
+      saveCustomerToPatient: true,
+    };
+
+    await issue(body).expect(502);
+
+    const stored = await prisma.patient.findUniqueOrThrow({ where: { id: patient.id } });
+    expect(stored).toMatchObject({ billingTaxIdType: 'CEDULA', billingTaxId: '1712345678' });
+    const failed = await prisma.invoice.findFirstOrThrow({ where: { patientId: patient.id } });
+    expect(failed.status).toBe('FAILED');
+
+    // The same request again is answered from the stored invoice: still failed, provider not called.
+    faktur.issueInvoice.mockClear();
+    const replay = await issue(body).expect(201);
+    expect(replay.body).toMatchObject({ id: failed.id, status: 'FAILED' });
+    expect(faktur.issueInvoice).not.toHaveBeenCalled();
+    expect(await prisma.invoice.count({ where: { patientId: patient.id } })).toBe(1);
+  });
+
+  it('refuses to answer a different patient with a key that was already used', async () => {
+    const first = await createPatient({ billingTaxIdType: 'CEDULA', billingTaxId: '1712345678' });
+    const second = await createPatient({
+      firstName: 'Otro',
+      lastName: 'Paciente',
+      billingTaxIdType: 'CEDULA',
+      billingTaxId: '0912345678',
+    });
+    await issue({ patientId: first.id, idempotencyKey: 'shared-key-1' }).expect(201);
+
+    const response = await issue({ patientId: second.id, idempotencyKey: 'shared-key-1' }).expect(
+      409,
+    );
+    expect(response.body.code).toBe('IDEMPOTENCY_KEY_REUSED');
+    expect(await prisma.invoice.count({ where: { patientId: second.id } })).toBe(0);
+  });
+
+  it('issues without an address when the request explicitly clears it', async () => {
+    const patient = await createPatient({
+      billingTaxIdType: 'CEDULA',
+      billingTaxId: '1712345678',
+      billingAddress: 'Av. 1',
+    });
+    const created = await issue({
+      patientId: patient.id,
+      idempotencyKey: 'no-address-1',
+      customer: { address: '' },
+    }).expect(201);
+    expect(created.body.customerAddress).toBeNull();
+    expect(faktur.issueInvoice.mock.calls[0][0].customer.address).toBeUndefined();
   });
 
   it('rejects an incomplete payer without creating an invoice or calling the provider', async () => {

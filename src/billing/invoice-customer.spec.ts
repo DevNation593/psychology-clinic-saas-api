@@ -102,6 +102,21 @@ describe('resolveInvoiceCustomer', () => {
     });
   });
 
+  it('lets an explicitly empty address clear the stored one, since the address is optional', () => {
+    expect(resolveInvoiceCustomer(stored, { address: '' }).customer).toMatchObject({
+      address: null,
+    });
+    expect(resolveInvoiceCustomer(stored, { address: '   ' }).customer).toMatchObject({
+      address: null,
+    });
+  });
+
+  it.each([undefined, null])('keeps the stored address when the override is %p', (address) => {
+    expect(resolveInvoiceCustomer(stored, { address }).customer).toMatchObject({
+      address: 'Av. 1',
+    });
+  });
+
   it.each([
     [
       'name',

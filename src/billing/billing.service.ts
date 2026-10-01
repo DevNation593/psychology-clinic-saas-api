@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
@@ -85,6 +86,16 @@ export class BillingService {
       },
     });
     if (existing) {
+      // A key identifies one invoice. Answering a different request with it would tell the
+      // caller that a patient was invoiced when they were not.
+      if (existing.patientId !== dto.patientId || Number(existing.total) !== total) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'IDEMPOTENCY_KEY_REUSED',
+          message: 'Esta solicitud ya se usó para otra factura. Vuelve a intentarlo.',
+        });
+      }
+      // Returned as stored: the caller must read `status`, a replay does not re-issue.
       return existing;
     }
 
@@ -119,6 +130,7 @@ export class BillingService {
     const customer = resolved.customer;
 
     const invoice = await this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx, { tenantId, userId: issuerId });
       if (dto.saveCustomerToPatient) {
         await tx.patient.update({
           where: { id: patient.id },

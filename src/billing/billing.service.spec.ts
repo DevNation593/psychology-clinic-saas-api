@@ -29,6 +29,7 @@ describe('BillingService invoice issuer role compatibility', () => {
     user: { findFirst: jest.fn() },
     patient: { findFirst: jest.fn(), update: jest.fn() },
     $transaction: jest.fn(),
+    applyRlsContext: jest.fn(),
     invoice: {
       count: jest.fn(),
       findFirst: jest.fn(),
@@ -150,11 +151,10 @@ describe('BillingService invoice issuer role compatibility', () => {
     });
 
     it('matches invoices stored under the namespaced or the legacy raw key', async () => {
-      prisma.invoice.findFirst.mockResolvedValue({ id: 'existing' });
+      const existing = { id: 'existing', patientId: 'patient-1', total: 20 };
+      prisma.invoice.findFirst.mockResolvedValue(existing);
 
-      await expect(service.createInvoice('tenant-1', 'issuer-1', dto)).resolves.toEqual({
-        id: 'existing',
-      });
+      await expect(service.createInvoice('tenant-1', 'issuer-1', dto)).resolves.toEqual(existing);
       expect(prisma.invoice.findFirst).toHaveBeenCalledWith({
         where: {
           tenantId: 'tenant-1',
@@ -304,11 +304,61 @@ describe('BillingService invoice issuer role compatibility', () => {
         expect(faktur.issueInvoice).not.toHaveBeenCalled();
       });
 
+      it.each([
+        ['another patient', { id: 'existing', patientId: 'patient-9', total: 20 }],
+        ['another amount', { id: 'existing', patientId: 'patient-1', total: 99 }],
+        [
+          'an invoice issued before patients were linked',
+          { id: 'existing', patientId: null, total: 20 },
+        ],
+      ])('refuses a key that was already used for %s', async (_label, existing) => {
+        prisma.invoice.findFirst.mockResolvedValue(existing);
+        await expect(service.createInvoice('tenant-1', 'issuer-1', dto)).rejects.toMatchObject({
+          status: 409,
+          response: { code: 'IDEMPOTENCY_KEY_REUSED' },
+        });
+        expect(prisma.invoice.create).not.toHaveBeenCalled();
+        expect(faktur.issueInvoice).not.toHaveBeenCalled();
+      });
+
+      it('commits the payer and the invoice before calling the provider', async () => {
+        const events: string[] = [];
+        prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => unknown) => {
+          events.push('transaction started');
+          const result = await callback(prisma);
+          events.push('transaction committed');
+          return result;
+        });
+        faktur.issueInvoice.mockImplementation(async () => {
+          events.push('provider called');
+          return { externalId: 'ext-1' };
+        });
+
+        await service.createInvoice('tenant-1', 'issuer-1', {
+          ...dto,
+          saveCustomerToPatient: true,
+        });
+
+        expect(events).toEqual(['transaction started', 'transaction committed', 'provider called']);
+      });
+
+      it('runs the transaction under the tenant row-level-security context', async () => {
+        await service.createInvoice('tenant-1', 'issuer-1', dto);
+        expect(prisma.applyRlsContext).toHaveBeenCalledWith(prisma, {
+          tenantId: 'tenant-1',
+          userId: 'issuer-1',
+        });
+        expect(prisma.applyRlsContext.mock.invocationCallOrder[0]).toBeLessThan(
+          prisma.invoice.create.mock.invocationCallOrder[0],
+        );
+      });
+
       it('returns an existing invoice for a repeated key without re-reading or saving the patient', async () => {
-        prisma.invoice.findFirst.mockResolvedValue({ id: 'existing' });
+        const existing = { id: 'existing', patientId: 'patient-1', total: 20, status: 'FAILED' };
+        prisma.invoice.findFirst.mockResolvedValue(existing);
         await expect(
           service.createInvoice('tenant-1', 'issuer-1', { ...dto, saveCustomerToPatient: true }),
-        ).resolves.toEqual({ id: 'existing' });
+        ).resolves.toEqual(existing);
         expect(prisma.patient.findFirst).not.toHaveBeenCalled();
         expect(prisma.patient.update).not.toHaveBeenCalled();
       });

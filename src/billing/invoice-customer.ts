@@ -68,7 +68,11 @@ export function resolveInvoiceCustomer(
   const taxIdType = firstFilled(override.taxIdType, patient.billingTaxIdType);
   const rawTaxId = firstFilled(override.taxId, patient.billingTaxId);
   const taxId = rawTaxId ? normalizeTaxId(rawTaxId) : null;
-  const address = firstFilled(override.address, patient.billingAddress);
+  // The address is optional, so an explicitly empty one means "none" rather than "not provided".
+  const address =
+    override.address === undefined || override.address === null
+      ? firstFilled(patient.billingAddress)
+      : override.address.trim() || null;
 
   const invalid: CustomerField[] = [];
   if (!name || name.length < 2) invalid.push('name');
