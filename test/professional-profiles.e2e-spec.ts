@@ -134,7 +134,7 @@ describe('Professional profile transition (E2E)', () => {
     expect(await profiles.countActiveProfiles(tenantId)).toBe(2);
   });
 
-  it('counts a clinical CLIENTE administrator and exposes its profile on login and refresh', async () => {
+  it('counts a clinical PROFESIONAL member and exposes its profile on login and refresh', async () => {
     const result = await users.create(
       {
         tenantId,
@@ -142,7 +142,7 @@ describe('Professional profile transition (E2E)', () => {
         password: TEST_PASSWORD,
         firstName: 'Clinical',
         lastName: 'Admin',
-        role: 'MASTER',
+        role: 'PROFESIONAL',
         professionalProfile: { specialtyId },
       },
       'fixture-actor',
@@ -152,13 +152,13 @@ describe('Professional profile transition (E2E)', () => {
     const login = await auth.login({ email: result.email, password: TEST_PASSWORD });
     expect(login.user).toMatchObject({
       id: result.id,
-      role: 'MASTER',
+      role: 'PROFESIONAL',
       professionalProfile: { specialty: { id: specialtyId, name: 'Own specialty' } },
     });
     const token = await auth.refreshTokens(login.refreshToken);
     expect(token.user).toMatchObject({
       id: result.id,
-      role: 'MASTER',
+      role: 'PROFESIONAL',
       professionalProfile: { specialty: { id: specialtyId, name: 'Own specialty' } },
     });
   });
@@ -213,7 +213,7 @@ describe('Professional profile transition (E2E)', () => {
             password: TEST_PASSWORD,
             firstName: 'Race',
             lastName: name,
-            role: 'MASTER',
+            role: 'PROFESIONAL',
             professionalProfile: { specialtyId, isActive: false },
           },
           'fixture-actor',
