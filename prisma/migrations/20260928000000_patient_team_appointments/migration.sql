@@ -1,4 +1,6 @@
-BEGIN;
+-- No explicit BEGIN/COMMIT: Prisma sends this script as one multi-statement query, which
+-- PostgreSQL already runs atomically. An explicit transaction would leave the connection
+-- aborted after a guard fails and hide the guard code behind a generic error.
 
 CREATE TABLE "PatientProfessional" (
   "id" TEXT NOT NULL,
@@ -118,5 +120,3 @@ BEGIN
     RAISE EXCEPTION 'APPOINTMENT_RECONCILIATION_INCOMPLETE';
   END IF;
 END $$;
-
-COMMIT;
