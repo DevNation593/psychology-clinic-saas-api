@@ -192,10 +192,12 @@ describe('Professional profile transition (E2E)', () => {
     expect(await profiles.countActiveProfiles(tenantId)).toBe(3);
   });
 
-  it.each(['PROFESIONAL'])('filters %s across legacy and canonical professionals', async (role) => {
-    const result = await users.findAll(tenantId, { role });
+  it('filters the team by the PROFESIONAL role', async () => {
+    const result = await users.findAll(tenantId, { role: 'PROFESIONAL' });
     expect(result.map((user) => user.id)).toEqual(expect.arrayContaining([legacyId, canonicalId]));
-    expect(result).toHaveLength(2);
+    // The two professionals above plus the clinical member created for the login test.
+    expect(result).toHaveLength(3);
+    expect(result.every((user) => user.role === 'PROFESIONAL')).toBe(true);
   });
 
   it('allows exactly one of two concurrent activations for the final seat', async () => {
