@@ -57,6 +57,15 @@ const selfUserSelect = {
   professionalProfile: { include: { specialty: true } },
 } satisfies Prisma.UserSelect;
 
+const ASSIGNABLE_TEAM_ROLES: readonly UserRole[] = [UserRole.PROFESIONAL, UserRole.ASISTENTE];
+
+const roleNotAssignable = () =>
+  new BadRequestException({
+    statusCode: 400,
+    code: 'ROLE_NOT_ASSIGNABLE',
+    message: 'Solo se pueden asignar los roles Profesional o Asistente.',
+  });
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -132,12 +141,7 @@ export class UsersService {
     invitation: boolean,
   ) {
     const { role } = dto;
-    if (!isMasterRole(role) && !isProfessionalRole(role) && role !== UserRole.ASISTENTE) {
-      throw new BadRequestException({
-        code: 'TEAM_ROLE_NOT_ALLOWED',
-        message: 'Rol no permitido para el equipo.',
-      });
-    }
+    if (!ASSIGNABLE_TEAM_ROLES.includes(role)) throw roleNotAssignable();
     if (dto.specialtyIds && dto.specialtyIds.length > 1) {
       throw new BadRequestException({
         code: 'PROFESSIONAL_SPECIALTY_REQUIRED',
@@ -358,48 +362,24 @@ export class UsersService {
         });
       }
     }
-    if (
-      dto.role &&
-      !isMasterRole(dto.role) &&
-      !isProfessionalRole(dto.role) &&
-      dto.role !== UserRole.ASISTENTE
-    ) {
-      throw new BadRequestException({
-        code: 'TEAM_ROLE_NOT_ALLOWED',
-        message: 'Rol no permitido para el equipo.',
-      });
+    if (isMasterRole(user.role)) {
+      // Support manages provider access outside the clinic's own team rules.
+      const changesRole = !!dto.role && dto.role !== user.role;
+      if (accessFlow !== 'provider' && (changesRole || dto.isActive === false)) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'MASTER_IMMUTABLE',
+          message: 'El titular de la cuenta no puede cambiar de rol ni desactivarse.',
+        });
+      }
+    } else if (dto.role && !ASSIGNABLE_TEAM_ROLES.includes(dto.role)) {
+      throw roleNotAssignable();
     }
     if (dto.isActive === false && actorId === userId) {
       throw new ConflictException({
         code: 'CANNOT_DEACTIVATE_SELF',
         message: 'No puedes desactivar tu propia cuenta.',
       });
-    }
-    if (isMasterRole(user.role) && dto.role && !isMasterRole(dto.role) && actorId === userId) {
-      throw new ConflictException({
-        code: 'CANNOT_DEMOTE_SELF',
-        message: 'No puedes quitarte el rol administrador.',
-      });
-    }
-    if (
-      user.isActive &&
-      isMasterRole(user.role) &&
-      (dto.isActive === false || (dto.role && !isMasterRole(dto.role)))
-    ) {
-      const others = await tx.user.count({
-        where: {
-          tenantId,
-          id: { not: userId },
-          isActive: true,
-          role: UserRole.MASTER,
-        },
-      });
-      if (others === 0) {
-        throw new ConflictException({
-          code: 'LAST_ACTIVE_ADMIN_REQUIRED',
-          message: 'El consultorio debe conservar al menos un administrador activo.',
-        });
-      }
     }
     const normalizedEmail = dto.email?.trim().toLowerCase();
     if (normalizedEmail && normalizedEmail !== user.email.toLowerCase()) {

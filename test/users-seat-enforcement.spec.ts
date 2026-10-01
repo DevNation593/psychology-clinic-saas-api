@@ -133,21 +133,18 @@ describe('Users - profile seat enforcement', () => {
     );
   });
 
-  it.each(['PROFESIONAL', 'MASTER'] as const)(
-    'active %s profile consumes one seat and mirrors legacy data',
-    async (role) => {
-      const result = await service.create(dto(role), 'actor');
-      expect(result).toMatchObject({ professionalProfile: { specialtyId: 's', isActive: true } });
-      expect(users[0].professionalSpecialties).toEqual([{ specialtyId: 's', isPrimary: true }]);
-      expect(subscription.seatsPsychologistsUsed).toBe(1);
-      expect(result).not.toHaveProperty('password');
-      expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      });
-    },
-  );
-  it.each(['MASTER', 'ASISTENTE'] as const)('%s without a profile consumes none', async (role) => {
-    await service.create(dto(role, { professionalProfile: undefined }), 'actor');
+  it('active PROFESIONAL profile consumes one seat and mirrors legacy data', async () => {
+    const result = await service.create(dto('PROFESIONAL'), 'actor');
+    expect(result).toMatchObject({ professionalProfile: { specialtyId: 's', isActive: true } });
+    expect(users[0].professionalSpecialties).toEqual([{ specialtyId: 's', isPrimary: true }]);
+    expect(subscription.seatsPsychologistsUsed).toBe(1);
+    expect(result).not.toHaveProperty('password');
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    });
+  });
+  it('ASISTENTE without a profile consumes none', async () => {
+    await service.create(dto('ASISTENTE', { professionalProfile: undefined }), 'actor');
     expect(subscription.seatsPsychologistsUsed).toBe(0);
   });
   it('inactive profile consumes none', async () => {
@@ -169,7 +166,7 @@ describe('Users - profile seat enforcement', () => {
   });
   it('normalizes nested, flat, legacy specialty in that order and mirrors title/license', async () => {
     const result = await service.create(
-      dto('MASTER', {
+      dto('PROFESIONAL', {
         specialtyId: 'flat',
         specialtyIds: ['legacy'],
         professionalTitle: 'old',
@@ -190,14 +187,17 @@ describe('Users - profile seat enforcement', () => {
   it.each([{ specialtyId: 's' }, { specialtyIds: ['s'] }])(
     'accepts flat and legacy specialty input %j',
     async (input) => {
-      await service.create(dto('PROFESIONAL', { professionalProfile: undefined, ...input }), 'actor');
+      await service.create(
+        dto('PROFESIONAL', { professionalProfile: undefined, ...input }),
+        'actor',
+      );
       expect(users[0].professionalProfile.specialtyId).toBe('s');
     },
   );
   it('invitation reserves a seat even if the supplied profile is inactive', async () => {
     await service.invite(
       't',
-      dto('MASTER', { professionalProfile: { specialtyId: 's', isActive: false } }),
+      dto('PROFESIONAL', { professionalProfile: { specialtyId: 's', isActive: false } }),
       'actor',
     );
     expect(users[0]).toMatchObject({ isActive: false, professionalProfile: { isActive: true } });
@@ -239,7 +239,7 @@ describe('Users - profile seat enforcement', () => {
     expect(users[0]).toEqual(revoked);
     expect(subscription.seatsPsychologistsUsed).toBe(0);
 
-    seed({ id: 'other', role: 'MASTER', managedByProvider: false });
+    seed({ id: 'other', role: 'PROFESIONAL', managedByProvider: false });
     seed({ id: 'backup-admin', role: 'MASTER', professionalProfile: null });
     await expect(service.grantPsychologistAccess('t', 'u')).rejects.toMatchObject({
       status: 409,

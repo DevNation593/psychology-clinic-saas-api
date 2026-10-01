@@ -108,16 +108,6 @@ describe('UsersService clinic team control', () => {
             ) ?? null
           );
         }),
-        count: jest.fn(
-          async ({ where }) =>
-            users.filter(
-              (u) =>
-                u.tenantId === where.tenantId &&
-                u.id !== where.id?.not &&
-                u.isActive &&
-                u.role === where.role,
-            ).length,
-        ),
         create: jest.fn(async ({ data }) => {
           const user = {
             ...data,
@@ -185,7 +175,7 @@ describe('UsersService clinic team control', () => {
   it.each(['SOPORTE', 'PACIENTE', 'UNKNOWN'])('rejects tenant-created role %s', async (role) => {
     await expect(
       service.createForTenant('tenant-1', member({ role }) as any, 'admin-1'),
-    ).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject({ status: 400, response: { code: 'ROLE_NOT_ASSIGNABLE' } });
     expect(users).toHaveLength(0);
   });
 
@@ -225,16 +215,12 @@ describe('UsersService clinic team control', () => {
     });
   });
 
-  it.each(['MASTER', 'PROFESIONAL', 'ASISTENTE'])(
-    'accepts compatible team role %s',
-    async (role) => {
-      const input =
-        role === 'PROFESIONAL' ? professional({ role }) : member({ role });
-      await service.createForTenant('tenant-1', input as any, 'admin-1');
-      expect(users[0].role).toBe(role);
-      expect(users[0].managedByProvider).toBe(false);
-    },
-  );
+  it.each(['PROFESIONAL', 'ASISTENTE'])('accepts compatible team role %s', async (role) => {
+    const input = role === 'PROFESIONAL' ? professional({ role }) : member({ role });
+    await service.createForTenant('tenant-1', input as any, 'admin-1');
+    expect(users[0].role).toBe(role);
+    expect(users[0].managedByProvider).toBe(false);
+  });
 
   it('requires a specialty for a professional and rejects an assistant profile', async () => {
     await expect(
@@ -249,12 +235,12 @@ describe('UsersService clinic team control', () => {
     ).rejects.toMatchObject({ response: { code: 'PROFESSIONAL_PROFILE_NOT_ALLOWED' } });
   });
 
-  it('allows a nonclinical admin without a seat and a clinical admin with one mirrored specialty', async () => {
-    await service.createForTenant('tenant-1', member({ role: 'MASTER' }) as any, 'admin-1');
+  it('allows an assistant without a seat and a professional with one mirrored specialty', async () => {
+    await service.createForTenant('tenant-1', member({ role: 'ASISTENTE' }) as any, 'admin-1');
     expect(subscription.seatsPsychologistsUsed).toBe(0);
     const result = await service.createForTenant(
       'tenant-1',
-      professional({ role: 'MASTER', email: 'clinical@example.com' }) as any,
+      professional({ email: 'clinical@example.com' }) as any,
       'admin-1',
     );
     expect(result.professionalProfile).toMatchObject({ specialtyId: 'specialty-1' });
@@ -317,15 +303,12 @@ describe('UsersService clinic team control', () => {
     expect(users[0].tenantId).toBe('tenant-1');
   });
 
-  it('blocks self deactivation and self demotion before any write', async () => {
-    const admin = seed({ id: 'admin-1' });
-    seed({ id: 'admin-2' });
-    await expect(service.deactivate('tenant-1', admin.id, admin.id)).rejects.toMatchObject({
+  it('blocks self deactivation before any write', async () => {
+    seed({ id: 'admin-1' });
+    const self = seed({ id: 'assistant-1', role: 'ASISTENTE' });
+    await expect(service.deactivate('tenant-1', self.id, self.id)).rejects.toMatchObject({
       response: { code: 'CANNOT_DEACTIVATE_SELF' },
     });
-    await expect(
-      service.update('tenant-1', admin.id, { role: 'ASISTENTE' }, admin.id),
-    ).rejects.toMatchObject({ status: 409 });
     expect(db.user.update).not.toHaveBeenCalled();
   });
 
@@ -334,59 +317,15 @@ describe('UsersService clinic team control', () => {
     seed({ id: 'assistant-1', role: 'ASISTENTE' });
     await expect(
       service.update('tenant-1', 'assistant-1', { role: role as any }, 'admin-1'),
-    ).rejects.toMatchObject({ status: 400, response: { code: 'TEAM_ROLE_NOT_ALLOWED' } });
+    ).rejects.toMatchObject({ status: 400, response: { code: 'ROLE_NOT_ASSIGNABLE' } });
     expect(db.user.update).not.toHaveBeenCalled();
   });
 
-  it.each(['MASTER'])(
-    'protects the last effective %s admin in the same transaction',
-    async (role) => {
-      let insideTransaction = false;
-      db.$transaction.mockImplementation(async (operation) => {
-        insideTransaction = true;
-        try {
-          return await operation(db);
-        } finally {
-          insideTransaction = false;
-        }
-      });
-      const count = db.user.count.getMockImplementation();
-      db.user.count.mockImplementation(async (query) => {
-        expect(insideTransaction).toBe(true);
-        return count(query);
-      });
-      seed({ id: 'admin-1', role: 'ASISTENTE' });
-      seed({ id: 'admin-2', role });
-      await expect(
-        service.update('tenant-1', 'admin-2', { role: 'ASISTENTE' }, 'admin-1'),
-      ).rejects.toMatchObject({ response: { code: 'LAST_ACTIVE_ADMIN_REQUIRED' } });
-      expect(db.user.count).toHaveBeenCalledWith({
-        where: {
-          tenantId: 'tenant-1',
-          id: { not: 'admin-2' },
-          isActive: true,
-          role: 'MASTER',
-        },
-      });
-      expect(db.user.update).not.toHaveBeenCalled();
-    },
-  );
-
-  it('allows removal with another active admin in the same tenant', async () => {
+  it('allows removal of a non-master member', async () => {
     seed({ id: 'admin-1', role: 'MASTER' });
-    seed({ id: 'admin-2' });
+    seed({ id: 'admin-2', role: 'ASISTENTE' });
     await service.deactivate('tenant-1', 'admin-2', 'admin-1');
     expect(users[1].isActive).toBe(false);
-  });
-
-  it('does not count administrators from another tenant', async () => {
-    seed({ id: 'admin-1', role: 'ASISTENTE' });
-    seed({ id: 'admin-2' });
-    seed({ id: 'foreign-admin', tenantId: 'tenant-2' });
-    await expect(service.deactivate('tenant-1', 'admin-2', 'admin-1')).rejects.toMatchObject({
-      response: { code: 'LAST_ACTIVE_ADMIN_REQUIRED' },
-    });
-    expect(db.user.update).not.toHaveBeenCalled();
   });
 
   it('normalizes edited email and rejects a mixed-case conflict within the tenant', async () => {
@@ -683,5 +622,73 @@ describe('UsersService clinic team control', () => {
       service.activate('tenant-1', 'pending-other', 'Password123!', 'admin-1'),
     ).rejects.toMatchObject({ status: 404 });
     expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  describe('account holder rules', () => {
+    it.each(['MASTER', 'ADMIN', 'CLIENTE', 'PSICOLOGO', 'SOPORTE', 'PACIENTE'])(
+      'rejects creating a %s member',
+      async (role) => {
+        seed({ role: 'MASTER' });
+        await expect(
+          service.createForTenant('tenant-1', member({ role }) as never, 'user-1'),
+        ).rejects.toMatchObject({ response: { code: 'ROLE_NOT_ASSIGNABLE' } });
+        expect(users).toHaveLength(1);
+      },
+    );
+
+    it.each(['MASTER', 'ADMIN', 'CLIENTE', 'PSICOLOGO'])(
+      'rejects changing an assistant to %s',
+      async (role) => {
+        seed({ role: 'MASTER' });
+        const assistant = seed({ role: 'ASISTENTE' });
+        await expect(
+          service.update('tenant-1', assistant.id, { role } as never, 'user-1'),
+        ).rejects.toMatchObject({ response: { code: 'ROLE_NOT_ASSIGNABLE' } });
+        expect(assistant.role).toBe('ASISTENTE');
+      },
+    );
+
+    it.each(['PROFESIONAL', 'ASISTENTE'])('rejects changing the master to %s', async (role) => {
+      const master = seed({ role: 'MASTER' });
+      seed({ role: 'ASISTENTE' });
+      await expect(
+        service.update('tenant-1', master.id, { role } as never, 'user-2'),
+      ).rejects.toMatchObject({ response: { code: 'MASTER_IMMUTABLE' } });
+      expect(master.role).toBe('MASTER');
+    });
+
+    it('rejects deactivating the master, by the master or by anyone else in the clinic', async () => {
+      const master = seed({ role: 'MASTER' });
+      await expect(service.deactivate('tenant-1', master.id, master.id)).rejects.toMatchObject({
+        response: { code: 'MASTER_IMMUTABLE' },
+      });
+      await expect(service.deactivate('tenant-1', master.id, 'someone-else')).rejects.toMatchObject(
+        {
+          response: { code: 'MASTER_IMMUTABLE' },
+        },
+      );
+      expect(master.isActive).toBe(true);
+    });
+
+    // The team form always sends the current role back, even when only the name changed.
+    it('lets the master edit personal data while resending the unchanged MASTER role', async () => {
+      const master = seed({ role: 'MASTER' });
+      await expect(
+        service.update(
+          'tenant-1',
+          master.id,
+          { role: 'MASTER', firstName: 'Nuevo' } as never,
+          master.id,
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    // Provider-managed access is granted and revoked by support, outside the clinic's team rules.
+    it('lets the provider flow revoke access of a provider-managed master', async () => {
+      const master = seed({ role: 'MASTER', managedByProvider: true });
+      await expect(service.revokePsychologistAccess('tenant-1', master.id)).resolves.toEqual({
+        message: 'Acceso del usuario revocado exitosamente',
+      });
+    });
   });
 });
