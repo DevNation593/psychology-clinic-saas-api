@@ -4,6 +4,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PatientTeamService } from '../patient-team/patient-team.service';
 import { toCanonicalRole } from '../common/roles/role-compatibility';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
+import { mergePatientBilling, PatientBillingFields } from './patient-billing';
+
+const BILLING_FIELDS = [
+  'billingName',
+  'billingTaxIdType',
+  'billingTaxId',
+  'billingEmail',
+  'billingAddress',
+] as const;
+
+/** The DTO without its billing keys; those are written only through mergePatientBilling. */
+function withoutBilling(
+  dto: UpdatePatientDto,
+): Omit<UpdatePatientDto, (typeof BILLING_FIELDS)[number]> {
+  const copy: Record<string, unknown> = { ...dto };
+  for (const field of BILLING_FIELDS) delete copy[field];
+  return copy;
+}
 
 @Injectable()
 export class PatientsService {
@@ -51,12 +69,19 @@ export class PatientsService {
       allergies: this.normalizeOptionalString(createPatientDto.allergies),
       currentMedication: this.normalizeOptionalString(createPatientDto.currentMedication),
       notes: this.normalizeOptionalString(createPatientDto.notes),
+      ...mergePatientBilling(null, createPatientDto),
     };
+  }
+
+  /** Billing columns to write on update, or nothing when the request does not mention them. */
+  private billingUpdate(current: PatientBillingFields, dto: UpdatePatientDto) {
+    if (!BILLING_FIELDS.some((field) => dto[field] !== undefined)) return {};
+    return mergePatientBilling(current, dto);
   }
 
   private sanitizeUpdatePayload(updatePatientDto: UpdatePatientDto) {
     return {
-      ...updatePatientDto,
+      ...withoutBilling(updatePatientDto),
       dateOfBirth: this.normalizeDateOfBirth(updatePatientDto.dateOfBirth),
       email: this.normalizeOptionalString(updatePatientDto.email),
       phone: this.normalizeOptionalString(updatePatientDto.phone),
@@ -318,6 +343,7 @@ export class PatientsService {
           where: { id: patientId },
           data: {
             ...otherData,
+            ...this.billingUpdate(patient, updatePatientDto),
             ...(assignedPsychologistId !== undefined ? { assignedPsychologistId } : {}),
           },
         });

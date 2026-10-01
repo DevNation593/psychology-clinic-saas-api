@@ -271,4 +271,67 @@ describe('PatientsService legacy assignment compatibility', () => {
       });
     },
   );
+
+  describe('billing data', () => {
+    const storedBilling = {
+      billingName: 'Luis Vega',
+      billingTaxIdType: 'CEDULA',
+      billingTaxId: '1712345678',
+      billingEmail: 'luis@example.com',
+      billingAddress: null,
+    };
+
+    it('stores normalized billing data when creating a patient', async () => {
+      await service.create(
+        'tenant-1',
+        createInput({ billingTaxIdType: 'CEDULA', billingTaxId: '171 234 5678' }),
+        'admin-1',
+        'ADMIN',
+      );
+      expect(tx.patient.create.mock.calls[0][0].data).toMatchObject({
+        billingTaxIdType: 'CEDULA',
+        billingTaxId: '1712345678',
+        billingName: null,
+      });
+    });
+
+    it('rejects a billing type without a number before writing', async () => {
+      await expect(
+        service.create('tenant-1', createInput({ billingTaxIdType: 'RUC' }), 'admin-1', 'ADMIN'),
+      ).rejects.toMatchObject({ status: 400, response: { code: 'PATIENT_BILLING_INVALID' } });
+      expect(tx.patient.create).not.toHaveBeenCalled();
+    });
+
+    it('merges billing changes over the stored values on update', async () => {
+      tx.patient.findFirst.mockResolvedValue({ ...patient, ...storedBilling });
+      await service.update(
+        'tenant-1',
+        'patient-1',
+        { billingAddress: 'Av. 1' },
+        'admin-1',
+        'ADMIN',
+      );
+      expect(tx.patient.update.mock.calls[0][0].data).toMatchObject({
+        billingName: 'Luis Vega',
+        billingTaxId: '1712345678',
+        billingAddress: 'Av. 1',
+      });
+    });
+
+    it('rejects an update that leaves the stored number without its type', async () => {
+      tx.patient.findFirst.mockResolvedValue({ ...patient, ...storedBilling });
+      await expect(
+        service.update('tenant-1', 'patient-1', { billingTaxIdType: '' }, 'admin-1', 'ADMIN'),
+      ).rejects.toMatchObject({ status: 400, response: { code: 'PATIENT_BILLING_INVALID' } });
+      expect(tx.patient.update).not.toHaveBeenCalled();
+    });
+
+    it('does not touch billing columns when an update omits them', async () => {
+      await service.update('tenant-1', 'patient-1', { firstName: 'Anabel' }, 'admin-1', 'ADMIN');
+      const data = tx.patient.update.mock.calls[0][0].data;
+      for (const key of Object.keys(storedBilling)) {
+        expect(data).not.toHaveProperty(key);
+      }
+    });
+  });
 });
