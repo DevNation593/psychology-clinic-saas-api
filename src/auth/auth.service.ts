@@ -71,6 +71,7 @@ export class AuthService {
         lastName: user.lastName,
         role: user.role,
         tenantId: user.tenantId,
+        mustChangePassword: user.mustChangePassword,
         professionalProfile: user.professionalProfile ?? undefined,
       },
     };
@@ -152,6 +153,7 @@ export class AuthService {
               lastName: user.lastName,
               role: user.role,
               tenantId: user.tenantId,
+              mustChangePassword: user.mustChangePassword,
               professionalProfile: user.professionalProfile ?? undefined,
             },
           };
@@ -175,6 +177,38 @@ export class AuthService {
     await this.prisma.refreshToken.updateMany({
       where: { userId },
       data: { isRevoked: true },
+    });
+  }
+
+  /**
+   * Lets an authenticated user replace their own password, including a temporary one.
+   * The new password is hashed exactly as received and never logged.
+   */
+  async changeOwnPassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, isActive: true } });
+    if (!user) {
+      throw new UnauthorizedException('Usuario no encontrado');
+    }
+
+    if (!(await bcrypt.compare(currentPassword, user.password))) {
+      throw new UnauthorizedException('La contraseña actual es incorrecta');
+    }
+
+    if (await bcrypt.compare(newPassword, user.password)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'PASSWORD_UNCHANGED',
+        message: 'La nueva contraseña debe ser distinta de la actual',
+      });
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await this.hashPassword(newPassword), mustChangePassword: false },
     });
   }
 
@@ -254,7 +288,7 @@ export class AuthService {
 
             await tx.user.update({
               where: { id: user.id },
-              data: { password: hashedPassword },
+              data: { password: hashedPassword, mustChangePassword: false },
             });
 
             // Invalidate all active sessions after password reset.

@@ -548,7 +548,7 @@ export class UsersService {
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashedNewPassword },
+      data: { password: hashedNewPassword, mustChangePassword: false },
     });
 
     return { message: 'Contraseña cambiada exitosamente' };

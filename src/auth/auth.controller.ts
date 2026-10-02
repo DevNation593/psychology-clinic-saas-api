@@ -8,10 +8,11 @@ import {
   AuthResponseDto,
   ForgotPasswordDto,
   ResetPasswordDto,
+  ChangeOwnPasswordDto,
 } from './dto/auth.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { SessionRoute } from '../common/decorators/session-route.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @ApiTags('auth')
@@ -85,5 +86,19 @@ export class AuthController {
   async logoutAll(@CurrentUser() user: any) {
     await this.authService.logoutAll(user.userId);
     return { message: 'Logged out from all devices' };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @SessionRoute()
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Change the password of the current user' })
+  @ApiResponse({ status: 200, description: 'Password changed' })
+  @ApiResponse({ status: 400, description: 'New password equals the current one' })
+  @ApiResponse({ status: 401, description: 'Current password is wrong' })
+  async changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangeOwnPasswordDto) {
+    await this.authService.changeOwnPassword(user.userId, dto.currentPassword, dto.newPassword);
+    return { message: 'Password changed successfully' };
   }
 }

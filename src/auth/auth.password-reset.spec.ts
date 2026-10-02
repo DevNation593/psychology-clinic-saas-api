@@ -100,6 +100,15 @@ describe('AuthService password reset', () => {
     expect(refreshTokens).toEqual([{ userId: 'user-1', isRevoked: true }]);
   });
 
+  it('clears mustChangePassword after a reset by e-mail', async () => {
+    user.mustChangePassword = true;
+    await service.requestPasswordReset('ana@example.com');
+
+    await service.resetPassword(sentToken(), 'NewPassword2!');
+
+    expect(user.mustChangePassword).toBe(false);
+  });
+
   it('accepts the token only once', async () => {
     await service.requestPasswordReset('ana@example.com');
     const token = sentToken();
