@@ -297,7 +297,7 @@ export class PatientsService {
         _count: {
           select: {
             appointments: true,
-            clinicalNotes: true,
+            clinicalNotes: { where: { deletedAt: null } },
             tasks: true,
           },
         },

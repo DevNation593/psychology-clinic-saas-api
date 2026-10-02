@@ -1,36 +1,43 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { ClinicalActor, CurrentClinicalActor } from '../clinical-access/clinical-actor';
+import { ClinicalProfileGuard } from '../clinical-access/clinical-profile.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateSpecialtyRecordDto } from './dto/create-specialty-record.dto';
 import { SpecialtyRecordsService } from './specialty-records.service';
 
 @ApiTags('specialty-records')
 @ApiBearerAuth('access-token')
+@UseGuards(ClinicalProfileGuard)
 @Controller('tenants/:tenantId/patients/:patientId/specialty-records')
 export class SpecialtyRecordsController {
   constructor(private readonly recordsService: SpecialtyRecordsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List patient records from specialty modules' })
+  @Roles('MASTER', 'PROFESIONAL')
+  @ApiOperation({
+    summary: 'List patient records from specialty modules',
+    description: 'Requires an active professional profile. Every record returned is audited.',
+  })
   @ApiQuery({ name: 'moduleKey', required: false })
   list(
     @Param('tenantId') tenantId: string,
     @Param('patientId') patientId: string,
+    @CurrentClinicalActor() actor: ClinicalActor,
     @Query('moduleKey') moduleKey?: string,
   ) {
-    return this.recordsService.list(tenantId, patientId, moduleKey);
+    return this.recordsService.list(tenantId, patientId, actor, moduleKey);
   }
 
   @Post()
   @Roles('MASTER', 'PROFESIONAL')
-  @ApiOperation({ summary: 'Create a specialty clinical record' })
+  @ApiOperation({ summary: 'Create a specialty clinical record under the own specialty' })
   create(
     @Param('tenantId') tenantId: string,
     @Param('patientId') patientId: string,
-    @CurrentUser() user: { userId: string },
+    @CurrentClinicalActor() actor: ClinicalActor,
     @Body() dto: CreateSpecialtyRecordDto,
   ) {
-    return this.recordsService.create(tenantId, patientId, user.userId, dto);
+    return this.recordsService.create(tenantId, patientId, actor, dto);
   }
 }

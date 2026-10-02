@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AuditLogService } from './audit-log.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('audit-log')
 @ApiBearerAuth('access-token')
@@ -21,6 +22,7 @@ export class AuditLogController {
   @ApiResponse({ status: 200, description: 'Audit logs list' })
   async findAll(
     @Param('tenantId') tenantId: string,
+    @CurrentUser() user: AuthUser,
     @Query('entity') entity?: string,
     @Query('entityId') entityId?: string,
     @Query('userId') userId?: string,
@@ -28,7 +30,7 @@ export class AuditLogController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.auditLogService.findAll(tenantId, {
+    return this.auditLogService.findAll(tenantId, user.userId, {
       entity,
       entityId,
       userId,
@@ -45,7 +47,8 @@ export class AuditLogController {
     @Param('tenantId') tenantId: string,
     @Param('entity') entity: string,
     @Param('entityId') entityId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.auditLogService.findByEntity(tenantId, entity, entityId);
+    return this.auditLogService.findByEntity(tenantId, user.userId, entity, entityId);
   }
 }
