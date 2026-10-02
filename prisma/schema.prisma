@@ -48,6 +48,19 @@ enum SubscriptionStatus {
   UNPAID // Grace period expired
 }
 
+enum SubscriptionPaymentKind {
+  PLAN_UPGRADE // Charge that activates a higher plan once it is confirmed
+  RENEWAL // Charge for the next billing period of the current plan
+}
+
+enum SubscriptionPaymentStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  CANCELED // Replaced by a newer request of the tenant
+  EXPIRED // Never confirmed in time
+}
+
 enum SubscriptionEventType {
   TRIAL_STARTED
   TRIAL_ENDED
@@ -115,6 +128,7 @@ enum AuditAction {
 
 enum AuditEntity {
   CLINICAL_NOTE
+  SPECIALTY_RECORD
   PATIENT
   APPOINTMENT
   USER
@@ -157,6 +171,7 @@ model Tenant {
   settings           TenantSettings?
   billingSettings    BillingSettings?
   subscription       TenantSubscription?
+  subscriptionPayments SubscriptionPayment[]
   users              User[]
   patients           Patient[]
   patientProfessionals PatientProfessional[]
@@ -347,6 +362,45 @@ model TenantSubscription {
   @@index([status])
 }
 
+// A charge the tenant owes. Nothing paid is enabled until its payment is CONFIRMED.
+model SubscriptionPayment {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  kind   SubscriptionPaymentKind
+  status SubscriptionPaymentStatus @default(PENDING)
+
+  amount   Decimal @db.Decimal(10, 2)
+  currency String  @default("USD")
+
+  // PLAN_UPGRADE: the plan to activate. RENEWAL: the plan being renewed.
+  targetPlan  PlanType
+  // RENEWAL: the billing period this payment covers.
+  periodStart DateTime?
+  periodEnd   DateTime?
+
+  // Who collected the money and under which reference. MANUAL = confirmed by support.
+  provider          String  @default("MANUAL")
+  providerReference String?
+
+  requestedById  String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  expiresAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The same provider event can never confirm two payments.
+  @@unique([provider, providerReference])
+  // One renewal per tenant and period, however many times the scheduler runs.
+  @@unique([tenantId, kind, periodStart])
+  @@index([tenantId, status])
+  @@index([status, expiresAt])
+}
+
 model UsageMetrics {
   id       String @id @default(cuid())
   tenantId String
@@ -450,6 +504,8 @@ model User {
   tasksAssigned           Task[]                  @relation("TaskAssignee")
   nextSessionPlans        NextSessionPlan[]
   notifications           NotificationLog[]
+  notificationPreference  NotificationPreference?
+  pushSubscriptions       PushSubscription[]
   auditLogs               AuditLog[]
   subscriptionEvents      SubscriptionEvent[]
   professionalSpecialties ProfessionalSpecialty[]
@@ -598,6 +654,13 @@ model SpecialtyRecord {
   recordDate     DateTime     @default(now())
   data           Json
   notes          String?
+
+  // Clinical records are never removed physically: corrections bump the version, removals set deletedAt.
+  version        Int       @default(1)
+  deletedAt      DateTime?
+  deletedById    String?
+  deletionReason String?
+
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -782,6 +845,12 @@ model ClinicalNote {
   sessionDate     DateTime @default(now())
   sessionDuration Int? // minutes
 
+  // Clinical records are never removed physically: corrections bump the version, removals set deletedAt.
+  version        Int       @default(1)
+  deletedAt      DateTime?
+  deletedById    String?
+  deletionReason String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -893,13 +962,47 @@ model NotificationLog {
   relatedEntityType String? // e.g., "appointment", "task"
   relatedEntityId   String?
 
+  // Set for notifications that must exist at most once (a task falling due, a daily digest).
+  dedupeKey String?
+
   createdAt DateTime @default(now())
 
+  @@unique([tenantId, dedupeKey])
   @@index([tenantId])
   @@index([userId])
   @@index([status])
   @@index([type])
   @@index([createdAt])
+}
+
+// What each user wants to be notified about. A missing row means the defaults below.
+model NotificationPreference {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  pushEnabled          Boolean @default(true) // false keeps notifications in-app only
+  appointmentReminders Boolean @default(true)
+  taskDueReminders     Boolean @default(true)
+  morningDigest        Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+}
+
+// A browser subscribed to Web Push (RFC 8030). One user can have several.
+model PushSubscription {
+  id       String @id @default(cuid())
+  tenantId String
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint String  @unique
+  p256dh   String
+  auth     String
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // ============================================
@@ -918,14 +1021,19 @@ model AuditLog {
   entity   AuditEntity
   entityId String
 
+  // Patient the clinical record belongs to; null for non-clinical entities.
+  patientId String?
+
   // Details
-  changes   Json? // Before/after values
+  changes   Json? // { before, after } snapshots
+  reason    String? // Required for clinical corrections and removals
   ipAddress String?
   userAgent String?
 
   createdAt DateTime @default(now())
 
   @@index([tenantId])
+  @@index([tenantId, patientId])
   @@index([userId])
   @@index([entity, entityId])
   @@index([createdAt])
