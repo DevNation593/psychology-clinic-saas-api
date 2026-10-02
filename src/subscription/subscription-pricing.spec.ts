@@ -1,5 +1,6 @@
 import { TenantSubscription } from '@prisma/client';
 import {
+  MODULE_PRICING,
   calculateSubscriptionPrice,
   getPlanFeatureFlags,
   getPlanIncludedModules,
@@ -44,6 +45,29 @@ describe('calculateSubscriptionPrice', () => {
       billableSpecialties: 1,
       specialtyUnitPrice: 15,
     });
+  });
+});
+
+describe('clinical encryption', () => {
+  const plans = [
+    'TRIAL',
+    'PERSONAL_BASIC',
+    'PERSONAL_PRO',
+    'CLINIC_BASIC',
+    'CLINIC_PRO',
+    'CLINIC_ENTERPRISE',
+  ] as const;
+
+  it.each(plans)('is part of %s and never an extra charge', (planType) => {
+    expect(getPlanIncludedModules(planType)).toContain('clinicalNotesEncryption');
+    expect(MODULE_PRICING.clinicalNotesEncryption).toBe(0);
+    expect(
+      calculateSubscriptionPrice({
+        planType,
+        selectedModules: ['clinicalNotes', 'clinicalNotesEncryption'],
+        specialtyCount: 1,
+      }).featureAddonsPrice,
+    ).toBe(0);
   });
 });
 

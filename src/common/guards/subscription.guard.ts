@@ -2,6 +2,7 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ALLOW_INACTIVE_SUBSCRIPTION_KEY } from '../decorators/allow-inactive-subscription.decorator';
 
 @Injectable()
 export class SubscriptionGuard implements CanActivate {
@@ -17,6 +18,12 @@ export class SubscriptionGuard implements CanActivate {
       context.getClass(),
     ]);
     if (isPublic) return true;
+
+    const allowInactive = this.reflector.getAllAndOverride<boolean>(
+      ALLOW_INACTIVE_SUBSCRIPTION_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (allowInactive) return true;
 
     const request = context.switchToHttp().getRequest();
     const user = request.user;

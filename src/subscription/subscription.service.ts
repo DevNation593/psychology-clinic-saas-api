@@ -13,7 +13,6 @@ import {
   getPlanFeatureFlags,
   getPlanIncludedModules,
   getPlanLimits,
-  getSelectedModules,
   moduleToDbKey,
 } from './subscription-pricing';
 
@@ -169,7 +168,7 @@ export class SubscriptionService {
 
       // Total clinical notes
       this.prisma.clinicalNote.count({
-        where: { tenantId },
+        where: { tenantId, deletedAt: null },
       }),
     ]);
 
@@ -237,104 +236,6 @@ export class SubscriptionService {
         monthlyNotificationsLimit: subscription.monthlyNotificationsLimit,
       }),
     };
-  }
-
-  // ========================================
-  // UPGRADE PLAN
-  // ========================================
-  async upgradePlan(tenantId: string, userId: string, newPlan: PlanType) {
-    const newPlanLimits = getPlanLimits(newPlan);
-    return runSerializableTransaction(this.prisma, tenantId, userId, async (tx) => {
-      const subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
-      if (!subscription) throw new BadRequestException('Suscripción no encontrada');
-
-      const planHierarchy: PlanType[] = [
-        'TRIAL',
-        'PERSONAL_BASIC',
-        'PERSONAL_PRO',
-        'CLINIC_BASIC',
-        'CLINIC_PRO',
-        'CLINIC_ENTERPRISE',
-      ];
-      if (planHierarchy.indexOf(newPlan) <= planHierarchy.indexOf(subscription.planType)) {
-        throw new BadRequestException(
-          'Esto no es una mejora. Use downgradePlan para degradaciones.',
-        );
-      }
-
-      const tenant = await tx.tenant.findUnique({ where: { id: tenantId } });
-      if (newPlan.startsWith('PERSONAL_') && tenant?.tenantType === 'CLINIC') {
-        throw new BadRequestException(
-          'No se puede cambiar a un plan personal en una cuenta de clínica.',
-        );
-      }
-      if (newPlan.startsWith('CLINIC_') && tenant?.tenantType === 'PERSONAL') {
-        await tx.tenant.update({ where: { id: tenantId }, data: { tenantType: 'CLINIC' } });
-      }
-
-      const selectedModules = [
-        ...new Set([...getPlanIncludedModules(newPlan), ...getSelectedModules(subscription)]),
-      ];
-      const featureFlags = getPlanFeatureFlags(newPlan);
-      for (const mod of selectedModules) featureFlags[moduleToDbKey(mod)] = true;
-      const specialtyCount = await tx.tenantSpecialty.count({ where: { tenantId } });
-      const pricing = calculateSubscriptionPrice({
-        planType: newPlan,
-        selectedModules,
-        specialtyCount,
-        specialtyUnitPrice: Number(newPlanLimits.specialtyPrice),
-      });
-      const proratedAmount = await this.calculateProratedCharge(subscription, pricing.totalMonthly);
-
-      const updated = await tx.tenantSubscription.update({
-        where: { tenantId },
-        data: {
-          planType: newPlan,
-          status: 'ACTIVE',
-          basePrice: new Decimal(pricing.totalMonthly),
-          pricePerSeat: newPlanLimits.pricePerSeat,
-          seatsPsychologistsMax: newPlanLimits.seatsIncluded,
-          maxActivePatients: newPlanLimits.maxActivePatients,
-          storageGB: newPlanLimits.storageGB,
-          monthlyNotificationsLimit: newPlanLimits.monthlyNotificationsLimit,
-          includedSpecialties: newPlanLimits.includedSpecialties,
-          specialtyPrice: new Decimal(SPECIALTY_PRICE_PER_MONTH),
-          monthlyElectronicInvoicesLimit: 50,
-
-          // Update feature flags
-          ...featureFlags,
-
-          // Clear scheduled changes
-          scheduledPlanChange: null,
-          scheduledPlanChangeAt: null,
-        },
-      });
-
-      // Log event
-      await tx.subscriptionEvent.create({
-        data: {
-          tenantId,
-          eventType: 'PLAN_UPGRADED',
-          previousPlan: subscription.planType,
-          newPlan,
-          metadata: {
-            proratedAmount,
-            immediateEffect: true,
-          },
-          triggeredByUserId: userId,
-        },
-      });
-
-      return {
-        success: true,
-        subscription: updated,
-        billing: {
-          proratedCharge: proratedAmount,
-          nextBillingDate: updated.currentPeriodEnd,
-        },
-        message: `Actualizado exitosamente a ${newPlan}. Todas las funcionalidades están ahora disponibles.`,
-      };
-    });
   }
 
   // ========================================
@@ -660,7 +561,8 @@ export class SubscriptionService {
   // ========================================
   // VALIDATE DOWNGRADE
   // ========================================
-  private async validateDowngrade(tenantId: string, newPlanLimits: any) {
+  /** Also used when a scheduled downgrade falls due: usage may have grown since the request. */
+  async validateDowngrade(tenantId: string, newPlanLimits: any) {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -708,14 +610,6 @@ export class SubscriptionService {
       }
       if (subscription.featureVideoConsultation && !newFeatures.featureVideoConsultation) {
         warnings.push('La integración de Video Consulta será deshabilitada');
-      }
-      if (
-        subscription.featureClinicalNotesEncryption &&
-        !newFeatures.featureClinicalNotesEncryption
-      ) {
-        warnings.push(
-          'El cifrado de notas clínicas será deshabilitado (las notas existentes permanecen cifradas)',
-        );
       }
     }
 
@@ -770,27 +664,6 @@ export class SubscriptionService {
     }
 
     return warnings;
-  }
-
-  private async calculateProratedCharge(
-    currentSubscription: any,
-    newBasePrice: number,
-  ): Promise<number> {
-    const now = new Date();
-    const periodStart = currentSubscription.currentPeriodStart;
-    const periodEnd = currentSubscription.currentPeriodEnd;
-
-    if (!periodEnd) return newBasePrice;
-
-    const totalDays = Math.ceil(
-      (periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    const daysRemaining = Math.ceil((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-
-    const unusedCredit = (Number(currentSubscription.basePrice) / totalDays) * daysRemaining;
-    const newCharge = (newBasePrice / totalDays) * daysRemaining;
-
-    return Math.max(0, newCharge - unusedCredit);
   }
 
   private getStartOfMonth(): Date {
