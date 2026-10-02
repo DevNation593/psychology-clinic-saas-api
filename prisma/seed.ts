@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { buildDemoSpecialtyScenarios } from './demo-specialty-scenarios';
+import { seedDemoSpecialties } from './seed-demo-specialties';
 
 const prisma = new PrismaClient();
 
@@ -156,7 +158,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       pricePerSeat: 29,
       currency: 'USD',
       seatsPsychologistsMax: 10,
-      seatsPsychologistsUsed: 2,
+      seatsPsychologistsUsed: 4,
       maxActivePatients: 500,
       storageGB: 5,
       monthlyNotificationsLimit: 5000,
@@ -178,7 +180,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       featureAPIAccess: true,
       featureWhatsAppIntegration: false,
       featureSSO: false,
-      activePatientsCount: 4,
+      activePatientsCount: 5,
       storageUsedBytes: BigInt(850 * 1024 * 1024),
       monthlyNotificationsSent: 97,
       lastNotificationReset: daysFromNow(-5),
@@ -243,67 +245,11 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       firstName: 'Daniela',
       lastName: 'Mendoza',
       phone: '+593999000010',
-      role: 'CLIENTE',
+      role: 'MASTER',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-45),
       avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Daniela%20Mendoza',
-    },
-  });
-
-  const psych1 = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email: 'psic.ana@psic.com',
-      password: hashedPassword,
-      firstName: 'Ana',
-      lastName: 'Vega',
-      phone: '+593999000011',
-      role: 'PSICOLOGO',
-      managedByProvider: true,
-      isActive: true,
-      emailVerified: true,
-      activatedAt: daysFromNow(-40),
-      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Ana%20Vega',
-      professionalTitle: 'Psicóloga clínica',
-      professionalProfile: {
-        create: {
-          specialtyId: catalog.psychology.id,
-          professionalTitle: 'Psicóloga clínica',
-          isActive: true,
-        },
-      },
-      professionalSpecialties: {
-        create: { specialtyId: catalog.psychology.id, isPrimary: true },
-      },
-    },
-  });
-
-  const psych2 = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email: 'psic.luis@psic.com',
-      password: hashedPassword,
-      firstName: 'Luis',
-      lastName: 'Paredes',
-      phone: '+593999000012',
-      role: 'PSICOLOGO',
-      managedByProvider: true,
-      isActive: true,
-      emailVerified: true,
-      activatedAt: daysFromNow(-30),
-      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Luis%20Paredes',
-      professionalTitle: 'Nutricionista',
-      professionalProfile: {
-        create: {
-          specialtyId: catalog.nutrition.id,
-          professionalTitle: 'Nutricionista',
-          isActive: true,
-        },
-      },
-      professionalSpecialties: {
-        create: { specialtyId: catalog.nutrition.id, isPrimary: true },
-      },
     },
   });
 
@@ -323,22 +269,25 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
     },
   });
 
-  const patient1 = await prisma.patient.create({
-    data: {
-      tenantId: tenant.id,
-      firstName: 'Valeria',
-      lastName: 'Ortega',
-      email: 'valeria.ortega@email.com',
-      phone: '+593999100001',
-      dateOfBirth: new Date('1994-04-12'),
-      gender: 'FEMALE',
-      address: 'La Carolina, Quito',
-      emergencyContactName: 'Paula Ortega',
-      emergencyContactPhone: '+593999100002',
-      assignedPsychologistId: psych1.id,
-      notes: 'Paciente con seguimiento semanal por ansiedad social.',
+  const specialtyDemos = await seedDemoSpecialties(prisma, {
+    tenantId: tenant.id,
+    hashedPassword,
+    assignedById: admin.id,
+    specialtyIds: {
+      psychology: catalog.psychology.id,
+      nutrition: catalog.nutrition.id,
+      physiotherapy: catalog.physiotherapy.id,
+      dentistry: catalog.dentistry.id,
     },
+    referenceDate: new Date(),
   });
+
+  const {
+    psychology: { professional: psych1, patient: patient1, appointment: completedAppointment },
+    nutrition: { professional: nutritionist, patient: patient3 },
+    physiotherapy: { professional: physiotherapist, patient: patient4 },
+    dentistry: { professional: dentist, patient: patient5 },
+  } = specialtyDemos;
 
   const patient2 = await prisma.patient.create({
     data: {
@@ -356,45 +305,13 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
     },
   });
 
-  const patient3 = await prisma.patient.create({
+  await prisma.patientProfessional.create({
     data: {
       tenantId: tenant.id,
-      firstName: 'Camila',
-      lastName: 'Naranjo',
-      phone: '+593999100005',
-      dateOfBirth: new Date('2001-11-20'),
-      gender: 'FEMALE',
-      assignedPsychologistId: psych2.id,
-    },
-  });
-
-  const patient4 = await prisma.patient.create({
-    data: {
-      tenantId: tenant.id,
-      firstName: 'Andres',
-      lastName: 'Mora',
-      email: 'andres.mora@email.com',
-      phone: '+593999100006',
-      dateOfBirth: new Date('1979-06-18'),
-      gender: 'MALE',
-      assignedPsychologistId: psych2.id,
-    },
-  });
-
-  const completedAppointment = await prisma.appointment.create({
-    data: {
-      tenantId: tenant.id,
-      patientId: patient1.id,
-      psychologistId: psych1.id,
-      specialtyId: catalog.psychology.id,
-      title: 'Sesion de seguimiento ansiedad',
-      description: 'Revision de avances y ajuste de tecnicas',
-      startTime: daysFromNow(-3),
-      endTime: new Date(daysFromNow(-3).getTime() + 60 * 60 * 1000),
-      duration: 60,
-      status: 'COMPLETED',
-      location: 'Consultorio 2',
-      isOnline: false,
+      patientId: patient2.id,
+      professionalId: psych1.id,
+      assignedById: admin.id,
+      isActive: true,
     },
   });
 
@@ -403,6 +320,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       tenantId: tenant.id,
       patientId: patient2.id,
       psychologistId: psych1.id,
+      professionalId: psych1.id,
       specialtyId: catalog.psychology.id,
       title: 'TCC - gestion de estres',
       startTime: daysFromNow(1),
@@ -412,41 +330,6 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       isOnline: true,
       meetingUrl: 'https://meet.example.com/demo-psic-001',
       location: 'Online',
-    },
-  });
-
-  await prisma.appointment.create({
-    data: {
-      tenantId: tenant.id,
-      patientId: patient3.id,
-      psychologistId: psych2.id,
-      specialtyId: catalog.nutrition.id,
-      title: 'Evaluacion inicial',
-      startTime: daysFromNow(2),
-      endTime: new Date(daysFromNow(2).getTime() + 60 * 60 * 1000),
-      duration: 60,
-      status: 'SCHEDULED',
-      location: 'Consultorio 1',
-      isOnline: false,
-    },
-  });
-
-  await prisma.appointment.create({
-    data: {
-      tenantId: tenant.id,
-      patientId: patient4.id,
-      psychologistId: psych2.id,
-      specialtyId: catalog.nutrition.id,
-      title: 'Consulta cancelada',
-      startTime: daysFromNow(-1),
-      endTime: new Date(daysFromNow(-1).getTime() + 60 * 60 * 1000),
-      duration: 60,
-      status: 'CANCELLED',
-      cancellationReason: 'Paciente reprogramo por viaje',
-      cancelledAt: daysFromNow(-1),
-      cancelledBy: assistant.id,
-      location: 'Consultorio 3',
-      isOnline: false,
     },
   });
 
@@ -467,52 +350,6 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
     },
   });
 
-  await prisma.specialtyRecord.createMany({
-    data: [
-      {
-        tenantId: tenant.id,
-        patientId: patient1.id,
-        professionalId: psych1.id,
-        specialtyId: catalog.psychology.id,
-        moduleKey: 'psychology.assessments',
-        data: {
-          testName: 'PHQ-9',
-          score: 8,
-          interpretation: 'Síntomas depresivos leves; continuar seguimiento.',
-        },
-        notes: 'Repetir evaluación en cuatro semanas.',
-        recordDate: daysFromNow(-3),
-      },
-      {
-        tenantId: tenant.id,
-        patientId: patient3.id,
-        professionalId: psych2.id,
-        specialtyId: catalog.nutrition.id,
-        moduleKey: 'nutrition.assessments',
-        data: {
-          weightKg: 68,
-          heightCm: 165,
-          bmi: 25,
-          dietaryGoals: 'Mejorar composición corporal.',
-        },
-        notes: 'Control nutricional mensual.',
-      },
-      {
-        tenantId: tenant.id,
-        patientId: patient4.id,
-        professionalId: psych2.id,
-        specialtyId: catalog.physiotherapy.id,
-        moduleKey: 'physiotherapy.evolution',
-        data: {
-          painLevel: 4,
-          mobility: 'Flexión de rodilla limitada',
-          progress: 'Mejora funcional moderada.',
-        },
-        notes: 'Continuar ejercicios de movilidad.',
-      },
-    ],
-  });
-
   await prisma.task.createMany({
     data: [
       {
@@ -530,8 +367,8 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         tenantId: tenant.id,
         patientId: patient3.id,
         createdById: admin.id,
-        assignedToId: psych2.id,
-        title: 'Preparar plan de primera intervencion',
+        assignedToId: nutritionist.id,
+        title: 'Revisar adherencia al plan nutricional',
         status: 'IN_PROGRESS',
         priority: 'MEDIUM',
         dueDate: daysFromNow(2),
@@ -540,11 +377,21 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         tenantId: tenant.id,
         patientId: patient4.id,
         createdById: admin.id,
-        assignedToId: psych2.id,
-        title: 'Actualizar historia de medicacion',
+        assignedToId: physiotherapist.id,
+        title: 'Actualizar progresión de ejercicios',
         status: 'COMPLETED',
         priority: 'LOW',
         completedAt: daysFromNow(-2),
+      },
+      {
+        tenantId: tenant.id,
+        patientId: patient5.id,
+        createdById: admin.id,
+        assignedToId: dentist.id,
+        title: 'Revisar sensibilidad de la pieza 24',
+        status: 'PENDING',
+        priority: 'MEDIUM',
+        dueDate: daysFromNow(3),
       },
       {
         tenantId: tenant.id,
@@ -656,8 +503,8 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         tenantId: tenant.id,
         periodStart: daysFromNow(-30),
         periodEnd: daysFromNow(-1),
-        seatsPsychologistsUsed: 2,
-        activePatientsCount: 4,
+        seatsPsychologistsUsed: 4,
+        activePatientsCount: 5,
         storageUsedGB: 0.63,
         notificationsSent: 61,
         appointmentsCreated: 18,
@@ -670,13 +517,13 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
         tenantId: tenant.id,
         periodStart: daysFromNow(-1),
         periodEnd: daysFromNow(29),
-        seatsPsychologistsUsed: 2,
-        activePatientsCount: 4,
+        seatsPsychologistsUsed: 4,
+        activePatientsCount: 5,
         storageUsedGB: 0.81,
         notificationsSent: 97,
         appointmentsCreated: 6,
         clinicalNotesCreated: 3,
-        tasksCreated: 4,
+        tasksCreated: 5,
         estimatedCost: 207,
         recordedAt: new Date(),
       },
@@ -688,7 +535,9 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
     users: {
       admin,
       psych1,
-      psych2,
+      nutritionist,
+      physiotherapist,
+      dentist,
       assistant,
     },
   };
@@ -790,7 +639,7 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
       password: hashedPassword,
       firstName: 'Carla',
       lastName: 'Noboa',
-      role: 'CLIENTE',
+      role: 'MASTER',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-4),
@@ -804,7 +653,7 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
       password: hashedPassword,
       firstName: 'Miguel',
       lastName: 'Arias',
-      role: 'PSICOLOGO',
+      role: 'PROFESIONAL',
       isActive: true,
       emailVerified: true,
       activatedAt: daysFromNow(-4),
@@ -956,14 +805,17 @@ async function main() {
   console.log('  owner@psic.com (SOPORTE)');
   console.log('');
   console.log(`Clinic tenant: ${mainTenant.tenant.name}`);
-  console.log('  admin.demo@psic.com (CLIENTE)');
-  console.log('  psic.ana@psic.com (PSICOLOGO)');
-  console.log('  psic.luis@psic.com (PSICOLOGO)');
+  console.log('  admin.demo@psic.com (MASTER)');
+  for (const scenario of buildDemoSpecialtyScenarios()) {
+    console.log(
+      `  ${scenario.professional.email} (${scenario.professional.role}, ${scenario.professional.title})`,
+    );
+  }
   console.log('  asistente.demo@psic.com (ASISTENTE)');
   console.log('');
   console.log(`Personal tenant: ${personalTenant.tenant.name}`);
-  console.log('  admin.trial@psic.com (CLIENTE)');
-  console.log('  psic.trial@psic.com (PSICOLOGO)');
+  console.log('  admin.trial@psic.com (MASTER)');
+  console.log('  psic.trial@psic.com (PROFESIONAL)');
 }
 
 main()
