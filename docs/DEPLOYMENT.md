@@ -349,6 +349,32 @@ heroku run npm run prisma:migrate
 DATABASE_URL="postgresql://..." npm run prisma:migrate deploy
 ```
 
+### 1b. Platform administration panel rollout
+
+The platform panel release needs a maintenance window. Deploy the API and the web together: an old web would offer the public signup against an endpoint that no longer exists (`POST /onboarding/tenants` and `POST /tenants` answer 404).
+
+**Prerequisite:** load real contact data (WhatsApp or email) in `web/src/content/site.ts` (T-12). Without it the demo form is not shown and, with signup closed, the public site has no way to capture leads.
+
+**Before applying the migration**, run this against the target database; it must return zero rows (the panel relies on there being no RLS policies):
+
+```sql
+SELECT * FROM pg_policies;
+```
+
+Steps:
+
+1. Back up the database.
+2. Stop the API.
+3. `npx prisma migrate deploy`. Migration `20261006000000_platform_admin_sections` stacks on `20261003000000`, `20261004000000` and `20261005000000`, which have never been applied either.
+4. Start the new API.
+5. `npm run platform:create-admin` with `PLATFORM_ADMIN_EMAIL`, `PLATFORM_ADMIN_PASSWORD`, `PLATFORM_ADMIN_FIRST_NAME` and `PLATFORM_ADMIN_LAST_NAME` set (see `.env.example`).
+6. `npm run prisma:verify-platform-sections`. Exit code 0 means nothing blocks the release.
+7. Deploy the web.
+
+Rollback: restore the backup.
+
+Before production, run once against a disposable database (`DATABASE_URL_TEST`): the migration, the verification script and `npm run test:e2e`.
+
 ### 2. Generate Prisma Client
 
 ```bash

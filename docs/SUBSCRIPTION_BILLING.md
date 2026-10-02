@@ -4,7 +4,7 @@
 
 ## Decisión
 
-No hay proveedor de cobro integrado. El cobro es **manual con aprobación explícita**: el consultorio solicita, paga por fuera (transferencia, depósito) y soporte confirma el pago con su referencia. **Ningún plan de pago se habilita al solicitarlo**; solo al confirmarse su pago.
+No hay proveedor de cobro integrado. El cobro es **manual con aprobación explícita**: el consultorio solicita, paga por fuera (transferencia, depósito) y el `ADMIN` de la plataforma confirma el pago con su referencia. **Ningún plan de pago se habilita al solicitarlo**; solo al confirmarse su pago.
 
 El diseño deja el punto de entrada listo para un proveedor: su webhook llamaría a `SubscriptionBillingService.confirmPayment` con `provider` propio y el identificador del evento como `reference`. La idempotencia ya está resuelta en ese método.
 
@@ -25,9 +25,11 @@ Importe de una mejora: la diferencia prorrateada por los días que quedan si hay
 | --- | --- | --- |
 | `POST /tenants/:tenantId/subscription/upgrade` | MASTER | Registra la solicitud; responde `status: PENDING_PAYMENT` y el pago |
 | `GET /tenants/:tenantId/subscription/payments` | MASTER | Pagos del consultorio, incluidos los pendientes |
-| `GET /subscription-payments?status=PENDING` | SOPORTE | Pagos de todos los consultorios |
-| `POST /subscription-payments/:paymentId/confirm` | SOPORTE | `{ reference, note? }` — aplica el pago |
-| `POST /subscription-payments/:paymentId/reject` | SOPORTE | `{ reason }` — cierra la solicitud sin cambios |
+| `GET /platform/subscription-payments?status=PENDING` | ADMIN | Pagos de todos los consultorios |
+| `POST /platform/subscription-payments/:paymentId/confirm` | ADMIN | `{ reference, note? }` — aplica el pago |
+| `POST /platform/subscription-payments/:paymentId/reject` | ADMIN | `{ reason }` — cierra la solicitud sin cambios |
+
+Los pagos los confirma o rechaza solo el `ADMIN`, en `/platform/subscription-payments`; el titular no puede confirmar el suyo (`403`). La ruta antigua `/subscription-payments` y el rol `SOPORTE` ya no existen para esto.
 
 ### Idempotencia
 
@@ -49,7 +51,7 @@ Importe de una mejora: la diferencia prorrateada por los días que quedan si hay
 
 Cada paso reclama su fila con una actualización condicional (o un índice único), de modo que repetir la ejecución, o correrla en dos instancias a la vez, no aplica nada dos veces.
 
-Los planes con precio 0 fuera de la prueba (el plan personalizado) no vencen solos: los gestiona soporte.
+Los planes con precio 0 fuera de la prueba (el plan personalizado) no vencen solos: los gestiona el `ADMIN` desde el panel.
 
 Un consultorio `PAST_DUE` o `UNPAID` sigue pudiendo usar las rutas de suscripción para ver su estado y solicitar un plan (`@AllowInactiveSubscription`).
 
@@ -59,7 +61,7 @@ Los plazos están en `BILLING_RULES` (`src/subscription/subscription-billing.rul
 
 - **Módulos adicionales y especialidades extra** se siguen habilitando al seleccionarlos y suben el precio mensual; se cobran en la siguiente renovación, sin prorrateo ni pago previo.
 - **Avisos al consultorio** (correo de renovación emitida, pago confirmado, vencimiento): dependen del servicio de correo (T-07).
-- **Pantalla de soporte** para confirmar pagos: hoy se hace por API.
+- **Cambio de plan sin pago:** el `ADMIN` puede cambiar el plan de un consultorio al instante con `PATCH /platform/tenants/:tenantId/subscription` (motivo obligatorio, sin `SubscriptionPayment`); ver `API_ENDPOINTS.md`.
 - **Instrucciones de pago** (cuenta bancaria, a quién enviar el comprobante): la web muestra un texto genérico.
 - **Facturación anual:** no existe en la API; se retiró del panel.
 
