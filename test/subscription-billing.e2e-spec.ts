@@ -16,7 +16,7 @@ describe('Subscription billing (E2E)', () => {
   let lifecycle: SubscriptionLifecycleService;
   let tenantId: string;
   let masterToken: string;
-  let supportToken: string;
+  let adminToken: string;
   let paymentId: string;
 
   const login = async (email: string) => {
@@ -47,21 +47,25 @@ describe('Subscription billing (E2E)', () => {
     await prisma.cleanDatabase();
     const deps = { tenants: app.get(PlatformTenantsService), prisma };
     tenantId = (await createTestTenant(deps, 1)).id;
-    const supportTenantId = (await createTestTenant(deps, 2)).id;
+    const platformTenantId = (
+      await prisma.tenant.create({
+        data: { name: 'Platform', email: 'platform@tenant.test', isPlatform: true },
+      })
+    ).id;
     await prisma.user.create({
       data: {
-        tenantId: supportTenantId,
-        email: 'support@tenant.test',
+        tenantId: platformTenantId,
+        email: 'platform-admin@tenant.test',
         password: await app.get<AuthService>(AuthService).hashPassword(TEST_PASSWORD),
-        firstName: 'Support',
-        lastName: 'Desk',
-        role: 'SOPORTE',
+        firstName: 'Platform',
+        lastName: 'Admin',
+        role: 'ADMIN',
         isActive: true,
       },
     });
 
     masterToken = await login('admin+1@tenant.test');
-    supportToken = await login('support@tenant.test');
+    adminToken = await login('platform-admin@tenant.test');
   });
 
   afterAll(async () => {
@@ -100,18 +104,18 @@ describe('Subscription billing (E2E)', () => {
 
   it('does not let the tenant confirm its own payment', async () => {
     await request(app.getHttpServer())
-      .post(`/api/v1/subscription-payments/${paymentId}/confirm`)
+      .post(`/api/v1/platform/subscription-payments/${paymentId}/confirm`)
       .set(bearer(masterToken))
       .send({ reference: 'SELF-1' })
       .expect(403);
     expect((await subscription()).planType).toBe('TRIAL');
   });
 
-  it('activates the plan when support confirms, and only once', async () => {
+  it('activates the plan when the platform admin confirms, and only once', async () => {
     const confirm = () =>
       request(app.getHttpServer())
-        .post(`/api/v1/subscription-payments/${paymentId}/confirm`)
-        .set(bearer(supportToken))
+        .post(`/api/v1/platform/subscription-payments/${paymentId}/confirm`)
+        .set(bearer(adminToken))
         .send({ reference: 'TRF-0001' })
         .expect(200);
 
@@ -144,16 +148,16 @@ describe('Subscription billing (E2E)', () => {
       .expect(201);
 
     const response = await request(app.getHttpServer())
-      .post(`/api/v1/subscription-payments/${upgrade.body.payment.id}/confirm`)
-      .set(bearer(supportToken))
+      .post(`/api/v1/platform/subscription-payments/${upgrade.body.payment.id}/confirm`)
+      .set(bearer(adminToken))
       .send({ reference: 'TRF-0001' })
       .expect(409);
     expect(response.body.code).toBe('PAYMENT_REFERENCE_ALREADY_USED');
     expect((await subscription()).planType).toBe('CLINIC_BASIC');
 
     await request(app.getHttpServer())
-      .post(`/api/v1/subscription-payments/${upgrade.body.payment.id}/reject`)
-      .set(bearer(supportToken))
+      .post(`/api/v1/platform/subscription-payments/${upgrade.body.payment.id}/reject`)
+      .set(bearer(adminToken))
       .send({ reason: 'Referencia repetida' })
       .expect(200);
   });
@@ -213,8 +217,8 @@ describe('Subscription billing (E2E)', () => {
     expect((await subscription()).status).toBe('UNPAID');
 
     await request(app.getHttpServer())
-      .post(`/api/v1/subscription-payments/${renewals[0].id}/confirm`)
-      .set(bearer(supportToken))
+      .post(`/api/v1/platform/subscription-payments/${renewals[0].id}/confirm`)
+      .set(bearer(adminToken))
       .send({ reference: 'TRF-0002' })
       .expect(200);
     const renewed = await subscription();

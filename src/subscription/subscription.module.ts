@@ -4,11 +4,10 @@ import { SubscriptionService } from './subscription.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SubscriptionBillingService } from './subscription-billing.service';
 import { SubscriptionLifecycleService } from './subscription-lifecycle.service';
-import { SubscriptionPaymentsController } from './subscription-payments.controller';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [SubscriptionController, SubscriptionPaymentsController],
+  controllers: [SubscriptionController],
   providers: [SubscriptionService, SubscriptionBillingService, SubscriptionLifecycleService],
   exports: [SubscriptionService, SubscriptionBillingService],
 })

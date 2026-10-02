@@ -569,12 +569,8 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Only the same user, MASTER or SOPORTE can change the avatar.
-    if (
-      currentUserRole !== 'SOPORTE' &&
-      !isMasterRole(currentUserRole) &&
-      currentUserId !== userId
-    ) {
+    // Only the same user or a MASTER can change the avatar.
+    if (!isMasterRole(currentUserRole) && currentUserId !== userId) {
       throw new ForbiddenException('Solo puedes actualizar tu propio avatar');
     }
 

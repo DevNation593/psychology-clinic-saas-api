@@ -174,28 +174,4 @@ export class UsersController {
       changePasswordDto.newPassword,
     );
   }
-
-  @Roles('SOPORTE')
-  @Post(':userId/grant-access')
-  @ApiOperation({
-    summary: 'Grant access to a legacy provider-managed account (Provider/OWNER only)',
-    description: 'Legacy adapter: activates only an existing provider-managed account.',
-  })
-  @ApiResponse({ status: 200, description: 'Access granted' })
-  @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async grantAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
-    return this.usersService.grantPsychologistAccess(tenantId, userId);
-  }
-
-  @Roles('SOPORTE')
-  @Post(':userId/revoke-access')
-  @ApiOperation({
-    summary: 'Revoke access to a legacy provider-managed account (Provider/OWNER only)',
-    description: 'Legacy adapter: deactivates only an existing provider-managed account.',
-  })
-  @ApiResponse({ status: 200, description: 'Access revoked' })
-  @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async revokeAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
-    return this.usersService.revokePsychologistAccess(tenantId, userId);
-  }
 }
