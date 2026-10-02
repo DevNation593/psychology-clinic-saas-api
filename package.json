@@ -26,7 +26,10 @@
     "prisma:reconcile-patient-team": "ts-node prisma/reconcile-patient-team-appointments.ts",
     "prisma:verify-patient-team-migration": "ts-node prisma/verify-patient-team-migration.ts",
     "prisma:audit-master-roles": "ts-node prisma/audit-master-roles.ts",
-    "prisma:verify-master-role-migration": "ts-node prisma/verify-master-role-migration.ts"
+    "prisma:verify-master-role-migration": "ts-node prisma/verify-master-role-migration.ts",
+    "prisma:encrypt-clinical-data": "ts-node prisma/encrypt-clinical-data.ts",
+    "contract:plan-catalog": "ts-node prisma/write-plan-catalog-contract.ts",
+    "webpush:generate-keys": "ts-node -e \"console.log(require('./src/notifications/web-push/web-push.crypto').generateVapidKeys())\""
   },
   "dependencies": {
     "@nestjs/bull": "^11.0.4",

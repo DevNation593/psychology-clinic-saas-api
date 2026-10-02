@@ -210,20 +210,18 @@ await this.prisma.auditLog.create({
 });
 ```
 
-**Encryption at Rest** (Optional):
+**Encryption at Rest** (always on, every plan):
 
-```typescript
-// Before saving
-const encryptedContent = encryptionService.encrypt(note.content);
-
-// After reading
-const decryptedContent = encryptionService.decrypt(note.content);
-```
+Clinical note text, specialty record data and the clinical snapshots of the audit log are
+encrypted by `ClinicalCryptoService` (`src/clinical-access/`) before they reach PostgreSQL and
+decrypted when a service returns them.
 
 Uses AES-256-GCM with:
-- Random IV per encryption
-- Authentication tag for integrity
-- Key derivation from `ENCRYPTION_KEY` env var
+- Random IV per value
+- Authentication tag for integrity, bound to the tenant id
+- Keys from `CLINICAL_ENCRYPTION_KEYS`, with key ids so keys can be rotated
+
+Details, key handling and rotation: `docs/CLINICAL_DATA_PROTECTION.md`.
 
 ### 6. Background Jobs (BullMQ)
 
@@ -460,7 +458,7 @@ Every 15 minutes:
 - Patient data belongs to tenant
 - Tenant admins can export/delete all data
 - Soft deletes preserve audit trail
-- Encryption at rest option for clinical notes
+- Clinical notes, specialty records and their audit snapshots encrypted at rest
 
 ### Audit Trail
 - All clinical note accesses logged

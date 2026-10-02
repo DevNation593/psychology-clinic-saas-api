@@ -53,8 +53,17 @@ FCM_PROJECT_ID=your-production-project-id
 FCM_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 FCM_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
 
-# Optional: Clinical Note Encryption
-ENCRYPTION_KEY=<generate-32-character-key>
+# Required: transactional e-mail (password reset and invitations).
+# The API posts { from, to, subject, html, text } with a Bearer key.
+EMAIL_API_URL=https://api.resend.com/emails
+EMAIL_API_KEY=<provider-api-key>
+EMAIL_FROM="PsyClinic <no-reply@yourdomain.com>"
+# Base URL of the web app: the links in the messages point here.
+FRONTEND_URL=https://app.yourdomain.com
+
+# Required: clinical data encryption (the API does not start in production without it).
+# See CLINICAL_DATA_PROTECTION.md for generation, storage and rotation.
+CLINICAL_ENCRYPTION_KEYS=<key-id>:<base64 of 32 random bytes>
 
 # CORS
 CORS_ORIGINS=https://app.yourdomain.com,https://www.yourdomain.com

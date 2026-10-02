@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bull';
 import { PrismaModule } from './prisma/prisma.module';
@@ -11,6 +12,7 @@ import { PatientsModule } from './patients/patients.module';
 import { PatientTeamModule } from './patient-team/patient-team.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ClinicalNotesModule } from './clinical-notes/clinical-notes.module';
+import { ClinicalTimelineModule } from './clinical-timeline/clinical-timeline.module';
 import { TasksModule } from './tasks/tasks.module';
 import { NextSessionPlansModule } from './next-session-plans/next-session-plans.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -47,6 +49,9 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
       },
     ]),
 
+    // Cron jobs. The subscription lifecycle runs here even without Redis.
+    ScheduleModule.forRoot(),
+
     // BullMQ for background jobs (requires Redis)
     ...(isRedisEnabled
       ? [
@@ -70,6 +75,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     PatientTeamModule,
     AppointmentsModule,
     ClinicalNotesModule,
+    ClinicalTimelineModule,
     TasksModule,
     NextSessionPlansModule,
     NotificationsModule,

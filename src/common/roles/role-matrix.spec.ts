@@ -3,12 +3,14 @@ import { AppointmentsController } from '../../appointments/appointments.controll
 import { AuditLogController } from '../../audit-log/audit-log.controller';
 import { BillingController } from '../../billing/billing.controller';
 import { ClinicalNotesController } from '../../clinical-notes/clinical-notes.controller';
+import { ClinicalTimelineController } from '../../clinical-timeline/clinical-timeline.controller';
 import { NextSessionPlansController } from '../../next-session-plans/next-session-plans.controller';
 import { PatientTeamController } from '../../patient-team/patient-team.controller';
 import { PatientsController } from '../../patients/patients.controller';
 import { SpecialtiesController } from '../../specialties/specialties.controller';
 import { SpecialtyRecordsController } from '../../specialty-records/specialty-records.controller';
 import { SubscriptionController } from '../../subscription/subscription.controller';
+import { SubscriptionPaymentsController } from '../../subscription/subscription-payments.controller';
 import { TasksController } from '../../tasks/tasks.controller';
 import { TenantSettingsController } from '../../tenant-settings/tenant-settings.controller';
 import { TenantsController } from '../../tenants/tenants.controller';
@@ -35,6 +37,7 @@ describe('role matrix', () => {
     [UsersController, 'deactivate', MASTER],
     [UsersController, 'activate', MASTER],
     [SubscriptionController, 'upgradePlan', MASTER],
+    [SubscriptionController, 'listPayments', MASTER],
     [SubscriptionController, 'downgradePlan', MASTER],
     [SubscriptionController, 'customizeFeatures', MASTER],
     [TenantsController, 'update', MASTER],
@@ -51,6 +54,7 @@ describe('role matrix', () => {
     [TasksController, 'create', CLINICAL],
     [TasksController, 'update', CLINICAL],
     [SpecialtyRecordsController, 'create', CLINICAL],
+    [SpecialtyRecordsController, 'list', CLINICAL],
     [ClinicalNotesController, 'findAll', CLINICAL],
     [ClinicalNotesController, 'findOne', CLINICAL],
     [ClinicalNotesController, 'remove', CLINICAL],
@@ -69,6 +73,9 @@ describe('role matrix', () => {
 
   it.each([
     [AuditLogController, MASTER],
+    // Confirming a payment is what enables a paid plan: no clinic role can do it.
+    [SubscriptionPaymentsController, ['SOPORTE']],
+    [ClinicalTimelineController, CLINICAL],
     [AppointmentsController, TEAM],
     [PatientTeamController, TEAM],
   ] as [Controller, string[]][])('%p requires %j on every handler', (controller, expected) => {
@@ -80,12 +87,14 @@ describe('role matrix', () => {
     AuditLogController,
     BillingController,
     ClinicalNotesController,
+    ClinicalTimelineController,
     NextSessionPlansController,
     PatientTeamController,
     PatientsController,
     SpecialtiesController,
     SpecialtyRecordsController,
     SubscriptionController,
+    SubscriptionPaymentsController,
     TasksController,
     TenantSettingsController,
     TenantsController,

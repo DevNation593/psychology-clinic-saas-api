@@ -215,6 +215,28 @@ Content-Type: application/json
 
 This automatically creates an audit log entry tracking the creation.
 
+#### Clinical content rules
+
+Clinical notes, specialty records and the clinical timeline require an **active professional profile** in the tenant. A `MASTER` without one, an inactive profile, `ASISTENTE` and `SOPORTE` receive `403 PROFESSIONAL_NOT_AUTHORIZED` (or the role guard's 403). Every professional of the tenant reads the shared history; only the author corrects or removes a record (`403 CLINICAL_RECORD_FORBIDDEN` otherwise). Every read, creation, correction and removal is written to the audit log with the actor, patient, IP and user agent.
+
+```bash
+# Correct a note: the reason is mandatory, the version is incremented and
+# the previous state is kept in the audit log. patientId and appointmentId cannot change.
+PATCH /tenants/{tenantId}/clinical-notes/{noteId}
+{ "content": "Texto corregido", "changeReason": "Error de transcripción" }
+
+# Remove a note: soft delete with a mandatory reason. The row is kept for audit.
+DELETE /tenants/{tenantId}/clinical-notes/{noteId}
+{ "reason": "Nota registrada en el paciente equivocado" }
+
+# Shared timeline: appointments, notes and specialty records, newest first.
+GET /tenants/{tenantId}/patients/{patientId}/clinical-timeline?type=CLINICAL_NOTE&specialtyId=...&professionalId=...&from=...&to=...
+```
+
+Specialty records can only be created under the author's own specialty.
+
+`GET /tenants/{tenantId}/audit-logs` (MASTER) returns `changes: null`, `reason: null` and `contentRedacted: true` for clinical entries when the viewer has no active professional profile.
+
 ### 7. Create Next Session Plan
 
 ```bash
