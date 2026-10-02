@@ -81,8 +81,8 @@ export interface PlatformTenantDetail {
   sections: { key: SectionKey; name: string; enabled: boolean }[];
 }
 
-const TRIAL_DAYS = 14;
-const TRIAL_LIMITS: Record<TenantType, { seats: number; patients: number }> = {
+export const TRIAL_DAYS = 14;
+export const TRIAL_LIMITS: Record<TenantType, { seats: number; patients: number }> = {
   CLINIC: { seats: 3, patients: 20 },
   PERSONAL: { seats: 1, patients: 10 },
 };

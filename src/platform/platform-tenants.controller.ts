@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { PlatformRoute } from '../common/decorators/platform-route.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { ChangePlanDto } from './dto/change-plan.dto';
 import { CreatePlatformTenantDto } from './dto/create-platform-tenant.dto';
 import {
   ListPlatformTenantsQueryDto,
@@ -11,6 +12,7 @@ import {
   SuspendPlatformTenantDto,
   UpdatePlatformTenantDto,
 } from './dto/platform-tenant.dto';
+import { PlatformSubscriptionService } from './platform-subscription.service';
 import { PlatformTenantsService } from './platform-tenants.service';
 
 @ApiTags('platform')
@@ -19,7 +21,10 @@ import { PlatformTenantsService } from './platform-tenants.service';
 @Roles('ADMIN')
 @Controller('platform')
 export class PlatformTenantsController {
-  constructor(private readonly tenants: PlatformTenantsService) {}
+  constructor(
+    private readonly tenants: PlatformTenantsService,
+    private readonly subscriptions: PlatformSubscriptionService,
+  ) {}
 
   @Post('tenants')
   create(@Body() dto: CreatePlatformTenantDto, @CurrentUser() user: AuthUser) {
@@ -43,6 +48,15 @@ export class PlatformTenantsController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.tenants.updateAccount(tenantId, dto, user.userId);
+  }
+
+  @Patch('tenants/:tenantId/subscription')
+  changePlan(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: ChangePlanDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.subscriptions.changePlan(tenantId, dto, user.userId);
   }
 
   @Post('tenants/:tenantId/suspend')
