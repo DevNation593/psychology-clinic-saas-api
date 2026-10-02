@@ -17,10 +17,10 @@ datasource db {
 enum UserRole {
   CLIENTE // Obsoleto: migrado a MASTER. Se conserva porque Postgres no permite quitar valores de un enum.
   PSICOLOGO // Obsoleto: migrado a PROFESIONAL.
-  ADMIN // Reservado para uso futuro. No concede acceso dentro de un consultorio.
+  ADMIN // Administrador de la plataforma. Solo accede al panel de control.
   PROFESIONAL
   ASISTENTE
-  SOPORTE // Soporte técnico con acceso a todos los módulos
+  SOPORTE // Obsoleto: sus funciones pasaron a ADMIN.
   PACIENTE // Paciente de un cliente
   MASTER // Titular de la cuenta del consultorio. Uno por tenant (índice parcial User_tenantId_master_key).
 }
@@ -161,6 +161,7 @@ model Tenant {
   tenantType          TenantType @default(PERSONAL)
   isActive            Boolean    @default(true)
   onboardingCompleted Boolean    @default(false)
+  isPlatform          Boolean    @default(false)
   legalName           String?
   taxIdentificationType String? // RUC, CEDULA or PASSPORT
   taxIdentificationNumber String?
@@ -475,6 +476,7 @@ model User {
   role          UserRole
   isActive      Boolean  @default(true)
   emailVerified Boolean  @default(false)
+  mustChangePassword Boolean @default(false)
 
   // Provider-managed access (for PSYCHOLOGIST role in CLINIC tenants)
   // When true, only the system provider (OWNER) can grant/revoke access
