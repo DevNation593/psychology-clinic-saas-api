@@ -12,7 +12,10 @@ export type MasterRoleAudit = {
 type AuditClient = Pick<PrismaClient, 'tenant' | 'user'>;
 
 export async function auditMasterRoles(client: AuditClient): Promise<MasterRoleAudit> {
-  const tenants = await client.tenant.findMany({ select: { id: true } });
+  const allTenants = await client.tenant.findMany({ select: { id: true, isPlatform: true } });
+  // The platform tenant holds ADMIN users by design; it has no MASTER and is not a clinic.
+  const platformIds = new Set(allTenants.filter((t) => t.isPlatform).map((t) => t.id));
+  const tenants = allTenants.filter((t) => !t.isPlatform);
   const masters = await client.user.findMany({
     where: { role: 'MASTER' },
     select: { id: true, tenantId: true },
@@ -53,7 +56,7 @@ export async function auditMasterRoles(client: AuditClient): Promise<MasterRoleA
       .filter((t) => (mastersPerTenant.get(t.id) ?? 0) > 1)
       .map((t) => t.id),
     legacyRoleUsers: legacy.map((user) => user.id),
-    tenantAdmins: admins.map((user) => user.id),
+    tenantAdmins: admins.filter((user) => !platformIds.has(user.tenantId)).map((user) => user.id),
     professionalsWithoutProfile: withoutProfile.map((user) => user.id),
   };
 }

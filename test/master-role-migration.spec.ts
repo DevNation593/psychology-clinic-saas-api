@@ -4,9 +4,11 @@ import { auditMasterRoles, hasBlockingIssues } from '../prisma/audit-master-role
 
 type Row = { id: string; tenantId: string; role: string; professionalProfile?: unknown };
 
-function fakeClient(tenantIds: string[], users: Row[]) {
+function fakeClient(tenantIds: string[], users: Row[], platformIds: string[] = []) {
   return {
-    tenant: { findMany: async () => tenantIds.map((id) => ({ id })) },
+    tenant: {
+      findMany: async () => tenantIds.map((id) => ({ id, isPlatform: platformIds.includes(id) })),
+    },
     user: {
       findMany: async ({
         where,
@@ -83,6 +85,23 @@ describe('master role migration', () => {
     );
     expect(audit.tenantsWithoutMaster).toEqual([]);
     expect(audit.tenantsWithoutClinicUsers).toEqual(['support']);
+    expect(hasBlockingIssues(audit)).toBe(false);
+  });
+
+  it('ignores the platform tenant and its ADMIN users', async () => {
+    const audit = await auditMasterRoles(
+      fakeClient(
+        ['t1', 'platform'],
+        [
+          { id: 'u1', tenantId: 't1', role: 'MASTER' },
+          { id: 'u2', tenantId: 'platform', role: 'ADMIN' },
+        ],
+        ['platform'],
+      ) as never,
+    );
+    expect(audit.tenantsWithoutMaster).toEqual([]);
+    expect(audit.tenantsWithoutClinicUsers).toEqual([]);
+    expect(audit.tenantAdmins).toEqual([]);
     expect(hasBlockingIssues(audit)).toBe(false);
   });
 

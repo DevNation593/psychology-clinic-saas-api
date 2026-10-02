@@ -1,7 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import { PlanType, PrismaClient, TenantType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { buildDemoSpecialtyScenarios } from './demo-specialty-scenarios';
 import { seedDemoSpecialties } from './seed-demo-specialties';
+import { createPlatformAdmin } from './create-platform-admin';
+import { defaultSections, SECTION_KEYS } from '../src/common/sections/section-catalog';
 
 const prisma = new PrismaClient();
 
@@ -80,6 +82,18 @@ async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
   });
 
   return { psychology, nutrition, physiotherapy, dentistry };
+}
+
+/** Creates the eight section rows for a demo tenant; core.* rows are not inserted elsewhere. */
+async function seedSections(tenantId: string, planType: PlanType, tenantType: TenantType) {
+  const enabled = new Set<string>(defaultSections(planType, tenantType));
+  await prisma.tenantModule.createMany({
+    data: SECTION_KEYS.map((moduleKey) => ({
+      tenantId,
+      moduleKey,
+      enabled: enabled.has(moduleKey),
+    })),
+  });
 }
 
 function daysFromNow(days: number): Date {
@@ -223,9 +237,6 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
 
   await prisma.tenantModule.createMany({
     data: [
-      { tenantId: tenant.id, moduleKey: 'core.clinicalNotes' },
-      { tenantId: tenant.id, moduleKey: 'core.tasks' },
-      { tenantId: tenant.id, moduleKey: 'core.team' },
       { tenantId: tenant.id, moduleKey: 'psychology.session-notes' },
       { tenantId: tenant.id, moduleKey: 'psychology.assessments' },
       { tenantId: tenant.id, moduleKey: 'nutrition.assessments' },
@@ -236,6 +247,7 @@ async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog)
       { tenantId: tenant.id, moduleKey: 'dentistry.odontogram' },
     ],
   });
+  await seedSections(tenant.id, 'CLINIC_PRO', 'CLINIC');
 
   const admin = await prisma.user.create({
     data: {
@@ -626,11 +638,9 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
     data: { tenantSubscriptionId: subscription.id, specialtyId: catalog.psychology.id },
   });
   await prisma.tenantModule.createMany({
-    data: [
-      { tenantId: tenant.id, moduleKey: 'core.clinicalNotes' },
-      { tenantId: tenant.id, moduleKey: 'psychology.session-notes' },
-    ],
+    data: [{ tenantId: tenant.id, moduleKey: 'psychology.session-notes' }],
   });
+  await seedSections(tenant.id, 'TRIAL', 'PERSONAL');
 
   const admin = await prisma.user.create({
     data: {
@@ -685,114 +695,18 @@ async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCat
   return { tenant, admin };
 }
 
-async function seedOwnerTenant(hashedPassword: string) {
-  const tenant = await prisma.tenant.create({
-    data: {
-      name: 'Proveedor del Sistema',
-      email: 'admin@psic.com',
-      phone: '+593999000000',
-      legalName: 'Proveedor del Sistema S.A.',
-      taxIdentificationType: 'RUC',
-      taxIdentificationNumber: '1790012345003',
-      tenantType: 'CLINIC',
-      isActive: true,
-      onboardingCompleted: true,
-    },
-  });
-
-  await prisma.tenantSettings.create({
-    data: {
-      tenantId: tenant.id,
-      workingHoursStart: '08:00',
-      workingHoursEnd: '18:00',
-      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-      defaultAppointmentDuration: 60,
-      reminderEnabled: false,
-      timezone: 'America/Guayaquil',
-      locale: 'es-EC',
-    },
-  });
-
-  await prisma.tenantSubscription.create({
-    data: {
-      tenantId: tenant.id,
-      planType: 'CLINIC_ENTERPRISE',
-      status: 'ACTIVE',
-      startDate: daysFromNow(-90),
-      currentPeriodStart: daysFromNow(-5),
-      currentPeriodEnd: daysFromNow(25),
-      basePrice: 0,
-      pricePerSeat: 0,
-      currency: 'USD',
-      seatsPsychologistsMax: 9999,
-      seatsPsychologistsUsed: 0,
-      maxActivePatients: 99999,
-      storageGB: 100,
-      monthlyNotificationsLimit: 99999,
-      includedSpecialties: 999,
-      specialtyPrice: 15,
-      monthlyElectronicInvoicesLimit: 50,
-      featureClinicalNotes: true,
-      featureClinicalNotesEncryption: true,
-      featureAttachments: true,
-      featureTasks: true,
-      featurePsychologicalTests: true,
-      featureWebPush: true,
-      featureFCMPush: true,
-      featureAdvancedAnalytics: true,
-      featureVideoConsultation: true,
-      featureCalendarSync: true,
-      featureOnlineSchedulingWidget: true,
-      featureCustomReports: true,
-      featureAPIAccess: true,
-      featureWhatsAppIntegration: true,
-      featureSSO: true,
-      activePatientsCount: 0,
-      storageUsedBytes: BigInt(0),
-      monthlyNotificationsSent: 0,
-      lastNotificationReset: daysFromNow(-5),
-    },
-  });
-
-  await prisma.billingSettings.create({
-    data: {
-      tenantId: tenant.id,
-      provider: 'FAKTUR',
-      apiUrl: 'https://api.faktur.ec',
-      invoicePath: '/invoices',
-      environment: 'TEST',
-      establishment: '001',
-      emissionPoint: '001',
-      nextSequential: 1,
-      businessName: 'Proveedor del Sistema S.A.',
-      isEnabled: false,
-    },
-  });
-
-  const owner = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email: 'owner@psic.com',
-      password: hashedPassword,
-      firstName: 'Sistema',
-      lastName: 'Proveedor',
-      role: 'SOPORTE',
-      isActive: true,
-      emailVerified: true,
-      activatedAt: daysFromNow(-90),
-    },
-  });
-
-  return { tenant, owner };
-}
-
 async function main() {
   console.log('🌱 Starting deterministic demo seed...');
   await clearDatabase();
 
   const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, 10);
   const specialtyCatalog = await seedSpecialtyCatalog();
-  const ownerTenant = await seedOwnerTenant(hashedPassword);
+  const platform = await createPlatformAdmin(prisma, {
+    email: 'admin@plataforma.test',
+    password: DEMO_PASSWORD,
+    firstName: 'Admin',
+    lastName: 'Plataforma',
+  });
   const mainTenant = await seedMainTenant(hashedPassword, specialtyCatalog);
   const personalTenant = await seedSecondaryTenant(hashedPassword, specialtyCatalog);
 
@@ -801,8 +715,8 @@ async function main() {
   console.log('Login credentials (all users):');
   console.log(`  Password: ${DEMO_PASSWORD}`);
   console.log('');
-  console.log(`Owner tenant: ${ownerTenant.tenant.name}`);
-  console.log('  owner@psic.com (SOPORTE)');
+  console.log(`Platform tenant: ${platform.tenantId}`);
+  console.log('  admin@plataforma.test (ADMIN)');
   console.log('');
   console.log(`Clinic tenant: ${mainTenant.tenant.name}`);
   console.log('  admin.demo@psic.com (MASTER)');
