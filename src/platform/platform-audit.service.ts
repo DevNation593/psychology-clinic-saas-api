@@ -16,8 +16,12 @@ export interface PlatformAuditInput {
 export class PlatformAuditService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async record(input: PlatformAuditInput): Promise<void> {
-    await this.prisma.auditLog.create({
+  /** Pass the transaction client to write the audit row atomically with the change it records. */
+  async record(
+    input: PlatformAuditInput,
+    client: Pick<Prisma.TransactionClient, 'auditLog'> = this.prisma,
+  ): Promise<void> {
+    await client.auditLog.create({
       data: {
         tenantId: input.tenantId,
         userId: input.actorId,

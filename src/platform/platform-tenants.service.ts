@@ -23,6 +23,25 @@ import { TenantSpecialtiesService } from '../specialties/tenant-specialties.serv
 import { addMonth } from '../subscription/subscription-billing.rules';
 import { getPlanFeatureFlags, getPlanLimits } from '../subscription/subscription-pricing';
 import { CreatePlatformTenantDto } from './dto/create-platform-tenant.dto';
+import { ListPlatformTenantsQueryDto } from './dto/platform-tenant.dto';
+import { PlatformAuditService } from './platform-audit.service';
+
+export interface PlatformTenantRow {
+  id: string;
+  name: string;
+  tenantType: TenantType;
+  isActive: boolean;
+  createdAt: Date;
+  master: { firstName: string; lastName: string; email: string } | null;
+  planType: PlanType | null;
+  status: SubscriptionStatus | null;
+  seatsPsychologistsUsed: number;
+  seatsPsychologistsMax: number;
+  activePatientsCount: number;
+  maxActivePatients: number;
+}
+
+const MAX_PAGE_SIZE = 100;
 
 export interface PlatformTenantDetail {
   tenant: {
@@ -75,6 +94,7 @@ export class PlatformTenantsService {
     private readonly auth: AuthService,
     private readonly catalog: SpecialtyCatalogService,
     private readonly tenantSpecialties: TenantSpecialtiesService,
+    private readonly audit: PlatformAuditService,
   ) {}
 
   async create(dto: CreatePlatformTenantDto, actorId: string): Promise<PlatformTenantDetail> {
@@ -228,6 +248,266 @@ export class PlatformTenantsService {
         throw error;
       }
     }
+  }
+
+  async list(
+    query: ListPlatformTenantsQueryDto,
+  ): Promise<{ items: PlatformTenantRow[]; total: number; page: number; pageSize: number }> {
+    const page = Math.max(1, Math.trunc(query.page) || 1);
+    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Math.trunc(query.pageSize) || 20));
+    const where: Prisma.TenantWhereInput = { isPlatform: false };
+    if (query.isActive !== undefined) where.isActive = query.isActive;
+    if (query.planType || query.status) {
+      where.subscription = {
+        is: {
+          ...(query.planType ? { planType: query.planType } : {}),
+          ...(query.status ? { status: query.status } : {}),
+        },
+      };
+    }
+    const search = query.search?.trim();
+    if (search) {
+      const term = { contains: search, mode: 'insensitive' as const };
+      where.OR = [
+        { name: term },
+        { email: term },
+        { users: { some: { role: UserRole.MASTER, firstName: term } } },
+        { users: { some: { role: UserRole.MASTER, lastName: term } } },
+        { users: { some: { role: UserRole.MASTER, email: term } } },
+      ];
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.tenant.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          name: true,
+          tenantType: true,
+          isActive: true,
+          createdAt: true,
+          subscription: {
+            select: {
+              planType: true,
+              status: true,
+              seatsPsychologistsUsed: true,
+              seatsPsychologistsMax: true,
+              activePatientsCount: true,
+              maxActivePatients: true,
+            },
+          },
+          users: {
+            where: { role: UserRole.MASTER },
+            take: 1,
+            select: { firstName: true, lastName: true, email: true },
+          },
+        },
+      }),
+      this.prisma.tenant.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        tenantType: row.tenantType,
+        isActive: row.isActive,
+        createdAt: row.createdAt,
+        master: row.users[0] ?? null,
+        planType: row.subscription?.planType ?? null,
+        status: row.subscription?.status ?? null,
+        seatsPsychologistsUsed: row.subscription?.seatsPsychologistsUsed ?? 0,
+        seatsPsychologistsMax: row.subscription?.seatsPsychologistsMax ?? 0,
+        activePatientsCount: row.subscription?.activePatientsCount ?? 0,
+        maxActivePatients: row.subscription?.maxActivePatients ?? 0,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  async updateAccount(
+    tenantId: string,
+    dto: { name?: string; email?: string; phone?: string; address?: string },
+    actorId: string,
+  ): Promise<PlatformTenantDetail> {
+    const fields = ['name', 'email', 'phone', 'address'] as const;
+    const data: Partial<Record<(typeof fields)[number], string>> = {};
+    for (const field of fields) {
+      const value = dto[field];
+      if (value !== undefined) {
+        data[field] = field === 'email' ? value.trim().toLowerCase() : value.trim();
+      }
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.tenant.findFirst({
+        where: { id: tenantId, isPlatform: false },
+        select: { name: true, email: true, phone: true, address: true },
+      });
+      if (!current) throw new NotFoundException('Consultorio no encontrado');
+      const keys = (Object.keys(data) as (typeof fields)[number][]).filter(
+        (key) => current[key] !== data[key],
+      );
+      if (keys.length > 0) {
+        await tx.tenant.update({ where: { id: tenantId }, data });
+        await this.audit.record(
+          {
+            tenantId,
+            actorId,
+            entity: 'TENANT',
+            entityId: tenantId,
+            changes: {
+              before: Object.fromEntries(keys.map((key) => [key, current[key]])),
+              after: Object.fromEntries(keys.map((key) => [key, data[key]])),
+            },
+          },
+          tx,
+        );
+      }
+      return this.loadDetail(tx, tenantId);
+    });
+  }
+
+  suspend(tenantId: string, reason: string, actorId: string): Promise<PlatformTenantDetail> {
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.tenant.updateMany({
+        where: { id: tenantId, isPlatform: false, isActive: true },
+        data: { isActive: false },
+      });
+      // Count 0 means unknown, platform or already suspended: loadDetail answers 404 or the current state.
+      if (count > 0) {
+        await tx.refreshToken.updateMany({
+          where: { user: { tenantId }, isRevoked: false },
+          data: { isRevoked: true },
+        });
+        await this.audit.record(
+          {
+            tenantId,
+            actorId,
+            entity: 'TENANT',
+            entityId: tenantId,
+            reason,
+            changes: { before: { isActive: true }, after: { isActive: false } },
+          },
+          tx,
+        );
+      }
+      return this.loadDetail(tx, tenantId);
+    });
+  }
+
+  reactivate(tenantId: string, actorId: string): Promise<PlatformTenantDetail> {
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.tenant.updateMany({
+        where: { id: tenantId, isPlatform: false, isActive: false },
+        data: { isActive: true },
+      });
+      if (count > 0) {
+        await this.audit.record(
+          {
+            tenantId,
+            actorId,
+            entity: 'TENANT',
+            entityId: tenantId,
+            changes: { before: { isActive: false }, after: { isActive: true } },
+          },
+          tx,
+        );
+      }
+      return this.loadDetail(tx, tenantId);
+    });
+  }
+
+  async setSections(
+    tenantId: string,
+    sections: string[],
+    actorId: string,
+  ): Promise<PlatformTenantDetail> {
+    const enabled = new Set<string>(validateSections(sections));
+    const inCatalogOrder = (keys: Set<string>) =>
+      SECTION_CATALOG.map(({ key }) => key).filter((key) => keys.has(key));
+    return this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.findFirst({
+        where: { id: tenantId, isPlatform: false },
+        select: { id: true },
+      });
+      if (!tenant) throw new NotFoundException('Consultorio no encontrado');
+      const previous = await tx.tenantModule.findMany({
+        where: { tenantId, moduleKey: { startsWith: 'core.' } },
+        select: { moduleKey: true, enabled: true },
+      });
+      for (const { key } of SECTION_CATALOG) {
+        await tx.tenantModule.upsert({
+          where: { tenantId_moduleKey: { tenantId, moduleKey: key } },
+          update: { enabled: enabled.has(key) },
+          create: { tenantId, moduleKey: key, enabled: enabled.has(key) },
+        });
+      }
+      await this.audit.record(
+        {
+          tenantId,
+          actorId,
+          entity: 'TENANT',
+          entityId: tenantId,
+          changes: {
+            before: {
+              sections: inCatalogOrder(
+                new Set(previous.filter((m) => m.enabled).map((m) => m.moduleKey)),
+              ),
+            },
+            after: { sections: inCatalogOrder(enabled) },
+          },
+        },
+        tx,
+      );
+      return this.loadDetail(tx, tenantId);
+    });
+  }
+
+  async resetMasterPassword(
+    tenantId: string,
+    temporaryPassword: string,
+    actorId: string,
+  ): Promise<void> {
+    // The password is hashed exactly as typed; it never reaches logs or the audit row.
+    const password = await this.auth.hashPassword(temporaryPassword);
+    await this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.findFirst({
+        where: { id: tenantId, isPlatform: false },
+        select: { id: true },
+      });
+      if (!tenant) throw new NotFoundException('Consultorio no encontrado');
+      const master = await tx.user.findFirst({
+        where: { tenantId, role: UserRole.MASTER },
+        select: { id: true, mustChangePassword: true },
+      });
+      if (!master) throw new NotFoundException('El consultorio no tiene titular');
+      await tx.user.update({
+        where: { id: master.id },
+        data: { password, mustChangePassword: true },
+      });
+      await tx.refreshToken.updateMany({
+        where: { user: { tenantId }, isRevoked: false },
+        data: { isRevoked: true },
+      });
+      await this.audit.record(
+        {
+          tenantId,
+          actorId,
+          entity: 'USER',
+          entityId: master.id,
+          changes: {
+            before: { mustChangePassword: master.mustChangePassword },
+            after: { mustChangePassword: true },
+          },
+        },
+        tx,
+      );
+    });
   }
 
   findOne(tenantId: string): Promise<PlatformTenantDetail> {

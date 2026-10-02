@@ -6,6 +6,7 @@ import { SpecialtyCatalogService } from '../specialties/specialty-catalog.servic
 import { TenantSpecialtiesService } from '../specialties/tenant-specialties.service';
 import { SECTION_KEYS } from '../common/sections/section-catalog';
 import { CreatePlatformTenantDto } from './dto/create-platform-tenant.dto';
+import { PlatformAuditService } from './platform-audit.service';
 import { PlatformTenantsService } from './platform-tenants.service';
 
 const TEMP_PASSWORD = 'Temp-Pass-9876';
@@ -45,8 +46,11 @@ describe('PlatformTenantsService', () => {
     modules: any[];
     events: any[];
     selections: string[];
+    refreshTokens: any[];
   };
   let prisma: any;
+  let listRows: any[];
+  let audit: any;
   let catalog: any;
   let selection: any;
   let auth: any;
@@ -64,7 +68,7 @@ describe('PlatformTenantsService', () => {
       phone: tenant.phone ?? null,
       address: tenant.address ?? null,
       tenantType: tenant.tenantType,
-      isActive: true,
+      isActive: tenant.isActive ?? true,
       createdAt: new Date('2026-10-01T00:00:00Z'),
       subscription: subscription && {
         planType: subscription.planType,
@@ -109,18 +113,33 @@ describe('PlatformTenantsService', () => {
       modules: [],
       events: [],
       selections: [],
+      refreshTokens: [],
     };
+    listRows = [];
     prisma = {
       tenant: {
         findFirst: jest.fn(async ({ where }) => readTenant(state, where.id)),
+        findMany: jest.fn(async () => listRows),
+        count: jest.fn(async () => listRows.length),
       },
       $transaction: jest.fn(async (callback, options) => {
-        expect(options).toEqual({ isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        if (options !== undefined) {
+          expect(options).toEqual({
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          });
+        }
         const pending = structuredClone(state);
         const tx = {
           $executeRaw: jest.fn(async () => 1),
           user: {
             findFirst: jest.fn(async ({ where }) => {
+              if (where.role === 'MASTER') {
+                const master = pending.users.find(
+                  (u) => u.tenantId === where.tenantId && u.role === 'MASTER',
+                );
+                // Like a real query, return a snapshot rather than the live row.
+                return master ? { ...master } : null;
+              }
               const filter = where.email;
               return (
                 pending.users.find((u) =>
@@ -129,6 +148,11 @@ describe('PlatformTenantsService', () => {
                     : u.email === filter.equals,
                 ) ?? null
               );
+            }),
+            update: jest.fn(async ({ where, data }) => {
+              const row = pending.users.find((u) => u.id === where.id);
+              Object.assign(row, data);
+              return row;
             }),
             create: jest.fn(async ({ data, select }) => {
               const row = { id: 'master-1', ...data };
@@ -147,6 +171,33 @@ describe('PlatformTenantsService', () => {
               return Object.fromEntries(Object.keys(select).map((key) => [key, row[key]]));
             }),
             findFirst: jest.fn(async ({ where }) => readTenant(pending, where.id)),
+            update: jest.fn(async ({ where, data }) => {
+              Object.assign(
+                pending.tenants.find((t) => t.id === where.id),
+                data,
+              );
+            }),
+            updateMany: jest.fn(async ({ where, data }) => {
+              const rows = pending.tenants.filter(
+                (t) =>
+                  t.id === where.id &&
+                  (t.isPlatform ?? false) === where.isPlatform &&
+                  (t.isActive ?? true) === where.isActive,
+              );
+              rows.forEach((row) => Object.assign(row, data));
+              return { count: rows.length };
+            }),
+          },
+          refreshToken: {
+            updateMany: jest.fn(async ({ where, data }) => {
+              const rows = pending.refreshTokens.filter(
+                (t) =>
+                  pending.users.find((u) => u.id === t.userId)?.tenantId === where.user.tenantId &&
+                  t.isRevoked === where.isRevoked,
+              );
+              rows.forEach((row) => Object.assign(row, data));
+              return { count: rows.length };
+            }),
           },
           tenantSettings: {
             create: jest.fn(async ({ data }) => {
@@ -164,6 +215,19 @@ describe('PlatformTenantsService', () => {
           tenantModule: {
             createMany: jest.fn(async ({ data }) => {
               pending.modules.push(...data);
+            }),
+            findMany: jest.fn(async ({ where }) =>
+              pending.modules
+                .filter((m) => m.tenantId === where.tenantId)
+                .map((m) => ({ moduleKey: m.moduleKey, enabled: m.enabled })),
+            ),
+            upsert: jest.fn(async ({ where, update, create }) => {
+              const key = where.tenantId_moduleKey;
+              const row = pending.modules.find(
+                (m) => m.tenantId === key.tenantId && m.moduleKey === key.moduleKey,
+              );
+              if (row) Object.assign(row, update);
+              else pending.modules.push(create);
             }),
           },
           subscriptionEvent: {
@@ -186,6 +250,7 @@ describe('PlatformTenantsService', () => {
       applyRlsContext: jest.fn(async () => undefined),
     };
     auth = { hashPassword: jest.fn(async () => 'hashed-password') };
+    audit = { record: jest.fn(async () => undefined) };
     catalog = {
       resolveActiveCodes: jest.fn(async (codes) => {
         const rows = [psychology].filter((row) => codes.includes(row.code));
@@ -207,6 +272,7 @@ describe('PlatformTenantsService', () => {
       auth as AuthService,
       catalog as SpecialtyCatalogService,
       selection as TenantSpecialtiesService,
+      audit as PlatformAuditService,
     );
   });
 
@@ -463,5 +529,335 @@ describe('PlatformTenantsService', () => {
     expect(state.modules).toHaveLength(0);
     expect(state.selections).toHaveLength(0);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  function seedTenant(
+    id = 'tenant-1',
+    overrides: Record<string, unknown> = {},
+    enabled: string[] = ['core.patients', 'core.calendar', 'core.team'],
+  ) {
+    const on = new Set(enabled);
+    state.tenants.push({
+      id,
+      name: 'Clínica Norte',
+      email: 'norte@example.com',
+      tenantType: 'CLINIC',
+      ...overrides,
+    });
+    state.subscriptions.push({
+      tenantId: id,
+      planType: 'CLINIC_BASIC',
+      status: 'ACTIVE',
+      currentPeriodStart: new Date('2026-09-01T00:00:00Z'),
+      seatsPsychologistsMax: 3,
+      seatsPsychologistsUsed: 1,
+      maxActivePatients: 150,
+      basePrice: 10,
+      currency: 'USD',
+    });
+    state.users.push({
+      id: `master-of-${id}`,
+      tenantId: id,
+      role: 'MASTER',
+      firstName: 'Ana',
+      lastName: 'Pérez',
+      email: `ana-${id}@example.com`,
+      password: 'old-hash',
+      mustChangePassword: false,
+    });
+    state.modules.push(
+      ...SECTION_KEYS.map((moduleKey) => ({ tenantId: id, moduleKey, enabled: on.has(moduleKey) })),
+    );
+  }
+
+  const activeKeys = (id = 'tenant-1') =>
+    state.modules
+      .filter((m) => m.tenantId === id && m.enabled)
+      .map((m) => m.moduleKey)
+      .sort();
+
+  describe('platform management', () => {
+    it('lists clinics newest first and never the platform tenant', async () => {
+      listRows = [
+        {
+          id: 'tenant-2',
+          name: 'Clínica Sur',
+          tenantType: 'CLINIC',
+          isActive: true,
+          createdAt: new Date('2026-10-01T00:00:00Z'),
+          users: [{ firstName: 'Ana', lastName: 'Pérez', email: 'ana@example.com' }],
+          subscription: {
+            planType: 'CLINIC_BASIC',
+            status: 'ACTIVE',
+            seatsPsychologistsUsed: 2,
+            seatsPsychologistsMax: 3,
+            activePatientsCount: 12,
+            maxActivePatients: 150,
+          },
+        },
+        {
+          id: 'tenant-3',
+          name: 'Sin plan',
+          tenantType: 'PERSONAL',
+          isActive: false,
+          createdAt: new Date('2026-09-01T00:00:00Z'),
+          users: [],
+          subscription: null,
+        },
+      ];
+      const result = await service.list({ page: 2, pageSize: 5 });
+      const args = prisma.tenant.findMany.mock.calls[0][0];
+      expect(args.where.isPlatform).toBe(false);
+      expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }]);
+      expect(args).toMatchObject({ skip: 5, take: 5 });
+      expect(prisma.tenant.count.mock.calls[0][0].where).toEqual(args.where);
+      expect(result).toMatchObject({ total: 2, page: 2, pageSize: 5 });
+      expect(result.items[0]).toEqual({
+        id: 'tenant-2',
+        name: 'Clínica Sur',
+        tenantType: 'CLINIC',
+        isActive: true,
+        createdAt: new Date('2026-10-01T00:00:00Z'),
+        master: { firstName: 'Ana', lastName: 'Pérez', email: 'ana@example.com' },
+        planType: 'CLINIC_BASIC',
+        status: 'ACTIVE',
+        seatsPsychologistsUsed: 2,
+        seatsPsychologistsMax: 3,
+        activePatientsCount: 12,
+        maxActivePatients: 150,
+      });
+      expect(result.items[1]).toMatchObject({
+        master: null,
+        planType: null,
+        status: null,
+        seatsPsychologistsUsed: 0,
+        maxActivePatients: 0,
+      });
+    });
+
+    it('searches by clinic name, clinic e-mail and master name without case', async () => {
+      await service.list({ search: '  AnA% ', page: 1, pageSize: 20 });
+      const where = prisma.tenant.findMany.mock.calls[0][0].where;
+      const term = { contains: 'AnA%', mode: 'insensitive' };
+      expect(where.isPlatform).toBe(false);
+      expect(where.OR).toEqual([
+        { name: term },
+        { email: term },
+        { users: { some: { role: 'MASTER', firstName: term } } },
+        { users: { some: { role: 'MASTER', lastName: term } } },
+        { users: { some: { role: 'MASTER', email: term } } },
+      ]);
+    });
+
+    it('filters by plan, subscription status and active flag', async () => {
+      await service.list({
+        planType: 'CLINIC_PRO',
+        status: 'PAST_DUE',
+        isActive: false,
+        page: 1,
+        pageSize: 20,
+      });
+      expect(prisma.tenant.findMany.mock.calls[0][0].where).toEqual({
+        isPlatform: false,
+        isActive: false,
+        subscription: { is: { planType: 'CLINIC_PRO', status: 'PAST_DUE' } },
+      });
+      await service.list({ page: 1, pageSize: 20 });
+      expect(prisma.tenant.findMany.mock.calls[1][0].where).toEqual({ isPlatform: false });
+    });
+
+    it('caps pageSize at 100', async () => {
+      const result = await service.list({ page: 1, pageSize: 500 });
+      expect(prisma.tenant.findMany.mock.calls[0][0].take).toBe(100);
+      expect(result.pageSize).toBe(100);
+    });
+
+    it('returns only counters, never patients or appointments', async () => {
+      await service.list({ page: 1, pageSize: 20 });
+      const select = prisma.tenant.findMany.mock.calls[0][0].select;
+      expect(Object.keys(select).sort()).toEqual(
+        ['createdAt', 'id', 'isActive', 'name', 'subscription', 'tenantType', 'users'].sort(),
+      );
+      expect(Object.keys(select.subscription.select).sort()).toEqual(
+        [
+          'activePatientsCount',
+          'maxActivePatients',
+          'planType',
+          'seatsPsychologistsMax',
+          'seatsPsychologistsUsed',
+          'status',
+        ].sort(),
+      );
+      expect(Object.keys(select.users.select).sort()).toEqual(['email', 'firstName', 'lastName']);
+    });
+
+    it('updates the account data and audits before and after', async () => {
+      seedTenant('tenant-1', { phone: '111', address: 'Calle 1' });
+      const result = await service.updateAccount(
+        'tenant-1',
+        { name: 'Clínica Nueva', email: 'NUEVA@Example.com', phone: '222' },
+        'admin-1',
+      );
+      expect(state.tenants[0]).toMatchObject({
+        name: 'Clínica Nueva',
+        email: 'nueva@example.com',
+        phone: '222',
+        address: 'Calle 1',
+      });
+      expect(result.tenant).toMatchObject({ name: 'Clínica Nueva', email: 'nueva@example.com' });
+      expect(audit.record).toHaveBeenCalledWith(
+        {
+          tenantId: 'tenant-1',
+          actorId: 'admin-1',
+          entity: 'TENANT',
+          entityId: 'tenant-1',
+          changes: {
+            before: { name: 'Clínica Norte', email: 'norte@example.com', phone: '111' },
+            after: { name: 'Clínica Nueva', email: 'nueva@example.com', phone: '222' },
+          },
+        },
+        prisma.lastTx,
+      );
+    });
+
+    it('suspends: sets isActive false, revokes every refresh token of the clinic and audits the reason', async () => {
+      seedTenant('tenant-1');
+      seedTenant('tenant-2');
+      state.refreshTokens.push(
+        { userId: 'master-of-tenant-1', isRevoked: false },
+        { userId: 'master-of-tenant-1', isRevoked: false },
+        { userId: 'master-of-tenant-2', isRevoked: false },
+      );
+      const result = await service.suspend('tenant-1', 'Falta de pago', 'admin-1');
+      expect(result.tenant.isActive).toBe(false);
+      expect(state.refreshTokens.map((t) => t.isRevoked)).toEqual([true, true, false]);
+      expect(state.tenants[1].isActive).toBeUndefined();
+      expect(audit.record).toHaveBeenCalledTimes(1);
+      expect(audit.record).toHaveBeenCalledWith(
+        {
+          tenantId: 'tenant-1',
+          actorId: 'admin-1',
+          entity: 'TENANT',
+          entityId: 'tenant-1',
+          reason: 'Falta de pago',
+          changes: { before: { isActive: true }, after: { isActive: false } },
+        },
+        prisma.lastTx,
+      );
+    });
+
+    it('returns the current state without a second audit row when suspending a suspended clinic', async () => {
+      seedTenant('tenant-1', { isActive: false });
+      state.refreshTokens.push({ userId: 'master-of-tenant-1', isRevoked: false });
+      const result = await service.suspend('tenant-1', 'Otra vez', 'admin-1');
+      expect(result.tenant.isActive).toBe(false);
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(prisma.lastTx.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('reactivates, and does nothing when the clinic is already active', async () => {
+      seedTenant('tenant-1', { isActive: false });
+      const result = await service.reactivate('tenant-1', 'admin-1');
+      expect(result.tenant.isActive).toBe(true);
+      expect(audit.record).toHaveBeenCalledWith(
+        {
+          tenantId: 'tenant-1',
+          actorId: 'admin-1',
+          entity: 'TENANT',
+          entityId: 'tenant-1',
+          changes: { before: { isActive: false }, after: { isActive: true } },
+        },
+        prisma.lastTx,
+      );
+      audit.record.mockClear();
+      const again = await service.reactivate('tenant-1', 'admin-1');
+      expect(again.tenant.isActive).toBe(true);
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('replaces the section list: listed keys enabled, the others disabled, rows never deleted', async () => {
+      seedTenant('tenant-1');
+      const result = await service.setSections(
+        'tenant-1',
+        ['core.patients', 'core.billing', 'core.patients'],
+        'admin-1',
+      );
+      expect(state.modules).toHaveLength(8);
+      expect(activeKeys()).toEqual(['core.billing', 'core.patients']);
+      expect(prisma.lastTx.tenantModule.upsert).toHaveBeenCalledTimes(8);
+      expect(
+        result.sections
+          .filter((s) => s.enabled)
+          .map((s) => s.key)
+          .sort(),
+      ).toEqual(['core.billing', 'core.patients']);
+      expect(audit.record).toHaveBeenCalledWith(
+        {
+          tenantId: 'tenant-1',
+          actorId: 'admin-1',
+          entity: 'TENANT',
+          entityId: 'tenant-1',
+          changes: {
+            before: { sections: ['core.calendar', 'core.patients', 'core.team'] },
+            after: { sections: ['core.patients', 'core.billing'] },
+          },
+        },
+        prisma.lastTx,
+      );
+    });
+
+    it('rejects SECTION_UNKNOWN and SECTION_DEPENDENCY without changing any row', async () => {
+      seedTenant('tenant-1');
+      const before = structuredClone(state.modules);
+      await expect(service.setSections('tenant-1', ['core.nope'], 'admin-1')).rejects.toMatchObject(
+        { response: { code: 'SECTION_UNKNOWN' } },
+      );
+      await expect(
+        service.setSections('tenant-1', ['core.calendar'], 'admin-1'),
+      ).rejects.toMatchObject({ response: { code: 'SECTION_DEPENDENCY' } });
+      expect(state.modules).toEqual(before);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('resets the master password: new hash, mustChangePassword true, refresh tokens revoked, audit without the password', async () => {
+      seedTenant('tenant-1');
+      state.refreshTokens.push({ userId: 'master-of-tenant-1', isRevoked: false });
+      const result = await service.resetMasterPassword('tenant-1', ' Nueva-Clave-1 ', 'admin-1');
+      expect(result).toBeUndefined();
+      expect(auth.hashPassword).toHaveBeenCalledWith(' Nueva-Clave-1 ');
+      expect(state.users[0]).toMatchObject({
+        password: 'hashed-password',
+        mustChangePassword: true,
+      });
+      expect(state.refreshTokens[0].isRevoked).toBe(true);
+      expect(audit.record).toHaveBeenCalledWith(
+        {
+          tenantId: 'tenant-1',
+          actorId: 'admin-1',
+          entity: 'USER',
+          entityId: 'master-of-tenant-1',
+          changes: { before: { mustChangePassword: false }, after: { mustChangePassword: true } },
+        },
+        prisma.lastTx,
+      );
+      expect(JSON.stringify(audit.record.mock.calls)).not.toMatch(/Nueva-Clave|hashed-password/);
+    });
+
+    it('answers 404 on every method for the platform tenant', async () => {
+      state.tenants.push({ id: 'platform-1', isPlatform: true });
+      const calls = [
+        () => service.updateAccount('platform-1', { name: 'X' }, 'a'),
+        () => service.suspend('platform-1', 'x', 'a'),
+        () => service.reactivate('platform-1', 'a'),
+        () => service.setSections('platform-1', ['core.patients'], 'a'),
+        () => service.resetMasterPassword('platform-1', 'Password-1', 'a'),
+      ];
+      for (const call of calls) {
+        await expect(call()).rejects.toBeInstanceOf(NotFoundException);
+      }
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(state.tenants[0].isActive).toBeUndefined();
+    });
   });
 });
