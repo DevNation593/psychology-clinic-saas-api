@@ -95,7 +95,7 @@ La migración pone `isActive = false` a todo usuario con rol `SOPORTE` y revoca 
 
 - `TenantGuard`: en una ruta de plataforma exige `role === 'ADMIN'` y que el consultorio del usuario sea de plataforma; si no, 403. No compara `:tenantId` con el consultorio del usuario. Fija el contexto RLS con el consultorio del `ADMIN`.
 - `TenantGuard`: fuera de una ruta de plataforma, un usuario `ADMIN` recibe 403 `PLATFORM_ONLY`, salvo en las rutas de sesión, marcadas `@SessionRoute()`: `POST /auth/logout`, `POST /auth/logout-all` y `POST /auth/change-password`.
-- `SubscriptionGuard`, `FeatureGuard` y `SectionGuard`: no aplican en rutas de plataforma ni en las marcadas `@SessionRoute()` cuando el usuario es `ADMIN`.
+- `SubscriptionGuard`, `FeatureGuard` y `SectionGuard`: no aplican en rutas de plataforma ni en las marcadas `@SessionRoute()`.
 - `JwtStrategy.validate` devuelve además `isPlatformTenant` y `mustChangePassword`, leídos de la base de datos en cada petición.
 
 **SOPORTE.** Se eliminan sus excepciones en `TenantGuard`, `SubscriptionGuard` y `FeatureGuard`. Ningún `@Roles('SOPORTE')` permanece en el código.
