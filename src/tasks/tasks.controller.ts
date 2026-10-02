@@ -4,11 +4,11 @@ import { TasksService } from './tasks.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('tasks')
 @ApiBearerAuth('access-token')
-@RequireFeature('tasks')
+@RequireSection('core.tasks')
 @Controller('tenants/:tenantId/tasks')
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}

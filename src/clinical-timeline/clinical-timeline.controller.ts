@@ -2,14 +2,14 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ClinicalActor, CurrentClinicalActor } from '../clinical-access/clinical-actor';
 import { ClinicalProfileGuard } from '../clinical-access/clinical-profile.guard';
-import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ClinicalTimelineService } from './clinical-timeline.service';
 import { ClinicalTimelineQueryDto } from './dto/clinical-timeline-query.dto';
 
 @ApiTags('clinical-timeline')
 @ApiBearerAuth('access-token')
-@RequireFeature('clinicalNotes')
+@RequireSection('core.clinicalNotes')
 @Roles('MASTER', 'PROFESIONAL')
 @UseGuards(ClinicalProfileGuard)
 @Controller('tenants/:tenantId/patients/:patientId/clinical-timeline')

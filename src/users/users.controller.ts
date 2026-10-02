@@ -24,6 +24,7 @@ import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UserRole } from '@prisma/client';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('users')
 @ApiBearerAuth('access-token')
@@ -53,6 +54,7 @@ export class UsersController {
   }
 
   @Roles('MASTER')
+  @RequireSection('core.team')
   @Post()
   @ApiOperation({ summary: 'Create an active clinic team member - Master only' })
   @ApiResponse({ status: 201, description: 'Team member created' })
@@ -84,6 +86,7 @@ export class UsersController {
   }
 
   @Roles('MASTER')
+  @RequireSection('core.team')
   @Patch(':userId')
   @ApiOperation({ summary: 'Update user - Master only' })
   @ApiResponse({ status: 200, description: 'User updated' })
@@ -97,6 +100,7 @@ export class UsersController {
   }
 
   @Roles('MASTER')
+  @RequireSection('core.team')
   @Delete(':userId')
   @ApiOperation({ summary: 'Deactivate user - Master only (soft delete)' })
   @ApiResponse({ status: 200, description: 'User deactivated and seat freed' })
@@ -109,6 +113,7 @@ export class UsersController {
   }
 
   @Roles('MASTER')
+  @RequireSection('core.team')
   @Post(':userId/activate')
   @ApiOperation({ summary: 'Activate a pending legacy invitation - Master only' })
   @ApiResponse({ status: 201, description: 'Pending invitation activated' })

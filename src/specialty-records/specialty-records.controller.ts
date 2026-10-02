@@ -5,9 +5,11 @@ import { ClinicalProfileGuard } from '../clinical-access/clinical-profile.guard'
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateSpecialtyRecordDto } from './dto/create-specialty-record.dto';
 import { SpecialtyRecordsService } from './specialty-records.service';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('specialty-records')
 @ApiBearerAuth('access-token')
+@RequireSection('core.specialties')
 @UseGuards(ClinicalProfileGuard)
 @Controller('tenants/:tenantId/patients/:patientId/specialty-records')
 export class SpecialtyRecordsController {

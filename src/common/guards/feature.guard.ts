@@ -51,7 +51,7 @@ export class FeatureGuard implements CanActivate {
     const configuredModules = await this.prisma.tenantModule.findMany({
       where: {
         tenantId: user.tenantId,
-        moduleKey: { in: [requiredFeature, `core.${requiredFeature}`] },
+        moduleKey: requiredFeature,
       },
       select: { enabled: true },
     });

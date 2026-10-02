@@ -274,6 +274,43 @@ describe('TenantSpecialtiesService', () => {
     });
   });
 
+  it('rejects changing a core.* key with SECTION_MANAGED_BY_PLATFORM', async () => {
+    await expect(
+      service.updateModule('tenant-1', 'core.tasks', false, 'master-1'),
+    ).rejects.toMatchObject({
+      status: 403,
+      response: { statusCode: 403, code: 'SECTION_MANAGED_BY_PLATFORM' },
+    });
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(tx.tenantModule.findUnique).not.toHaveBeenCalled();
+    expect(tx.tenantModule.create).not.toHaveBeenCalled();
+    expect(tx.tenantModule.update).not.toHaveBeenCalled();
+  });
+
+  it('never deletes or creates core.* rows when the specialty selection changes', async () => {
+    // A catalog that (wrongly) lists core.* keys must not let a selection touch them.
+    const catalogOwned = ['psychology.notes', 'nutrition.assessment', 'shared', 'obsolete'];
+    tx.specialtyModule.findMany.mockImplementation(async ({ where }) =>
+      where.moduleKey.in
+        .filter((key: string) => [...catalogOwned, 'core.billing'].includes(key))
+        .map((moduleKey: string) => ({ moduleKey })),
+    );
+    nut.modules.push({ id: 'c', moduleKey: 'core.storage' });
+    modules.push({ moduleKey: 'core.billing', enabled: true });
+    try {
+      await service.replace('tenant-1', ['NUTRITION'], 'admin-1');
+    } finally {
+      nut.modules.pop();
+    }
+
+    expect(modules.map(({ moduleKey }) => moduleKey)).toContain('core.billing');
+    expect(modules.map(({ moduleKey }) => moduleKey)).not.toContain('core.storage');
+    for (const call of tx.tenantModule.deleteMany.mock.calls)
+      expect(call[0].where.moduleKey.in.some((key: string) => key.startsWith('core.'))).toBe(false);
+    for (const call of tx.tenantModule.createMany.mock.calls)
+      expect(call[0].data.some(({ moduleKey }) => moduleKey.startsWith('core.'))).toBe(false);
+  });
+
   it('recreates removed specialty modules enabled when the specialty returns', async () => {
     await service.replace('tenant-1', ['NUTRITION'], 'admin-1');
     const result = await service.replace('tenant-1', ['PSYCHOLOGY'], 'admin-1');

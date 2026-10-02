@@ -4,9 +4,11 @@ import { PatientsService } from './patients.service';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('patients')
 @ApiBearerAuth('access-token')
+@RequireSection('core.patients')
 @Controller('tenants/:tenantId/patients')
 export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}

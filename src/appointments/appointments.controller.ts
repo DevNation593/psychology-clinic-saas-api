@@ -9,9 +9,11 @@ import {
 } from './dto/appointment.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('appointments')
 @ApiBearerAuth('access-token')
+@RequireSection('core.calendar')
 @Roles('MASTER', 'ASISTENTE', 'PROFESIONAL')
 @Controller('tenants/:tenantId/appointments')
 export class AppointmentsController {

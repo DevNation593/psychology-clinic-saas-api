@@ -17,13 +17,13 @@ import {
   UpdateClinicalNoteDto,
 } from './dto/clinical-note.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 import { ClinicalActor, CurrentClinicalActor } from '../clinical-access/clinical-actor';
 import { ClinicalProfileGuard } from '../clinical-access/clinical-profile.guard';
 
 @ApiTags('clinical-notes')
 @ApiBearerAuth('access-token')
-@RequireFeature('clinicalNotes')
+@RequireSection('core.clinicalNotes')
 @UseGuards(ClinicalProfileGuard)
 @Controller('tenants/:tenantId/clinical-notes')
 export class ClinicalNotesController {

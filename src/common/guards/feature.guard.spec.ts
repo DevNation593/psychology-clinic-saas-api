@@ -114,6 +114,29 @@ describe('FeatureGuard', () => {
     expect(prisma.tenantModule.findMany).not.toHaveBeenCalled();
   });
 
+  it('ignores core.* rows and decides webPush from the subscription flag', async () => {
+    @RequireFeature('webPush')
+    class WebPushController {
+      handler() {}
+    }
+    prisma.tenantSubscription.findUnique.mockResolvedValue({
+      planType: 'CLINIC_BASIC',
+      featureWebPush: false,
+    });
+    // A core.webPush row must not influence the decision: only the exact key is queried.
+    prisma.tenantModule.findMany.mockImplementation(async ({ where }) =>
+      where.moduleKey?.in?.includes('core.webPush') ? [{ enabled: true }] : [],
+    );
+
+    await expect(guard.canActivate(contextFor(WebPushController))).rejects.toMatchObject({
+      response: { error: 'FEATURE_NOT_AVAILABLE', feature: 'webPush' },
+    });
+    expect(prisma.tenantModule.findMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', moduleKey: 'webPush' },
+      select: { enabled: true },
+    });
+  });
+
   it('skips controllers without a feature requirement', async () => {
     await expect(guard.canActivate(contextFor(UngatedController))).resolves.toBe(true);
     expect(prisma.tenantSubscription.findUnique).not.toHaveBeenCalled();
