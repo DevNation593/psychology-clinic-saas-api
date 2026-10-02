@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { AppModule } from './../src/app.module';
 import { ClinicalCryptoService } from './../src/clinical-access/clinical-crypto.service';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { TenantsService } from './../src/tenants/tenants.service';
+import { PlatformTenantsService } from './../src/platform/platform-tenants.service';
 import { UsersService } from './../src/users/users.service';
 import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 
@@ -72,9 +72,9 @@ describe('Clinical records authorization and audit (E2E)', () => {
     users = app.get<UsersService>(UsersService);
 
     await prisma.cleanDatabase();
-    const tenantsService = app.get<TenantsService>(TenantsService);
-    tenantId = (await createTestTenant(tenantsService, 1)).id;
-    otherTenantId = (await createTestTenant(tenantsService, 2)).id;
+    const deps = { tenants: app.get(PlatformTenantsService), prisma };
+    tenantId = (await createTestTenant(deps, 1)).id;
+    otherTenantId = (await createTestTenant(deps, 2)).id;
     await prisma.tenantSubscription.updateMany({
       where: { tenantId: { in: [tenantId, otherTenantId] } },
       data: {

@@ -4,7 +4,7 @@ import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { TaskRemindersService } from './../src/notifications/task-reminders.service';
-import { TenantsService } from './../src/tenants/tenants.service';
+import { PlatformTenantsService } from './../src/platform/platform-tenants.service';
 import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 
 jest.setTimeout(60000);
@@ -42,7 +42,7 @@ describe('Task due reminders and notification preferences (E2E)', () => {
     reminders = app.get<TaskRemindersService>(TaskRemindersService);
 
     await prisma.cleanDatabase();
-    tenantId = (await createTestTenant(app.get<TenantsService>(TenantsService), 1)).id;
+    tenantId = (await createTestTenant({ tenants: app.get(PlatformTenantsService), prisma }, 1)).id;
     userId = (await prisma.user.findFirstOrThrow({ where: { tenantId } })).id;
     patientId = (
       await prisma.patient.create({ data: { tenantId, firstName: 'Ana', lastName: 'Paz' } })

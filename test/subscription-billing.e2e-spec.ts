@@ -5,7 +5,7 @@ import { AppModule } from './../src/app.module';
 import { AuthService } from './../src/auth/auth.service';
 import { PrismaService } from './../src/prisma/prisma.service';
 import { SubscriptionLifecycleService } from './../src/subscription/subscription-lifecycle.service';
-import { TenantsService } from './../src/tenants/tenants.service';
+import { PlatformTenantsService } from './../src/platform/platform-tenants.service';
 import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 
 jest.setTimeout(60000);
@@ -45,9 +45,9 @@ describe('Subscription billing (E2E)', () => {
     lifecycle = app.get<SubscriptionLifecycleService>(SubscriptionLifecycleService);
 
     await prisma.cleanDatabase();
-    const tenants = app.get<TenantsService>(TenantsService);
-    tenantId = (await createTestTenant(tenants, 1)).id;
-    const supportTenantId = (await createTestTenant(tenants, 2)).id;
+    const deps = { tenants: app.get(PlatformTenantsService), prisma };
+    tenantId = (await createTestTenant(deps, 1)).id;
+    const supportTenantId = (await createTestTenant(deps, 2)).id;
     await prisma.user.create({
       data: {
         tenantId: supportTenantId,

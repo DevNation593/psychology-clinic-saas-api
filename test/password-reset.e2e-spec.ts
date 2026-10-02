@@ -4,7 +4,7 @@ import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { MailService } from './../src/mail/mail.service';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { TenantsService } from './../src/tenants/tenants.service';
+import { PlatformTenantsService } from './../src/platform/platform-tenants.service';
 import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 
 jest.setTimeout(60000);
@@ -56,8 +56,9 @@ describe('Password reset (E2E)', () => {
     await app.init();
     expect(app.get(MailService).isConfigured).toBe(true);
 
-    await app.get<PrismaService>(PrismaService).cleanDatabase();
-    await createTestTenant(app.get<TenantsService>(TenantsService), 1);
+    const prisma = app.get<PrismaService>(PrismaService);
+    await prisma.cleanDatabase();
+    await createTestTenant({ tenants: app.get(PlatformTenantsService), prisma }, 1);
   });
 
   afterAll(async () => {

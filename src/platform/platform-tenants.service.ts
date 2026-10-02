@@ -4,13 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  PlanType,
-  Prisma,
-  SubscriptionStatus,
-  TenantType,
-  UserRole,
-} from '@prisma/client';
+import { PlanType, Prisma, SubscriptionStatus, TenantType, UserRole } from '@prisma/client';
 import { AuthService } from '../auth/auth.service';
 import {
   SECTION_CATALOG,

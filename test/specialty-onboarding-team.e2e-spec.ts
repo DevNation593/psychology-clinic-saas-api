@@ -4,7 +4,8 @@ import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
-import { OnboardingService } from '../src/onboarding/onboarding.service';
+import { createPlatformAdmin } from '../prisma/create-platform-admin';
+import { PlatformTenantsService } from '../src/platform/platform-tenants.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TenantSpecialtiesService } from '../src/specialties/tenant-specialties.service';
 import { assertSpecialtyStageDatabaseSafety } from './helpers/assert-e2e-database';
@@ -14,28 +15,33 @@ jest.setTimeout(60000);
 describe('Specialty onboarding and clinic team (E2E)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let onboarding: OnboardingService;
+  let platformTenants: PlatformTenantsService;
+  let platformToken: string;
+  let platformAdminId: string;
   let selections: TenantSpecialtiesService;
   let psychologyId: string;
   let nutritionId: string;
   const suffix = randomUUID();
   const password = 'Password123!';
 
-  const clinicPayload = (label: string, clinical: boolean) => ({
-    clinicName: `Specialty ${label}`,
-    contactEmail: `CONTACT-${label}-${suffix}@example.test`,
+  const platformPassword = 'Platform-Pass-123!';
+  const clinicPayload = (label: string) => ({
+    name: `Specialty ${label}`,
+    email: `CONTACT-${label}-${suffix}@example.test`,
+    tenantType: 'CLINIC' as const,
     timezone: 'America/Guayaquil',
     locale: 'es-EC',
+    masterFirstName: 'Ada',
+    masterLastName: label,
+    masterEmail: `MASTER-${label}-${suffix}@example.test`,
+    temporaryPassword: password,
+    planType: 'TRIAL' as const,
     specialtyCodes: [' psychology '],
-    adminFirstName: 'Ada',
-    adminLastName: label,
-    adminEmail: `ADMIN-${label}-${suffix}@example.test`,
-    adminPassword: password,
-    adminProvidesCare: clinical,
-    ...(clinical
-      ? { adminSpecialtyCode: ' psychology ', adminProfessionalTitle: 'Psicóloga' }
-      : {}),
   });
+
+  // The master receives a temporary password; clear the flag so the suite can use the account.
+  const clearTemporaryPassword = (masterId: string) =>
+    prisma.user.update({ where: { id: masterId }, data: { mustChangePassword: false } });
 
   beforeAll(async () => {
     assertSpecialtyStageDatabaseSafety(process.env.DATABASE_URL_TEST);
@@ -53,9 +59,21 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     );
     await app.init();
     prisma = app.get(PrismaService);
-    onboarding = app.get(OnboardingService);
+    platformTenants = app.get(PlatformTenantsService);
     selections = app.get(TenantSpecialtiesService);
     await prisma.cleanDatabase();
+    const platformAdmin = await createPlatformAdmin(prisma, {
+      email: `platform-${suffix}@example.test`,
+      password: platformPassword,
+      firstName: 'Plat',
+      lastName: 'Admin',
+    });
+    platformAdminId = platformAdmin.userId;
+    const platformLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: `platform-${suffix}@example.test`, password: platformPassword })
+      .expect(200);
+    platformToken = platformLogin.body.accessToken;
 
     const psychology = await prisma.specialty.upsert({
       where: { code: 'PSYCHOLOGY' },
@@ -94,46 +112,31 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     ).toEqual(expect.arrayContaining([expect.objectContaining({ moduleKey: 'nutritionPlans' })]));
 
     const created = await request(server)
-      .post('/api/v1/onboarding/tenants')
-      .send(clinicPayload('primary', true))
+      .post('/api/v1/platform/tenants')
+      .set('Authorization', `Bearer ${platformToken}`)
+      .send(clinicPayload('primary'))
       .expect(201);
     const tenantId: string = created.body.tenant.id;
-    const adminId: string = created.body.admin.id;
-    expect(created.body.tenant).toMatchObject({
-      tenantType: 'CLINIC',
-      onboardingCompleted: true,
+    const adminId: string = created.body.master.id;
+    expect(created.body.tenant).toMatchObject({ tenantType: 'CLINIC', isActive: true });
+    expect(created.body.master).toMatchObject({
+      email: `master-primary-${suffix}@example.test`,
+      mustChangePassword: true,
     });
-    expect(created.body.admin).toMatchObject({
-      email: `admin-primary-${suffix}@example.test`,
-      role: 'MASTER',
-      professionalProfile: { isActive: true, specialty: { code: 'PSYCHOLOGY' } },
-    });
+    expect(created.body.subscription).toMatchObject({ planType: 'TRIAL', status: 'TRIALING' });
     expect(JSON.stringify(created.body)).not.toMatch(/password|\$2[aby]\$/i);
     expect(created.body.specialties.map((item: { code: string }) => item.code)).toEqual([
       'PSYCHOLOGY',
     ]);
-    expect(created.body.modules).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ moduleKey: 'psychologyNotes', enabled: true }),
-      ]),
-    );
-    expect(created.body.pricing).toMatchObject({
-      selectedSpecialties: 1,
-      billableSpecialties: 0,
-      totalMonthly: 0,
-      currency: 'USD',
-    });
+    expect(created.body.sections).toHaveLength(8);
+    await clearTemporaryPassword(adminId);
 
-    // Login deliberately uses the normalized value returned by onboarding.
+    // Login deliberately uses the normalized value returned by the platform panel.
     const login = await request(server)
       .post('/api/v1/auth/login')
-      .send({ email: created.body.admin.email, password })
+      .send({ email: created.body.master.email, password })
       .expect(200);
-    expect(login.body.user).toMatchObject({
-      id: adminId,
-      tenantId,
-      professionalProfile: { specialty: { code: 'PSYCHOLOGY' } },
-    });
+    expect(login.body.user).toMatchObject({ id: adminId, tenantId });
     expect(JSON.stringify(login.body.user)).not.toMatch(/password|\$2[aby]\$/i);
     const token: string = login.body.accessToken;
     expect(token).toEqual(expect.any(String));
@@ -192,6 +195,22 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       await prisma.tenantModule.count({ where: { tenantId, moduleKey: 'nutritionPlans' } }),
     ).toBe(1);
 
+    // The master holds no professional profile, so the specialty is only in use once a
+    // psychology professional exists.
+    const psychologist = await request(server)
+      .post(`/api/v1/tenants/${tenantId}/users`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        email: `psychology-${suffix}@example.test`,
+        password,
+        firstName: 'Pia',
+        lastName: 'Psychology',
+        role: 'PROFESIONAL',
+        professionalProfile: { specialtyId: psychologyId },
+      })
+      .expect(201);
+    const psychologistId: string = psychologist.body.id;
+
     const blocked = await request(server)
       .put(selectionUrl)
       .set('Authorization', `Bearer ${token}`)
@@ -201,7 +220,7 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     expect(await prisma.tenantSpecialty.count({ where: { tenantId } })).toBe(2);
 
     const inactive = await request(server)
-      .patch(`/api/v1/tenants/${tenantId}/users/${adminId}`)
+      .patch(`/api/v1/tenants/${tenantId}/users/${psychologistId}`)
       .set('Authorization', `Bearer ${token}`)
       .send({ professionalProfile: { specialtyId: psychologyId, isActive: false } })
       .expect(200);
@@ -262,19 +281,21 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       .get(`/api/v1/tenants/${tenantId}/users`)
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
-    expect(team.body).toHaveLength(2);
+    expect(team.body).toHaveLength(3);
     expect(team.body.map((user: { id: string }) => user.id)).toEqual(
-      expect.arrayContaining([adminId, professional.body.id]),
+      expect.arrayContaining([adminId, psychologistId, professional.body.id]),
     );
     expect(JSON.stringify(team.body)).not.toMatch(/password|\$2[aby]\$/i);
 
     const other = await request(server)
-      .post('/api/v1/onboarding/tenants')
-      .send(clinicPayload('other', false))
+      .post('/api/v1/platform/tenants')
+      .set('Authorization', `Bearer ${platformToken}`)
+      .send(clinicPayload('other'))
       .expect(201);
+    await clearTemporaryPassword(other.body.master.id);
     const otherLogin = await request(server)
       .post('/api/v1/auth/login')
-      .send({ email: other.body.admin.email, password })
+      .send({ email: other.body.master.email, password })
       .expect(200);
     const otherSpecialties = await request(server)
       .get(`/api/v1/tenants/${other.body.tenant.id}/specialties`)
@@ -297,7 +318,7 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       })
       .expect(409);
     expect(foreign.body.code).toBe('SPECIALTY_NOT_ENABLED');
-    expect(await prisma.user.count({ where: { tenantId } })).toBe(2);
+    expect(await prisma.user.count({ where: { tenantId } })).toBe(3);
 
     const selfDeactivate = await request(server)
       .patch(`/api/v1/tenants/${tenantId}/users/${adminId}`)
@@ -308,20 +329,20 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     expect(await prisma.user.count({ where: { id: adminId, isActive: true } })).toBe(1);
 
     await request(server)
-      .patch(`/api/v1/tenants/${other.body.tenant.id}/users/${other.body.admin.id}`)
+      .patch(`/api/v1/tenants/${other.body.tenant.id}/users/${other.body.master.id}`)
       .set('Authorization', `Bearer ${token}`)
       .send({ firstName: 'Intruder' })
       .expect(403);
     expect(
       await prisma.user.findUniqueOrThrow({
-        where: { id: other.body.admin.id },
+        where: { id: other.body.master.id },
         select: { firstName: true },
       }),
     ).toEqual({ firstName: 'Ada' });
   });
 
   it('rolls back tenant and administrator when specialty selection fails after writes', async () => {
-    const payload = clinicPayload('rollback', false);
+    const payload = clinicPayload('rollback');
     const external = new PrismaClient();
     try {
       const failure = new Error('selection failed after writes');
@@ -329,21 +350,23 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
         expect(await tx.tenant.findUnique({ where: { id: input.tenantId } })).not.toBeNull();
         expect(
           await tx.user.findFirst({
-            where: { tenantId: input.tenantId, email: payload.adminEmail.toLowerCase() },
+            where: { tenantId: input.tenantId, email: payload.masterEmail.toLowerCase() },
           }),
         ).not.toBeNull();
         throw failure;
       });
       try {
-        await expect(onboarding.create(payload)).rejects.toThrow(failure.message);
+        await expect(platformTenants.create(payload, platformAdminId)).rejects.toThrow(
+          failure.message,
+        );
       } finally {
         spy.mockRestore();
       }
+      expect(await external.tenant.count({ where: { email: payload.email.toLowerCase() } })).toBe(
+        0,
+      );
       expect(
-        await external.tenant.count({ where: { email: payload.contactEmail.toLowerCase() } }),
-      ).toBe(0);
-      expect(
-        await external.user.count({ where: { email: payload.adminEmail.toLowerCase() } }),
+        await external.user.count({ where: { email: payload.masterEmail.toLowerCase() } }),
       ).toBe(0);
     } finally {
       await external.$disconnect();
