@@ -192,8 +192,10 @@ describe('PlatformTenantsService', () => {
             updateMany: jest.fn(async ({ where, data }) => {
               const rows = pending.refreshTokens.filter(
                 (t) =>
-                  pending.users.find((u) => u.id === t.userId)?.tenantId === where.user.tenantId &&
-                  t.isRevoked === where.isRevoked,
+                  (where.userId
+                    ? t.userId === where.userId
+                    : pending.users.find((u) => u.id === t.userId)?.tenantId ===
+                      where.user.tenantId) && t.isRevoked === where.isRevoked,
               );
               rows.forEach((row) => Object.assign(row, data));
               return { count: rows.length };
@@ -822,7 +824,11 @@ describe('PlatformTenantsService', () => {
 
     it('resets the master password: new hash, mustChangePassword true, refresh tokens revoked, audit without the password', async () => {
       seedTenant('tenant-1');
-      state.refreshTokens.push({ userId: 'master-of-tenant-1', isRevoked: false });
+      state.users.push({ id: 'staff-1', tenantId: 'tenant-1', role: 'PSICOLOGO' });
+      state.refreshTokens.push(
+        { userId: 'master-of-tenant-1', isRevoked: false },
+        { userId: 'staff-1', isRevoked: false },
+      );
       const result = await service.resetMasterPassword('tenant-1', ' Nueva-Clave-1 ', 'admin-1');
       expect(result).toBeUndefined();
       expect(auth.hashPassword).toHaveBeenCalledWith(' Nueva-Clave-1 ');
@@ -830,7 +836,7 @@ describe('PlatformTenantsService', () => {
         password: 'hashed-password',
         mustChangePassword: true,
       });
-      expect(state.refreshTokens[0].isRevoked).toBe(true);
+      expect(state.refreshTokens.map((t) => t.isRevoked)).toEqual([true, false]);
       expect(audit.record).toHaveBeenCalledWith(
         {
           tenantId: 'tenant-1',
@@ -856,6 +862,7 @@ describe('PlatformTenantsService', () => {
       for (const call of calls) {
         await expect(call()).rejects.toBeInstanceOf(NotFoundException);
       }
+      expect(auth.hashPassword).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
       expect(state.tenants[0].isActive).toBeUndefined();
     });

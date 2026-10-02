@@ -473,14 +473,16 @@ export class PlatformTenantsService {
     temporaryPassword: string,
     actorId: string,
   ): Promise<void> {
+    // Fail with 404 before spending a bcrypt hash on a missing or platform tenant.
+    const target = await this.prisma.tenant.findFirst({
+      where: { id: tenantId, isPlatform: false },
+      select: { users: { where: { role: UserRole.MASTER }, take: 1, select: { id: true } } },
+    });
+    if (!target) throw new NotFoundException('Consultorio no encontrado');
+    if (!target.users[0]) throw new NotFoundException('El consultorio no tiene titular');
     // The password is hashed exactly as typed; it never reaches logs or the audit row.
     const password = await this.auth.hashPassword(temporaryPassword);
     await this.prisma.$transaction(async (tx) => {
-      const tenant = await tx.tenant.findFirst({
-        where: { id: tenantId, isPlatform: false },
-        select: { id: true },
-      });
-      if (!tenant) throw new NotFoundException('Consultorio no encontrado');
       const master = await tx.user.findFirst({
         where: { tenantId, role: UserRole.MASTER },
         select: { id: true, mustChangePassword: true },
@@ -491,7 +493,7 @@ export class PlatformTenantsService {
         data: { password, mustChangePassword: true },
       });
       await tx.refreshToken.updateMany({
-        where: { user: { tenantId }, isRevoked: false },
+        where: { userId: master.id, isRevoked: false },
         data: { isRevoked: true },
       });
       await this.audit.record(
