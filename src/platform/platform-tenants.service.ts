@@ -20,6 +20,7 @@ import {
   normalizeSpecialtyCodes,
 } from '../specialties/specialty-catalog.service';
 import { TenantSpecialtiesService } from '../specialties/tenant-specialties.service';
+import { addMonth } from '../subscription/subscription-billing.rules';
 import { getPlanFeatureFlags, getPlanLimits } from '../subscription/subscription-pricing';
 import { CreatePlatformTenantDto } from './dto/create-platform-tenant.dto';
 
@@ -139,8 +140,7 @@ export class PlatformTenantsService {
             const limits = getPlanLimits(dto.planType);
             const isTrial = dto.planType === PlanType.TRIAL;
             const now = new Date();
-            const periodEnd = new Date(now);
-            periodEnd.setMonth(periodEnd.getMonth() + 1);
+            const periodEnd = addMonth(now);
             const subscription = await tx.tenantSubscription.create({
               data: {
                 tenantId: tenant.id,

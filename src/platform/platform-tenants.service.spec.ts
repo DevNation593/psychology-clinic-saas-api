@@ -123,8 +123,11 @@ describe('PlatformTenantsService', () => {
             findFirst: jest.fn(async ({ where }) => {
               const filter = where.email;
               return (
-                pending.users.find((u) => u.email.toLowerCase() === filter.equals.toLowerCase()) ??
-                null
+                pending.users.find((u) =>
+                  filter.mode === 'insensitive'
+                    ? u.email.toLowerCase() === filter.equals.toLowerCase()
+                    : u.email === filter.equals,
+                ) ?? null
               );
             }),
             create: jest.fn(async ({ data, select }) => {
@@ -318,7 +321,12 @@ describe('PlatformTenantsService', () => {
   });
 
   it('starts a paid plan ACTIVE with a one month period, no payment and a SUBSCRIPTION_ACTIVATED event by the actor', async () => {
-    await service.create(input({ planType: 'CLINIC_BASIC' }), 'admin-7');
+    jest.useFakeTimers({ now: new Date('2026-01-31T10:00:00Z'), doNotFake: ['nextTick'] });
+    try {
+      await service.create(input({ planType: 'CLINIC_BASIC' }), 'admin-7');
+    } finally {
+      jest.useRealTimers();
+    }
     const sub = state.subscriptions[0];
     expect(sub).toMatchObject({
       planType: 'CLINIC_BASIC',
@@ -327,11 +335,8 @@ describe('PlatformTenantsService', () => {
       maxActivePatients: 150,
       trialEndsAt: null,
     });
-    const months =
-      (sub.currentPeriodEnd.getFullYear() - sub.currentPeriodStart.getFullYear()) * 12 +
-      sub.currentPeriodEnd.getMonth() -
-      sub.currentPeriodStart.getMonth();
-    expect(months).toBe(1);
+    expect(sub.currentPeriodStart).toEqual(new Date('2026-01-31T10:00:00Z'));
+    expect(sub.currentPeriodEnd).toEqual(new Date('2026-02-28T10:00:00Z'));
     expect(prisma.lastTx.subscriptionPayment).toBeUndefined();
     expect(state.events).toEqual([
       expect.objectContaining({
@@ -401,5 +406,62 @@ describe('PlatformTenantsService', () => {
     )!;
     expect(trialClinic.sections).not.toContain('core.tasks');
     expect(trialClinic.sections).toContain('core.team');
+  });
+
+  it('retries P2034 with a fresh transaction and hashes the password once', async () => {
+    const original = prisma.$transaction.getMockImplementation();
+    prisma.$transaction
+      .mockImplementationOnce(async () => {
+        throw { code: 'P2034' };
+      })
+      .mockImplementation(original);
+    await service.create(input(), 'a');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(state.tenants).toHaveLength(1);
+    expect(auth.hashPassword).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after the third P2034 attempt', async () => {
+    prisma.$transaction.mockReset().mockRejectedValue({ code: 'P2034' });
+    await expect(service.create(input(), 'a')).rejects.toMatchObject({ code: 'P2034' });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry an ordinary error', async () => {
+    selection.applySelection.mockRejectedValueOnce(new Error('ordinary'));
+    await expect(service.create(input(), 'a')).rejects.toThrow('ordinary');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('translates a P2002 on e-mail to a 409 and commits nothing', async () => {
+    const transact = prisma.$transaction.getMockImplementation();
+    prisma.$transaction.mockImplementation(async (callback, options) =>
+      transact(async (tx) => {
+        tx.user.create.mockRejectedValueOnce({
+          code: 'P2002',
+          meta: { target: ['tenantId', 'email'] },
+        });
+        return callback(tx);
+      }, options),
+    );
+    await expect(service.create(input(), 'a')).rejects.toMatchObject({
+      status: 409,
+      response: { message: 'El correo electrónico ya está en uso' },
+    });
+    expect(state.tenants).toHaveLength(0);
+  });
+
+  it('rejects and commits nothing when applySelection throws after writes', async () => {
+    selection.applySelection.mockImplementationOnce(async (tx, { tenantId }) => {
+      await tx.tenantSpecialty.createMany({ data: [{ tenantId, specialtyId: 'specialty-1' }] });
+      throw new Error('provision failed');
+    });
+    await expect(service.create(input(), 'a')).rejects.toThrow('provision failed');
+    expect(state.tenants).toHaveLength(0);
+    expect(state.users).toHaveLength(0);
+    expect(state.subscriptions).toHaveLength(0);
+    expect(state.modules).toHaveLength(0);
+    expect(state.selections).toHaveLength(0);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });
