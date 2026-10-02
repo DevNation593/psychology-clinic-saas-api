@@ -10,6 +10,7 @@ import {
   ResetPasswordDto,
 } from './dto/auth.dto';
 import { Public } from '../common/decorators/public.decorator';
+import { SessionRoute } from '../common/decorators/session-route.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
@@ -64,6 +65,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
+  @SessionRoute()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout current session' })
@@ -75,6 +77,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
+  @SessionRoute()
   @Post('logout-all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout from all sessions' })

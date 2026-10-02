@@ -66,6 +66,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       email: user.email,
       tenantId: user.tenantId,
       role: user.role,
+      isPlatformTenant: user.tenant.isPlatform,
+      mustChangePassword: user.mustChangePassword,
     };
   }
 }

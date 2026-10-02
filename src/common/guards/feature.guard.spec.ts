@@ -2,10 +2,24 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RequireFeature } from '../decorators/require-feature.decorator';
+import { PlatformRoute } from '../decorators/platform-route.decorator';
+import { SessionRoute } from '../decorators/session-route.decorator';
 import { FeatureGuard } from './feature.guard';
 
 @RequireFeature('tasks')
 class ClassLevelController {
+  handler() {}
+}
+
+@RequireFeature('tasks')
+@PlatformRoute()
+class GatedPlatformController {
+  handler() {}
+}
+
+@RequireFeature('tasks')
+@SessionRoute()
+class GatedSessionController {
   handler() {}
 }
 
@@ -74,11 +88,30 @@ describe('FeatureGuard', () => {
     });
   });
 
-  it('bypasses the check for SOPORTE', async () => {
-    await expect(guard.canActivate(contextFor(ClassLevelController, 'SOPORTE'))).resolves.toBe(
+  it('applies the subscription rules to SOPORTE', async () => {
+    prisma.tenantSubscription.findUnique.mockResolvedValue({
+      planType: 'TRIAL',
+      featureTasks: false,
+    });
+
+    await expect(guard.canActivate(contextFor(ClassLevelController, 'SOPORTE'))).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(prisma.tenantSubscription.findUnique).toHaveBeenCalled();
+  });
+
+  it('skips the check on a platform route', async () => {
+    await expect(guard.canActivate(contextFor(GatedPlatformController, 'ADMIN'))).resolves.toBe(
       true,
     );
     expect(prisma.tenantSubscription.findUnique).not.toHaveBeenCalled();
+    expect(prisma.tenantModule.findMany).not.toHaveBeenCalled();
+  });
+
+  it('skips the check on a session route', async () => {
+    await expect(guard.canActivate(contextFor(GatedSessionController))).resolves.toBe(true);
+    expect(prisma.tenantSubscription.findUnique).not.toHaveBeenCalled();
+    expect(prisma.tenantModule.findMany).not.toHaveBeenCalled();
   });
 
   it('skips controllers without a feature requirement', async () => {
