@@ -1,3 +1,4 @@
+import { MailService } from '../src/mail/mail.service';
 import { UsersService } from '../src/users/users.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuthService } from '../src/auth/auth.service';
@@ -130,6 +131,7 @@ describe('Users - profile seat enforcement', () => {
         assertNoFutureAppointmentsForProfessional: jest.fn().mockResolvedValue(undefined),
         deactivateAllForProfessional: jest.fn().mockResolvedValue(0),
       } as unknown as PatientTeamService,
+      { sendInvitation: jest.fn().mockResolvedValue(true) } as unknown as MailService,
     );
   });
 
@@ -470,6 +472,7 @@ integration('Users - PostgreSQL serializable seat race', () => {
       { hashPassword: async () => 'hash' } as unknown as AuthService,
       profiles,
       {} as PatientTeamService,
+      { sendInvitation: jest.fn().mockResolvedValue(true) } as unknown as MailService,
     );
     const results = await Promise.allSettled(
       ['a', 'b'].map((email) =>

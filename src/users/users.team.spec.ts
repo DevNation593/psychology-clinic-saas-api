@@ -1,3 +1,4 @@
+import { MailService } from '../mail/mail.service';
 import { Prisma } from '@prisma/client';
 import { ConflictException } from '@nestjs/common';
 import { UsersService } from './users.service';
@@ -169,6 +170,7 @@ describe('UsersService clinic team control', () => {
       { hashPassword: jest.fn().mockResolvedValue('secure-hash') } as unknown as AuthService,
       new ProfessionalProfilesService(db as PrismaService),
       patientTeam as unknown as PatientTeamService,
+      { sendInvitation: jest.fn().mockResolvedValue(true) } as unknown as MailService,
     );
   });
 

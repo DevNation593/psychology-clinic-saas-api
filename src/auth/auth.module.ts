@@ -12,9 +12,10 @@ import { TenantGuard } from '../common/guards/tenant.guard';
 import { SubscriptionGuard } from '../common/guards/subscription.guard';
 import { FeatureGuard } from '../common/guards/feature.guard';
 import { RlsContextInterceptor } from '../common/interceptors/rls-context.interceptor';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [PassportModule, JwtModule.register({}), ConfigModule],
+  imports: [PassportModule, JwtModule.register({}), ConfigModule, MailModule],
   controllers: [AuthController],
   providers: [
     AuthService,

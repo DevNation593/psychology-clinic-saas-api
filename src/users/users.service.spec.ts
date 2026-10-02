@@ -1,3 +1,4 @@
+import { MailService } from '../mail/mail.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
@@ -31,6 +32,7 @@ describe('UsersService self profile updates', () => {
       {} as AuthService,
       {} as ProfessionalProfilesService,
       {} as PatientTeamService,
+      {} as MailService,
     );
   });
 
