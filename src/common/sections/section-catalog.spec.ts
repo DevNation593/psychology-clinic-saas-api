@@ -9,12 +9,24 @@ import {
 describe('section catalog', () => {
   it('names the eight sections', () => {
     expect(SECTION_CATALOG.map((s) => s.name)).toEqual([
-      'Calendario', 'Pacientes', 'Tareas', 'Notas clínicas', 'Módulos clínicos', 'Facturación', 'Equipo', 'Almacenamiento',
+      'Calendario',
+      'Pacientes',
+      'Tareas',
+      'Notas clínicas',
+      'Módulos clínicos',
+      'Facturación',
+      'Equipo',
+      'Almacenamiento',
     ]);
   });
   it('preselects everything but tasks and team for a personal trial', () => {
     expect(defaultSections('TRIAL', 'PERSONAL')).toEqual([
-      'core.calendar', 'core.patients', 'core.clinicalNotes', 'core.specialties', 'core.billing', 'core.storage',
+      'core.calendar',
+      'core.patients',
+      'core.clinicalNotes',
+      'core.specialties',
+      'core.billing',
+      'core.storage',
     ]);
   });
   it('adds team for clinics and tasks for paid plans', () => {
@@ -24,15 +36,26 @@ describe('section catalog', () => {
     expect(defaultSections('PERSONAL_PRO', 'PERSONAL')).not.toContain('core.team');
   });
   it('rejects unknown keys', () => {
-    expect(() => validateSections(['core.nope'])).toThrow(expect.objectContaining({
-      response: expect.objectContaining({ code: 'SECTION_UNKNOWN', section: 'core.nope' }),
-    }));
+    expect(() => validateSections(['core.nope'])).toThrow(
+      expect.objectContaining({
+        response: expect.objectContaining({ code: 'SECTION_UNKNOWN', section: 'core.nope' }),
+      }),
+    );
   });
-  it.each(['core.calendar', 'core.tasks', 'core.clinicalNotes', 'core.specialties'])('%s requires patients', (key) => {
-    expect(() => validateSections([key])).toThrow(expect.objectContaining({
-      response: expect.objectContaining({ code: 'SECTION_DEPENDENCY', section: key, requires: ['core.patients'] }),
-    }));
-  });
+  it.each(['core.calendar', 'core.tasks', 'core.clinicalNotes', 'core.specialties'])(
+    '%s requires patients',
+    (key) => {
+      expect(() => validateSections([key])).toThrow(
+        expect.objectContaining({
+          response: expect.objectContaining({
+            code: 'SECTION_DEPENDENCY',
+            section: key,
+            requires: ['core.patients'],
+          }),
+        }),
+      );
+    },
+  );
   it('accepts an empty list and removes duplicates', () => {
     expect(validateSections([])).toEqual([]);
     expect(validateSections(['core.billing', 'core.billing'])).toEqual(['core.billing']);

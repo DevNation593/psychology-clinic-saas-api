@@ -84,9 +84,9 @@ describe('SubscriptionGuard', () => {
   });
 
   it('skips the check on a platform route', async () => {
-    await expect(
-      guard.canActivate(contextFor(PlatformController, 'POST', 'ADMIN')),
-    ).resolves.toBe(true);
+    await expect(guard.canActivate(contextFor(PlatformController, 'POST', 'ADMIN'))).resolves.toBe(
+      true,
+    );
     expect(prisma.tenantSubscription.findUnique).not.toHaveBeenCalled();
   });
 

@@ -58,7 +58,9 @@ export class PlatformSubscriptionService {
       const specialtyCount = await tx.tenantSpecialty.count({ where: { tenantId } });
       const { data } = planChangeData(subscription, dto.planType, specialtyCount);
 
-      const planSeats = isTrial ? TRIAL_LIMITS[tenant.tenantType].seats : data.seatsPsychologistsMax;
+      const planSeats = isTrial
+        ? TRIAL_LIMITS[tenant.tenantType].seats
+        : data.seatsPsychologistsMax;
       const planPatients = isTrial
         ? TRIAL_LIMITS[tenant.tenantType].patients
         : data.maxActivePatients;
