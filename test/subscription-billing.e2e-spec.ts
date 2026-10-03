@@ -92,7 +92,7 @@ describe('Subscription billing (E2E)', () => {
     expect(await subscription()).toMatchObject({
       planType: 'TRIAL',
       status: 'TRIALING',
-      seatsPsychologistsMax: 1,
+      seatsPsychologistsMax: 3, // clinic trial seats
     });
 
     const listed = await request(app.getHttpServer())

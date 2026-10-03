@@ -124,7 +124,8 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       mustChangePassword: true,
     });
     expect(created.body.subscription).toMatchObject({ planType: 'TRIAL', status: 'TRIALING' });
-    expect(JSON.stringify(created.body)).not.toMatch(/password|\$2[aby]\$/i);
+    // `mustChangePassword` is expected; a password field or a bcrypt hash is not.
+    expect(JSON.stringify(created.body)).not.toMatch(/"(temporary)?password"|\$2[aby]\$/i);
     expect(created.body.specialties.map((item: { code: string }) => item.code)).toEqual([
       'PSYCHOLOGY',
     ]);
