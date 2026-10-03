@@ -1,12 +1,12 @@
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { TenantsService } from '../src/tenants/tenants.service';
+import { PlatformTenantsService } from '../src/platform/platform-tenants.service';
 import { UsersService } from '../src/users/users.service';
 import { AuthService } from '../src/auth/auth.service';
 import { SubscriptionService } from '../src/subscription/subscription.service';
 import { ProfessionalProfilesService } from '../src/professional-profiles/professional-profiles.service';
-import { TEST_PASSWORD } from './helpers/create-test-tenant';
+import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 import { randomUUID } from 'crypto';
 
 jest.setTimeout(30000);
@@ -14,7 +14,7 @@ jest.setTimeout(30000);
 describe('Professional profile transition (E2E)', () => {
   let app: Awaited<ReturnType<ReturnType<typeof Test.createTestingModule>['compile']>>;
   let prisma: PrismaService;
-  let tenants: TenantsService;
+  let tenants: PlatformTenantsService;
   let users: UsersService;
   let auth: AuthService;
   let subscription: SubscriptionService;
@@ -30,31 +30,16 @@ describe('Professional profile transition (E2E)', () => {
     app = await Test.createTestingModule({ imports: [AppModule] }).compile();
     await app.init();
     prisma = app.get(PrismaService);
-    tenants = app.get(TenantsService);
+    tenants = app.get(PlatformTenantsService);
     users = app.get(UsersService);
     auth = app.get(AuthService);
     subscription = app.get(SubscriptionService);
     profiles = app.get(ProfessionalProfilesService);
     await prisma.cleanDatabase();
 
-    const first = await tenants.create({
-      name: 'Profiles clinic',
-      tenantType: 'CLINIC',
-      email: 'profiles-clinic@test.invalid',
-      adminFirstName: 'Default',
-      adminLastName: 'Admin',
-      adminEmail: 'profiles-admin@test.invalid',
-      adminPassword: TEST_PASSWORD,
-    });
-    const second = await tenants.create({
-      name: 'Other clinic',
-      tenantType: 'CLINIC',
-      email: 'profiles-other@test.invalid',
-      adminFirstName: 'Other',
-      adminLastName: 'Admin',
-      adminEmail: 'other-admin@test.invalid',
-      adminPassword: TEST_PASSWORD,
-    });
+    const deps = { tenants, prisma };
+    const first = await createTestTenant(deps, 1);
+    const second = await createTestTenant(deps, 2);
     tenantId = first.id;
     otherTenantId = second.id;
     await prisma.tenantSubscription.update({
@@ -165,7 +150,7 @@ describe('Professional profile transition (E2E)', () => {
 
   it('does not count an administrator without a profile', async () => {
     const admin = await prisma.user.findFirstOrThrow({
-      where: { tenantId, email: 'profiles-admin@test.invalid' },
+      where: { tenantId, email: 'admin+1@tenant.test' },
     });
     expect(admin.role).toBe('MASTER');
     expect((await users.findOne(tenantId, admin.id)).professionalProfile).toBeNull();

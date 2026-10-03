@@ -4,7 +4,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { FakturClient } from '../src/billing/faktur.client';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { TenantsService } from '../src/tenants/tenants.service';
+import { PlatformTenantsService } from '../src/platform/platform-tenants.service';
 import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 
 jest.setTimeout(30000);
@@ -58,9 +58,9 @@ describe('Patient invoicing (E2E)', () => {
     prisma = app.get(PrismaService);
     await prisma.cleanDatabase();
 
-    const tenantsService = app.get(TenantsService);
-    tenantId = (await createTestTenant(tenantsService, 1)).id;
-    otherTenantId = (await createTestTenant(tenantsService, 2)).id;
+    const deps = { tenants: app.get(PlatformTenantsService), prisma };
+    tenantId = (await createTestTenant(deps, 1)).id;
+    otherTenantId = (await createTestTenant(deps, 2)).id;
     // The clinic is the issuer and needs its own fiscal data to invoice.
     await prisma.tenant.updateMany({
       where: { id: { in: [tenantId, otherTenantId] } },

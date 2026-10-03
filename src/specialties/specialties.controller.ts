@@ -6,6 +6,7 @@ import { UpdateModuleDto } from './dto/update-module.dto';
 import { UpdateTenantSpecialtiesDto } from './dto/update-specialties.dto';
 import { SpecialtiesService } from './specialties.service';
 import { TenantSpecialtiesService } from './tenant-specialties.service';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('specialties')
 @ApiBearerAuth('access-token')
@@ -24,6 +25,7 @@ export class SpecialtiesController {
 
   @Put('specialties')
   @Roles('MASTER')
+  @RequireSection('core.specialties')
   @ApiOperation({ summary: 'Select specialties for the tenant' })
   setSpecialties(
     @Param('tenantId') tenantId: string,
@@ -36,6 +38,7 @@ export class SpecialtiesController {
   @Post('specialties')
   @HttpCode(200)
   @Roles('MASTER')
+  @RequireSection('core.specialties')
   @ApiOperation({ summary: 'Legacy specialty selection route' })
   setSpecialtiesLegacy(
     @Param('tenantId') tenantId: string,
@@ -53,6 +56,7 @@ export class SpecialtiesController {
 
   @Patch('modules/:moduleKey')
   @Roles('MASTER')
+  @RequireSection('core.specialties')
   @ApiOperation({ summary: 'Enable or disable a practice module' })
   updateModule(
     @Param('tenantId') tenantId: string,

@@ -1,28 +1,69 @@
-import { Controller, Get, Post, Delete, Param, Body, Query } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiQuery,
-  ApiProperty,
-} from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, Headers } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { IsString, IsNotEmpty } from 'class-validator';
-
-class RegisterFcmTokenDto {
-  @ApiProperty({ example: 'fcm-token-from-firebase-sdk', description: 'FCM device token' })
-  @IsString()
-  @IsNotEmpty()
-  token: string;
-}
+import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { NotificationPreferencesService } from './notification-preferences.service';
+import { WebPushService } from './web-push/web-push.service';
+import {
+  RegisterFcmTokenDto,
+  RemoveWebPushSubscriptionDto,
+  UpdateNotificationPreferencesDto,
+  WebPushSubscriptionDto,
+} from './dto/notification.dto';
 
 @ApiTags('notifications')
 @ApiBearerAuth('access-token')
 @Controller('tenants/:tenantId/notifications')
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly preferences: NotificationPreferencesService,
+    private readonly webPush: WebPushService,
+  ) {}
+
+  @Get('preferences')
+  @ApiOperation({ summary: 'What the current user wants to be notified about' })
+  getPreferences(@CurrentUser() user: any) {
+    return this.preferences.get(user.userId);
+  }
+
+  @Put('preferences')
+  @ApiOperation({
+    summary: 'Update the notification preferences of the current user',
+    description: 'The server applies them: a reminder that is turned off is never created.',
+  })
+  updatePreferences(@CurrentUser() user: any, @Body() dto: UpdateNotificationPreferencesDto) {
+    return this.preferences.update(user.userId, dto);
+  }
+
+  @Get('web-push/public-key')
+  @ApiOperation({ summary: 'VAPID public key browsers subscribe with' })
+  getWebPushKey() {
+    return { enabled: this.webPush.isEnabled, publicKey: this.webPush.publicKey };
+  }
+
+  @Post('web-push/subscriptions')
+  @RequireFeature('webPush')
+  @ApiOperation({
+    summary: 'Register this browser for Web Push',
+    description:
+      'Body: the result of PushSubscription.toJSON(). A user can register several browsers.',
+  })
+  subscribeWebPush(
+    @Param('tenantId') tenantId: string,
+    @CurrentUser() user: any,
+    @Body() dto: WebPushSubscriptionDto,
+    @Headers('user-agent') userAgent?: string,
+  ) {
+    return this.webPush.subscribe(tenantId, user.userId, dto, userAgent);
+  }
+
+  @Delete('web-push/subscriptions')
+  @ApiOperation({ summary: 'Stop sending Web Push to this browser' })
+  unsubscribeWebPush(@CurrentUser() user: any, @Body() dto: RemoveWebPushSubscriptionDto) {
+    return this.webPush.unsubscribe(user.userId, dto.endpoint);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get user notifications' })
@@ -48,9 +89,9 @@ export class NotificationsController {
 
   @Post('fcm-token')
   @ApiOperation({
-    summary: 'Register FCM token for push notifications',
+    summary: 'Register the FCM token of the mobile app',
     description:
-      'Frontend sends the FCM token obtained from Firebase SDK after user grants notification permission.',
+      'Mobile only. Browsers use web-push/subscriptions: a browser endpoint is not an FCM token.',
   })
   @ApiResponse({ status: 201, description: 'FCM token registered' })
   async registerFcmToken(

@@ -31,7 +31,8 @@ describe('JwtStrategy current account authority', () => {
       role: 'ASISTENTE',
       isActive: true,
       lastActivityAt: null,
-      tenant: { id: 'tenant-1', isActive: true },
+      mustChangePassword: true,
+      tenant: { id: 'tenant-1', isActive: true, isPlatform: false },
     };
     db = {
       withRlsContext: jest.fn(async (_context, callback) => callback()),
@@ -54,6 +55,8 @@ describe('JwtStrategy current account authority', () => {
       email: 'current-email@example.com',
       tenantId: 'tenant-1',
       role: 'ASISTENTE',
+      isPlatformTenant: false,
+      mustChangePassword: true,
     });
     expect(db.user.findUnique).toHaveBeenCalledWith({
       where: { id: 'member-1' },

@@ -4,8 +4,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-  Logger,
 } from '@nestjs/common';
+import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, TenantType, UserRole } from '@prisma/client';
 import { CreateTenantUserDto, CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
@@ -68,13 +68,12 @@ const roleNotAssignable = () =>
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
-
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
     private profiles: ProfessionalProfilesService,
     private patientTeam: PatientTeamService,
+    private mail: MailService,
   ) {}
 
   private resolveProfileInput(
@@ -130,7 +129,7 @@ export class UsersService {
 
   async invite(tenantId: string, dto: InviteUserDto, invitedBy: string) {
     const user = await this.createOrInvite(tenantId, dto, invitedBy, true);
-    await this.sendInvitationEmail(tenantId, user.id, user.email);
+    await this.sendInvitationEmail(tenantId, user);
     return user;
   }
 
@@ -549,7 +548,7 @@ export class UsersService {
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashedNewPassword },
+      data: { password: hashedNewPassword, mustChangePassword: false },
     });
 
     return { message: 'Contraseña cambiada exitosamente' };
@@ -570,12 +569,8 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Only the same user, MASTER or SOPORTE can change the avatar.
-    if (
-      currentUserRole !== 'SOPORTE' &&
-      !isMasterRole(currentUserRole) &&
-      currentUserId !== userId
-    ) {
+    // Only the same user or a MASTER can change the avatar.
+    if (!isMasterRole(currentUserRole) && currentUserId !== userId) {
       throw new ForbiddenException('Solo puedes actualizar tu propio avatar');
     }
 
@@ -639,46 +634,15 @@ export class UsersService {
     });
   }
 
-  private async sendInvitationEmail(tenantId: string, userId: string, email: string) {
-    const apiUrl = process.env.EMAIL_API_URL;
-    const apiKey = process.env.EMAIL_API_KEY;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-    const activationLink = `${frontendUrl}/activate?tenantId=${tenantId}&userId=${userId}`;
-
-    if (!apiUrl) {
-      this.logger.warn(
-        `EMAIL_API_URL is not configured. Invitation for ${email} not sent. Activation link: ${activationLink}`,
-      );
-      return;
-    }
-
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          to: email,
-          template: 'user-invitation',
-          subject: 'Has sido invitado a Psychology Clinic SaaS',
-          variables: {
-            activationLink,
-            tenantId,
-            userId,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        this.logger.error(
-          `Invitation email failed for ${email}. Status ${response.status}. Body: ${errorBody}`,
-        );
-      }
-    } catch (error) {
-      this.logger.error(`Invitation email request failed for ${email}`, error as any);
-    }
+  /** Pending invitations are activated by the account holder; the message only announces the account. */
+  private async sendInvitationEmail(tenantId: string, user: { email: string; firstName: string }) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    await this.mail.sendInvitation(user.email, {
+      firstName: user.firstName,
+      clinicName: tenant?.name ?? 'tu consultorio',
+    });
   }
 }

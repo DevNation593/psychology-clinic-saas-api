@@ -1,6 +1,8 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { PLATFORM_ROUTE_KEY } from '../decorators/platform-route.decorator';
+import { SESSION_ROUTE_KEY } from '../decorators/session-route.decorator';
 import { RlsContextService } from '../../prisma/rls-context.service';
 
 /**
@@ -20,6 +22,16 @@ export class TenantGuard implements CanActivate {
       context.getClass(),
     ]);
 
+    const isPlatformRoute = this.reflector.getAllAndOverride<boolean>(PLATFORM_ROUTE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // Fail closed: a public check that runs first would leave a platform route open to anyone.
+    if (isPublic && isPlatformRoute) {
+      throw new Error('A platform route cannot be public');
+    }
+
     if (isPublic) {
       return true;
     }
@@ -31,15 +43,37 @@ export class TenantGuard implements CanActivate {
       throw new ForbiddenException('Contexto del tenant no encontrado');
     }
 
-    // SOPORTE can access any tenant's resources
-    if (user.role === 'SOPORTE') {
-      request.tenantId = request.params?.tenantId || user.tenantId;
+    if (isPlatformRoute) {
+      // Platform routes are the only ones an ADMIN may call, and only from the platform tenant.
+      // They manage other tenants, so the tenant id in params/body is deliberately not compared.
+      if (user.role !== 'ADMIN' || user.isPlatformTenant !== true) {
+        throw new ForbiddenException({
+          statusCode: 403,
+          code: 'PLATFORM_ONLY',
+          message: 'Esta ruta es exclusiva del panel de control.',
+        });
+      }
+      request.tenantId = user.tenantId;
       this.rlsContext.set({
-        tenantId: request.tenantId,
+        tenantId: user.tenantId,
         userId: user.userId,
         role: user.role,
       });
       return true;
+    }
+
+    const isSessionRoute = this.reflector.getAllAndOverride<boolean>(SESSION_ROUTE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // The platform ADMIN is confined to platform routes and its own session routes.
+    if (user.role === 'ADMIN' && !isSessionRoute) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'PLATFORM_ONLY',
+        message: 'Esta cuenta solo tiene acceso al panel de control.',
+      });
     }
 
     // Check tenantId in params (e.g., /tenants/:tenantId/users)

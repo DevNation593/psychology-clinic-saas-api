@@ -5,7 +5,8 @@ import { ModuleName } from './dto/customize-features.dto';
 // Pricing per module (USD/month)
 export const MODULE_PRICING: Record<ModuleName, number> = {
   clinicalNotes: 0, // included in all plans
-  clinicalNotesEncryption: 5,
+  // Clinical data is always encrypted (SRS RNF-05); the module stays only as a legacy flag.
+  clinicalNotesEncryption: 0,
   attachments: 3,
   tasks: 3,
   psychologicalTests: 8,
@@ -23,8 +24,15 @@ export const MODULE_PRICING: Record<ModuleName, number> = {
 
 // Modules included free in each plan (no extra charge)
 const PLAN_INCLUDED_MODULES: Record<PlanType, ModuleName[]> = {
-  TRIAL: ['clinicalNotes'],
-  PERSONAL_BASIC: ['clinicalNotes', 'attachments', 'tasks', 'fcmPush', 'onlineSchedulingWidget'],
+  TRIAL: ['clinicalNotes', 'clinicalNotesEncryption'],
+  PERSONAL_BASIC: [
+    'clinicalNotes',
+    'clinicalNotesEncryption',
+    'attachments',
+    'tasks',
+    'fcmPush',
+    'onlineSchedulingWidget',
+  ],
   PERSONAL_PRO: [
     'clinicalNotes',
     'clinicalNotesEncryption',
@@ -39,7 +47,14 @@ const PLAN_INCLUDED_MODULES: Record<PlanType, ModuleName[]> = {
     'onlineSchedulingWidget',
     'customReports',
   ],
-  CLINIC_BASIC: ['clinicalNotes', 'attachments', 'tasks', 'fcmPush', 'onlineSchedulingWidget'],
+  CLINIC_BASIC: [
+    'clinicalNotes',
+    'clinicalNotesEncryption',
+    'attachments',
+    'tasks',
+    'fcmPush',
+    'onlineSchedulingWidget',
+  ],
   CLINIC_PRO: [
     'clinicalNotes',
     'clinicalNotesEncryption',

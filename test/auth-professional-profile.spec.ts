@@ -1,3 +1,4 @@
+import { MailService } from '../src/mail/mail.service';
 import { AuthService } from '../src/auth/auth.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
@@ -51,6 +52,7 @@ describe('Auth professional profile payload', () => {
       db as PrismaService,
       jwt as JwtService,
       { get: jest.fn().mockReturnValue('secret') } as unknown as ConfigService,
+      {} as MailService,
     );
   });
 
