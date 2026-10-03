@@ -138,7 +138,7 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       .send({ email: created.body.master.email, password })
       .expect(200);
     expect(login.body.user).toMatchObject({ id: adminId, tenantId });
-    expect(JSON.stringify(login.body.user)).not.toMatch(/"(temporary)?password"|$2[aby]$/i);
+    expect(JSON.stringify(login.body.user)).not.toMatch(/"(temporary)?password"|\$2[aby]\$/i);
     const token: string = login.body.accessToken;
     expect(token).toEqual(expect.any(String));
     const initialSpecialties = await request(server)
@@ -272,7 +272,7 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
       managedByProvider: false,
       professionalProfile: { specialtyId: nutritionId, isActive: true },
     });
-    expect(JSON.stringify(professional.body)).not.toMatch(/"(temporary)?password"|$2[aby]$/i);
+    expect(JSON.stringify(professional.body)).not.toMatch(/"(temporary)?password"|\$2[aby]\$/i);
     const professionalLogin = await request(server)
       .post('/api/v1/auth/login')
       .send({ email: professional.body.email, password })
@@ -286,7 +286,7 @@ describe('Specialty onboarding and clinic team (E2E)', () => {
     expect(team.body.map((user: { id: string }) => user.id)).toEqual(
       expect.arrayContaining([adminId, psychologistId, professional.body.id]),
     );
-    expect(JSON.stringify(team.body)).not.toMatch(/"(temporary)?password"|$2[aby]$/i);
+    expect(JSON.stringify(team.body)).not.toMatch(/"(temporary)?password"|\$2[aby]\$/i);
 
     const other = await request(server)
       .post('/api/v1/platform/tenants')
