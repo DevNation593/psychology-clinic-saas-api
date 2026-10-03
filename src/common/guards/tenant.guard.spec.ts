@@ -2,6 +2,7 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { TenantGuard } from './tenant.guard';
 import { RlsContextService } from '../../prisma/rls-context.service';
+import { Public } from '../decorators/public.decorator';
 import { PlatformRoute } from '../decorators/platform-route.decorator';
 import { SessionRoute } from '../decorators/session-route.decorator';
 
@@ -16,6 +17,12 @@ class SessionController {
 }
 
 class ClinicController {
+  handler() {}
+}
+
+@Public()
+@PlatformRoute()
+class PublicPlatformController {
   handler() {}
 }
 
@@ -143,6 +150,18 @@ describe('TenantGuard scope errors', () => {
             message: 'Esta cuenta solo tiene acceso al panel de control.',
           },
         });
+        expect(rls.get()).toEqual({});
+      });
+    });
+
+    it('refuses a route marked both public and platform instead of opening it', () => {
+      rls.run({}, () => {
+        const error = catchError(() =>
+          guard.canActivate(contextFor(PublicPlatformController, { user: undefined })),
+        );
+        expect(error).toBeInstanceOf(Error);
+        expect(error).not.toBeInstanceOf(ForbiddenException);
+        expect((error as Error).message).toBe('A platform route cannot be public');
         expect(rls.get()).toEqual({});
       });
     });

@@ -41,6 +41,8 @@ describe('PlatformSubscriptionService', () => {
   let tenantModule: any;
   let paymentCreate: jest.Mock;
   let tenants: any;
+  let audit: { record: jest.Mock };
+  let tx: any;
   let prisma: any;
   let service: PlatformSubscriptionService;
 
@@ -61,7 +63,7 @@ describe('PlatformSubscriptionService', () => {
     };
     paymentCreate = jest.fn();
     tenants = { findOne: jest.fn(async (id: string) => ({ tenant: { id } })) };
-    const tx = {
+    tx = {
       tenant: { findFirst: jest.fn(async () => ({ id: TENANT, tenantType })) },
       tenantSubscription: {
         findUniqueOrThrow: jest.fn(async () => subscription),
@@ -89,7 +91,8 @@ describe('PlatformSubscriptionService', () => {
         return callback(tx);
       }),
     };
-    service = new PlatformSubscriptionService(prisma, tenants);
+    audit = { record: jest.fn(async () => undefined) };
+    service = new PlatformSubscriptionService(prisma, tenants, audit as any);
   });
 
   const change = (dto: Record<string, unknown>) =>
@@ -240,6 +243,96 @@ describe('PlatformSubscriptionService', () => {
 
     await change({ planType: 'CLINIC_BASIC', seatsPsychologistsMax: 4 });
     expect(events[1]).toMatchObject({ eventType: 'SEATS_DECREASED' });
+  });
+
+  describe('staying on the same plan', () => {
+    it('keeps a trial running when only the patient cap changes', async () => {
+      const trialEndsAt = new Date('2026-10-10T00:00:00Z');
+      subscription = subscriptionOf('TRIAL', {
+        status: 'TRIALING',
+        trialEndsAt,
+        currentPeriodEnd: null,
+        seatsPsychologistsMax: 3,
+        maxActivePatients: 20,
+      });
+      await change({ planType: 'TRIAL', maxActivePatients: 30 });
+      expect(updates[0].maxActivePatients).toBe(30);
+      for (const key of ['status', 'trialEndsAt', 'currentPeriodStart', 'currentPeriodEnd']) {
+        expect(updates[0]).not.toHaveProperty(key);
+      }
+      expect(subscription.status).toBe('TRIALING');
+      expect(subscription.trialEndsAt).toEqual(trialEndsAt);
+    });
+
+    it('keeps PAST_DUE and the period of a paid clinic when its seats change', async () => {
+      subscription = subscriptionOf('CLINIC_BASIC', { status: 'PAST_DUE' });
+      const { currentPeriodStart, currentPeriodEnd } = subscription;
+      await change({ planType: 'CLINIC_BASIC', seatsPsychologistsMax: 6 });
+      expect(updates[0].seatsPsychologistsMax).toBe(6);
+      expect(subscription.status).toBe('PAST_DUE');
+      expect(subscription.currentPeriodStart).toEqual(currentPeriodStart);
+      expect(subscription.currentPeriodEnd).toEqual(currentPeriodEnd);
+      expect(events[0]).toMatchObject({
+        eventType: 'SEATS_INCREASED',
+        previousStatus: 'PAST_DUE',
+        newStatus: 'PAST_DUE',
+      });
+    });
+
+    it('does not cancel pending payments nor clear a scheduled change', async () => {
+      subscription = subscriptionOf('CLINIC_BASIC', {
+        scheduledPlanChange: 'CLINIC_PRO',
+        scheduledPlanChangeAt: new Date('2026-10-20T00:00:00Z'),
+      });
+      await change({ planType: 'CLINIC_BASIC', seatsPsychologistsMax: 6 });
+      expect(paymentUpdates).toHaveLength(0);
+      expect(updates[0]).not.toHaveProperty('scheduledPlanChange');
+      expect(subscription.scheduledPlanChange).toBe('CLINIC_PRO');
+    });
+
+    it('audits a patients-only change with the reason and the actor in the same transaction', async () => {
+      await change({ planType: 'CLINIC_BASIC', maxActivePatients: 777, reason: 'Excepción' });
+      expect(events).toHaveLength(0);
+      expect(audit.record).toHaveBeenCalledTimes(1);
+      expect(audit.record).toHaveBeenCalledWith(
+        {
+          tenantId: TENANT,
+          actorId: ACTOR,
+          entity: 'TENANT',
+          entityId: TENANT,
+          reason: 'Excepción',
+          changes: {
+            before: { maxActivePatients: getPlanLimits('CLINIC_BASIC').maxActivePatients },
+            after: { maxActivePatients: 777 },
+          },
+        },
+        tx,
+      );
+    });
+
+    it('does not audit when a subscription event already records the change', async () => {
+      await change({ planType: 'CLINIC_BASIC', seatsPsychologistsMax: 9 });
+      expect(events).toHaveLength(1);
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('answers PLAN_UNCHANGED and writes nothing for a true no-op', async () => {
+      await expect(change({ planType: 'CLINIC_BASIC' })).rejects.toMatchObject({
+        status: 400,
+        response: { statusCode: 400, code: 'PLAN_UNCHANGED' },
+      });
+      await expect(
+        change({
+          planType: 'CLINIC_BASIC',
+          seatsPsychologistsMax: subscription.seatsPsychologistsMax,
+          maxActivePatients: subscription.maxActivePatients,
+        }),
+      ).rejects.toMatchObject({ response: { code: 'PLAN_UNCHANGED' } });
+      expect(updates).toHaveLength(0);
+      expect(events).toHaveLength(0);
+      expect(paymentUpdates).toHaveLength(0);
+      expect(audit.record).not.toHaveBeenCalled();
+    });
   });
 
   it('does not touch any TenantModule row', async () => {

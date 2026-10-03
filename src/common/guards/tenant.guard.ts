@@ -22,6 +22,16 @@ export class TenantGuard implements CanActivate {
       context.getClass(),
     ]);
 
+    const isPlatformRoute = this.reflector.getAllAndOverride<boolean>(PLATFORM_ROUTE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // Fail closed: a public check that runs first would leave a platform route open to anyone.
+    if (isPublic && isPlatformRoute) {
+      throw new Error('A platform route cannot be public');
+    }
+
     if (isPublic) {
       return true;
     }
@@ -32,11 +42,6 @@ export class TenantGuard implements CanActivate {
     if (!user || !user.tenantId) {
       throw new ForbiddenException('Contexto del tenant no encontrado');
     }
-
-    const isPlatformRoute = this.reflector.getAllAndOverride<boolean>(PLATFORM_ROUTE_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
 
     if (isPlatformRoute) {
       // Platform routes are the only ones an ADMIN may call, and only from the platform tenant.

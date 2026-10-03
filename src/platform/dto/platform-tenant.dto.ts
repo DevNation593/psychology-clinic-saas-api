@@ -19,8 +19,10 @@ const trimText = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 const trimEmail = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
-const toBoolean = ({ value }: { value: unknown }) =>
-  value === 'true' ? true : value === 'false' ? false : value;
+// Reads the raw query value: with implicit conversion enabled, `value` is already
+// Boolean('false') === true by the time this runs.
+const toBoolean = ({ obj, key }: { obj: Record<string, unknown>; key: string }) =>
+  obj[key] === 'true' ? true : obj[key] === 'false' ? false : obj[key];
 
 export class ListPlatformTenantsQueryDto {
   @ApiPropertyOptional()

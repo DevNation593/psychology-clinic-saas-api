@@ -11,6 +11,7 @@ import {
 } from '../subscription/subscription-billing.rules';
 import { getPlanLimits } from '../subscription/subscription-pricing';
 import { ChangePlanDto } from './dto/change-plan.dto';
+import { PlatformAuditService } from './platform-audit.service';
 import {
   PlatformTenantDetail,
   PlatformTenantsService,
@@ -23,6 +24,7 @@ export class PlatformSubscriptionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenants: PlatformTenantsService,
+    private readonly audit: PlatformAuditService,
   ) {}
 
   /**
@@ -66,6 +68,18 @@ export class PlatformSubscriptionService {
       const patients =
         dto.maxActivePatients ?? (samePlan ? subscription.maxActivePatients : planPatients);
 
+      if (
+        samePlan &&
+        seats === subscription.seatsPsychologistsMax &&
+        patients === subscription.maxActivePatients
+      ) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'PLAN_UNCHANGED',
+          message: 'El consultorio ya tiene ese plan y esos límites.',
+        });
+      }
+
       if (subscription.seatsPsychologistsUsed > seats) {
         throw new ConflictException({
           statusCode: 409,
@@ -89,24 +103,28 @@ export class PlatformSubscriptionService {
         });
       }
 
-      const now = new Date();
       let period: {
         status: SubscriptionStatus;
         trialEndsAt?: Date | null;
         currentPeriodStart?: Date;
         currentPeriodEnd?: Date | null;
       };
-      if (isTrial) {
+      if (samePlan) {
+        // Same plan: only the limits move; status and period belong to the billing cycle.
+        period = { status: subscription.status };
+      } else if (isTrial) {
+        const now = new Date();
         period = {
           status: SubscriptionStatus.TRIALING,
           trialEndsAt: addDays(now, TRIAL_DAYS),
           currentPeriodStart: now,
           currentPeriodEnd: null,
         };
-      } else if (hasRunningPaidPeriod(subscription, now)) {
+      } else if (hasRunningPaidPeriod(subscription, new Date())) {
         period = { status: SubscriptionStatus.ACTIVE };
       } else {
         // Coming from a trial or a lapsed period, the paid month starts today.
+        const now = new Date();
         period = {
           status: SubscriptionStatus.ACTIVE,
           trialEndsAt: null,
@@ -115,21 +133,28 @@ export class PlatformSubscriptionService {
         };
       }
 
-      await tx.tenantSubscription.update({
-        where: { tenantId },
-        data: {
-          ...data,
-          ...period,
-          seatsPsychologistsMax: seats,
-          maxActivePatients: patients,
-          scheduledPlanChange: null,
-          scheduledPlanChangeAt: null,
-        },
-      });
-      await tx.subscriptionPayment.updateMany({
-        where: { tenantId, kind: 'PLAN_UPGRADE', status: 'PENDING' },
-        data: { status: 'CANCELED' },
-      });
+      if (samePlan) {
+        await tx.tenantSubscription.update({
+          where: { tenantId },
+          data: { seatsPsychologistsMax: seats, maxActivePatients: patients },
+        });
+      } else {
+        await tx.tenantSubscription.update({
+          where: { tenantId },
+          data: {
+            ...data,
+            ...period,
+            seatsPsychologistsMax: seats,
+            maxActivePatients: patients,
+            scheduledPlanChange: null,
+            scheduledPlanChangeAt: null,
+          },
+        });
+        await tx.subscriptionPayment.updateMany({
+          where: { tenantId, kind: 'PLAN_UPGRADE', status: 'PENDING' },
+          data: { status: 'CANCELED' },
+        });
+      }
 
       let eventType: SubscriptionEventType | null;
       if (samePlan) {
@@ -165,6 +190,22 @@ export class PlatformSubscriptionService {
             triggeredByUserId: actorId,
           },
         });
+      } else {
+        // Patients-only change: no SubscriptionEvent type fits, so keep the reason and author here.
+        await this.audit.record(
+          {
+            tenantId,
+            actorId,
+            entity: 'TENANT',
+            entityId: tenantId,
+            reason: dto.reason,
+            changes: {
+              before: { maxActivePatients: subscription.maxActivePatients },
+              after: { maxActivePatients: patients },
+            },
+          },
+          tx,
+        );
       }
     });
 
