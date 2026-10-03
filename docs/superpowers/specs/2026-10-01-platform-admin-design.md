@@ -179,7 +179,8 @@ La respuesta devuelve el consultorio, el titular (sin contraseña), la suscripci
 - Recalcula límites, precios y banderas con `getPlanLimits` y `getPlanFeatureFlags`; los valores `seatsPsychologistsMax` y `maxActivePatients` del cuerpo, si vienen, sustituyen a los del plan.
 - Si `seatsPsychologistsUsed` o `activePatientsCount` superan los nuevos límites: 409 `PLAN_BELOW_USAGE` con los valores en `details`, sin cambios.
 - Valida la correspondencia plan–tipo (`PLAN_TYPE_MISMATCH`).
-- Cancela un `scheduledPlanChange` pendiente y los pagos `PENDING` de mejora del consultorio (pasan a `CANCELED`).
+- Si el plan cambia: cancela un `scheduledPlanChange` pendiente y los pagos `PENDING` de mejora del consultorio (pasan a `CANCELED`).
+- Si el plan no cambia: solo se modifican cupos y máximo de pacientes; estado, período y fin de prueba quedan intactos, y no se cancelan pagos. Un cambio sin ninguna diferencia responde 400 `PLAN_UNCHANGED`. Un cambio solo del máximo de pacientes, que no genera `SubscriptionEvent`, queda en `AuditLog` con el motivo y el `ADMIN`.
 - Pasar de `TRIAL` a un plan de pago deja el estado en `ACTIVE` con un período de un mes.
 - Registra un `SubscriptionEvent` (`PLAN_UPGRADED` o `PLAN_DOWNGRADED`; `SEATS_INCREASED`/`SEATS_DECREASED` si solo cambian cupos) con `reason` y el `ADMIN` como autor.
 - No modifica las secciones.
@@ -219,6 +220,7 @@ Suspender, reactivar, editar la cuenta, cambiar secciones y restablecer la contr
 | Plan por debajo del uso actual | 409 `PLAN_BELOW_USAGE` |
 | Consultorio inexistente o de plataforma | 404 |
 | Nueva contraseña igual a la actual | 400 `PASSWORD_UNCHANGED` |
+| Cambio de plan sin ninguna diferencia | 400 `PLAN_UNCHANGED` |
 
 ### Punto a verificar al escribir el plan
 
