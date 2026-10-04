@@ -5,6 +5,17 @@ import { ROLES_KEY } from '../decorators/roles.decorator';
 import { AppointmentsController } from '../../appointments/appointments.controller';
 import { AuditLogController } from '../../audit-log/audit-log.controller';
 import { BillingController } from '../../billing/billing.controller';
+import { BranchesController } from '../../branches/branches.controller';
+import { ReportsController } from '../../reports/reports.controller';
+import { RecordDocumentsController } from '../../record-documents/record-documents.controller';
+import { DocumentTemplatesController } from '../../document-templates/document-templates.controller';
+import { CatalogsController } from '../../catalogs/catalogs.controller';
+import { ClinicalModulesController } from '../../clinical-modules/clinical-modules.controller';
+import { EncountersController } from '../../encounters/encounters.controller';
+import {
+  PatientFilesController,
+  StorageController,
+} from '../../patient-files/patient-files.controller';
 import { ClinicalNotesController } from '../../clinical-notes/clinical-notes.controller';
 import { ClinicalTimelineController } from '../../clinical-timeline/clinical-timeline.controller';
 import { NextSessionPlansController } from '../../next-session-plans/next-session-plans.controller';
@@ -76,6 +87,39 @@ describe('role matrix', () => {
     [TasksController, 'update', CLINICAL],
     [SpecialtyRecordsController, 'create', CLINICAL],
     [SpecialtyRecordsController, 'list', CLINICAL],
+    [SpecialtyRecordsController, 'alerts', CLINICAL],
+    [SpecialtyRecordsController, 'update', CLINICAL],
+    [SpecialtyRecordsController, 'remove', CLINICAL],
+    [ClinicalModulesController, 'listModules', CLINICAL],
+    [ClinicalModulesController, 'listForms', CLINICAL],
+    [ClinicalModulesController, 'findForm', CLINICAL],
+    [ClinicalModulesController, 'createForm', MASTER],
+    [ClinicalModulesController, 'updateForm', MASTER],
+    [SpecialtyRecordsController, 'findOne', CLINICAL],
+    [EncountersController, 'list', CLINICAL],
+    [EncountersController, 'start', CLINICAL],
+    [EncountersController, 'update', CLINICAL],
+    [EncountersController, 'close', CLINICAL],
+    [EncountersController, 'remove', CLINICAL],
+    [CatalogsController, 'searchDiagnosisCodes', CLINICAL],
+    [CatalogsController, 'listMedications', CLINICAL],
+    [CatalogsController, 'createMedication', CLINICAL],
+    [CatalogsController, 'updateMedication', CLINICAL],
+    [BranchesController, 'list', TEAM],
+    [BranchesController, 'create', MASTER],
+    [BranchesController, 'update', MASTER],
+    [BranchesController, 'setProfessionals', MASTER],
+    [ReportsController, 'activity', MASTER],
+    [RecordDocumentsController, 'issue', CLINICAL],
+    [DocumentTemplatesController, 'list', CLINICAL],
+    [DocumentTemplatesController, 'create', MASTER],
+    [DocumentTemplatesController, 'update', MASTER],
+    [PatientFilesController, 'list', CLINICAL],
+    [PatientFilesController, 'upload', CLINICAL],
+    [PatientFilesController, 'download', CLINICAL],
+    [PatientFilesController, 'remove', CLINICAL],
+    [StorageController, 'breakdown', MASTER],
+    [StorageController, 'files', MASTER],
     [ClinicalNotesController, 'findAll', CLINICAL],
     [ClinicalNotesController, 'findOne', CLINICAL],
     [ClinicalNotesController, 'remove', CLINICAL],
@@ -110,12 +154,21 @@ describe('role matrix', () => {
     AppointmentsController,
     AuditLogController,
     BillingController,
+    BranchesController,
+    CatalogsController,
+    ClinicalModulesController,
     ClinicalNotesController,
+    EncountersController,
     ClinicalTimelineController,
     NextSessionPlansController,
+    PatientFilesController,
+    ReportsController,
+    RecordDocumentsController,
+    DocumentTemplatesController,
     PatientTeamController,
     PatientsController,
     SpecialtiesController,
+    StorageController,
     SpecialtyRecordsController,
     SubscriptionController,
     TasksController,

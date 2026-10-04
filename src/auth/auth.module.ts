@@ -13,6 +13,7 @@ import { TenantGuard } from '../common/guards/tenant.guard';
 import { SubscriptionGuard } from '../common/guards/subscription.guard';
 import { FeatureGuard } from '../common/guards/feature.guard';
 import { SectionGuard } from '../common/guards/section.guard';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { RlsContextInterceptor } from '../common/interceptors/rls-context.interceptor';
 import { MailModule } from '../mail/mail.module';
 
@@ -49,6 +50,10 @@ import { MailModule } from '../mail/mail.module';
     {
       provide: APP_GUARD,
       useClass: SectionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
     },
     {
       provide: APP_INTERCEPTOR,

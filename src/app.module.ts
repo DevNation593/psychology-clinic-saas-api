@@ -23,6 +23,16 @@ import { TenantSettingsModule } from './tenant-settings/tenant-settings.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { BillingModule } from './billing/billing.module';
 import { SpecialtyRecordsModule } from './specialty-records/specialty-records.module';
+import { ClinicalModulesModule } from './clinical-modules/clinical-modules.module';
+import { BranchesModule } from './branches/branches.module';
+import { EncountersModule } from './encounters/encounters.module';
+import { CatalogsModule } from './catalogs/catalogs.module';
+import { PatientFilesModule } from './patient-files/patient-files.module';
+import { ReportsModule } from './reports/reports.module';
+import { RecordDocumentsModule } from './record-documents/record-documents.module';
+import { DocumentTemplatesModule } from './document-templates/document-templates.module';
+import { DocumentVerificationModule } from './document-verification/document-verification.module';
+import { PermissionsModule } from './common/permissions/permissions.module';
 import { PlatformModule } from './platform/platform.module';
 import { HealthController } from './health.controller';
 import './common/utils/bigint-json';
@@ -63,6 +73,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
 
     // Prisma database
     PrismaModule,
+    PermissionsModule,
 
     // Scheduler for background jobs (requires Redis)
     ...(isRedisEnabled ? [SchedulerModule] : []),
@@ -85,6 +96,15 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     SpecialtiesModule,
     BillingModule,
     SpecialtyRecordsModule,
+    ClinicalModulesModule,
+    BranchesModule,
+    EncountersModule,
+    CatalogsModule,
+    PatientFilesModule,
+    ReportsModule,
+    RecordDocumentsModule,
+    DocumentTemplatesModule,
+    DocumentVerificationModule,
     PlatformModule,
   ],
   providers: [
