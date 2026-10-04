@@ -120,7 +120,7 @@ describe('WebPushService', () => {
     ]);
 
     const result = await service.sendToUser('tenant-1', 'user-1', {
-      title: 'Tarea próxima a vencer',
+      title: 'Actividad próxima a vencer',
       body: 'Registro de pensamientos',
       data: { url: '/patients/p1' },
     });

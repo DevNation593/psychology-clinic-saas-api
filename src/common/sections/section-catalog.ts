@@ -24,7 +24,7 @@ export interface SectionDefinition {
 export const SECTION_CATALOG: readonly SectionDefinition[] = [
   { key: 'core.calendar', name: 'Calendario', requires: ['core.patients'] },
   { key: 'core.patients', name: 'Pacientes', requires: [] },
-  { key: 'core.tasks', name: 'Tareas', requires: ['core.patients'] },
+  { key: 'core.tasks', name: 'Actividades', requires: ['core.patients'] },
   { key: 'core.clinicalNotes', name: 'Notas clínicas', requires: ['core.patients'] },
   { key: 'core.specialties', name: 'Módulos clínicos', requires: ['core.patients'] },
   { key: 'core.billing', name: 'Facturación', requires: [] },
