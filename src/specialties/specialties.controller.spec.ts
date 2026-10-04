@@ -55,7 +55,7 @@ describe('SpecialtiesController selection routes', () => {
     async (method) => {
       await request(app.getHttpServer())
         [method]('/tenants/tenant-1/specialties')
-        .set('x-test-role', 'ADMIN')
+        .set('x-test-role', 'MASTER')
         .send({ specialtyCodes: [' psychology '] })
         .expect(200)
         .expect(result);
@@ -69,7 +69,7 @@ describe('SpecialtiesController selection routes', () => {
     async (specialtyCodes) => {
       await request(app.getHttpServer())
         .put('/tenants/tenant-1/specialties')
-        .set('x-test-role', 'ADMIN')
+        .set('x-test-role', 'MASTER')
         .send({ specialtyCodes })
         .expect(400);
       expect(selection.replace).not.toHaveBeenCalled();
@@ -80,7 +80,7 @@ describe('SpecialtiesController selection routes', () => {
     for (const method of ['put', 'post'] as const) {
       await request(app.getHttpServer())
         [method]('/tenants/tenant-2/specialties')
-        .set('x-test-role', 'ADMIN')
+        .set('x-test-role', 'MASTER')
         .send({ specialtyCodes: ['PSYCHOLOGY'] })
         .expect(403);
       await request(app.getHttpServer())
@@ -100,7 +100,7 @@ describe('SpecialtiesController selection routes', () => {
       SpecialtiesController.prototype.updateModule,
     ]) {
       expect(reflector.get(IS_PUBLIC_KEY, handler)).toBeUndefined();
-      expect(reflector.get(ROLES_KEY, handler)).toEqual(['ADMIN']);
+      expect(reflector.get(ROLES_KEY, handler)).toEqual(['MASTER']);
     }
   });
 });

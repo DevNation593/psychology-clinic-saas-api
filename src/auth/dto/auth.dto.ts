@@ -41,6 +41,18 @@ export class ResetPasswordDto {
   password: string;
 }
 
+export class ChangeOwnPasswordDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  currentPassword: string;
+
+  @ApiProperty({ minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  newPassword: string;
+}
+
 export class AuthResponseDto {
   @ApiProperty()
   accessToken: string;
@@ -56,6 +68,7 @@ export class AuthResponseDto {
     lastName: string;
     role: string;
     tenantId: string;
+    mustChangePassword: boolean;
     professionalProfile?: {
       specialty: { id: string; code: string; name: string };
     };

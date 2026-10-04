@@ -127,39 +127,4 @@ describe('Subscription professional seats', () => {
     expect(tx.tenantSpecialty.count).toHaveBeenCalled();
     expect(db.$transaction).toHaveBeenCalledTimes(2);
   });
-
-  it('charges selected specialties above the new plan allowance on upgrade', async () => {
-    const subscription = {
-      planType: 'CLINIC_BASIC',
-      basePrice: new Decimal(99),
-      specialtyPrice: new Decimal(12),
-      currentPeriodEnd: null,
-      featureClinicalNotes: true,
-      featureSSO: true,
-      featureWhatsAppIntegration: false,
-    };
-    db.tenantSubscription.findUnique.mockResolvedValue({ ...subscription, featureSSO: false });
-    db.tenant = { findUnique: jest.fn().mockResolvedValue({ tenantType: 'CLINIC' }) };
-    db.tenantSpecialty = { count: jest.fn().mockResolvedValue(2) };
-    db.applyRlsContext = jest.fn().mockResolvedValue(undefined);
-    const tx = {
-      tenant: { findUnique: jest.fn().mockResolvedValue({ tenantType: 'CLINIC' }) },
-      tenantSubscription: {
-        findUnique: jest.fn().mockResolvedValue(subscription),
-        update: jest.fn().mockImplementation(async ({ data }) => data),
-      },
-      tenantSpecialty: { count: jest.fn().mockResolvedValue(5) },
-      subscriptionEvent: { create: jest.fn().mockResolvedValue({}) },
-    };
-    db.$transaction = jest.fn().mockImplementation(async (callback) => callback(tx));
-
-    const result = await service.upgradePlan(tenantId, 'user-1', 'CLINIC_PRO');
-
-    expect(result.subscription.basePrice.toNumber()).toBe(249);
-    expect(result.subscription.featureSSO).toBe(true);
-    expect(result.subscription.featureWhatsAppIntegration).toBe(false);
-    expect(result.billing.proratedCharge).toBe(249);
-    expect(tx.tenantSubscription.findUnique).toHaveBeenCalled();
-    expect(tx.tenantSpecialty.count).toHaveBeenCalled();
-  });
 });

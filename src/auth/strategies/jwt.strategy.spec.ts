@@ -31,7 +31,8 @@ describe('JwtStrategy current account authority', () => {
       role: 'ASISTENTE',
       isActive: true,
       lastActivityAt: null,
-      tenant: { id: 'tenant-1', isActive: true },
+      mustChangePassword: true,
+      tenant: { id: 'tenant-1', isActive: true, isPlatform: false },
     };
     db = {
       withRlsContext: jest.fn(async (_context, callback) => callback()),
@@ -48,12 +49,14 @@ describe('JwtStrategy current account authority', () => {
   });
 
   it('uses the current assistant role and denies team creation with an old ADMIN token', async () => {
-    const principal = await strategy.validate(payload('ADMIN'));
+    const principal = await strategy.validate(payload('MASTER'));
     expect(principal).toEqual({
       userId: 'member-1',
       email: 'current-email@example.com',
       tenantId: 'tenant-1',
       role: 'ASISTENTE',
+      isPlatformTenant: false,
+      mustChangePassword: true,
     });
     expect(db.user.findUnique).toHaveBeenCalledWith({
       where: { id: 'member-1' },
@@ -65,14 +68,14 @@ describe('JwtStrategy current account authority', () => {
   });
 
   it('honors a current legacy CLIENTE admin even if an old token says PROFESIONAL', async () => {
-    user.role = 'CLIENTE';
+    user.role = 'MASTER';
     const principal = await strategy.validate(payload('PROFESIONAL'));
-    expect(principal.role).toBe('CLIENTE');
+    expect(principal.role).toBe('MASTER');
     expect(new RolesGuard(new Reflector()).canActivate(adminCreateContext(principal))).toBe(true);
   });
 
   it('rejects a token whose tenant no longer matches the persisted account', async () => {
-    await expect(strategy.validate({ ...payload('ADMIN'), tenantId: 'tenant-2' })).rejects.toThrow(
+    await expect(strategy.validate({ ...payload('MASTER'), tenantId: 'tenant-2' })).rejects.toThrow(
       UnauthorizedException,
     );
     expect(db.user.update).not.toHaveBeenCalled();

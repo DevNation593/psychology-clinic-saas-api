@@ -47,3 +47,6 @@ lerna-debug.log*
 
 # Isolated Codex worktrees
 /.worktrees/
+
+# Clinical files kept by the local storage driver
+/storage

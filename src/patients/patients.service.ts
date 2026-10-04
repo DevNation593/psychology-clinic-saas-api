@@ -1,9 +1,65 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PatientTeamService } from '../patient-team/patient-team.service';
 import { toCanonicalRole } from '../common/roles/role-compatibility';
 import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
+import { normalizeTaxId } from '../billing/invoice-customer';
+import { mergePatientBilling, PatientBillingFields } from './patient-billing';
+import {
+  assertGuardianForMinor,
+  mergePatientIdentification,
+  PatientIdentification,
+} from './patient-identity';
+
+const BILLING_FIELDS = [
+  'billingName',
+  'billingTaxIdType',
+  'billingTaxId',
+  'billingEmail',
+  'billingAddress',
+] as const;
+
+const IDENTIFICATION_FIELDS = ['identificationType', 'identificationNumber'] as const;
+
+// Free-text demographic columns: trimmed, and stored as null when left blank.
+const PROFILE_FIELDS = [
+  'maritalStatus',
+  'occupation',
+  'nationality',
+  'bloodType',
+  'disability',
+  'insuranceProvider',
+  'insurancePolicyNumber',
+  'guardianName',
+  'guardianRelationship',
+  'guardianIdentification',
+  'guardianPhone',
+] as const;
+
+type MergedFields = (typeof BILLING_FIELDS)[number] | (typeof IDENTIFICATION_FIELDS)[number];
+
+/**
+ * The DTO without its billing and identification keys; those are written only through
+ * mergePatientBilling and mergePatientIdentification.
+ */
+function withoutMergedFields(dto: UpdatePatientDto): Omit<UpdatePatientDto, MergedFields> {
+  const copy: Record<string, unknown> = { ...dto };
+  for (const field of [...BILLING_FIELDS, ...IDENTIFICATION_FIELDS]) delete copy[field];
+  return copy;
+}
+
+const identificationTaken = () =>
+  new ConflictException({
+    statusCode: 409,
+    code: 'PATIENT_IDENTIFICATION_TAKEN',
+    message: 'Ya existe un paciente con esa identificación.',
+  });
 
 @Injectable()
 export class PatientsService {
@@ -35,9 +91,44 @@ export class PatientsService {
     return new Date(`${trimmed}T00:00:00.000Z`);
   }
 
+  private profileFields(dto: UpdatePatientDto) {
+    return Object.fromEntries(
+      PROFILE_FIELDS.map((field) => [field, this.normalizeOptionalString(dto[field])]),
+    ) as Record<(typeof PROFILE_FIELDS)[number], string | null | undefined>;
+  }
+
+  /** Identification columns to write on update, or nothing when the request does not mention them. */
+  private identificationUpdate(current: PatientIdentification, dto: UpdatePatientDto) {
+    if (!IDENTIFICATION_FIELDS.some((field) => dto[field] !== undefined)) return {};
+    return mergePatientIdentification(current, dto);
+  }
+
+  /** The pair is unique among live patients; the partial index backs this check against races. */
+  private async assertIdentificationFree(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    identification: Partial<PatientIdentification>,
+    exceptPatientId?: string,
+  ) {
+    if (!identification.identificationNumber) return;
+    const other = await tx.patient.findFirst({
+      where: {
+        tenantId,
+        identificationType: identification.identificationType,
+        identificationNumber: identification.identificationNumber,
+        deletedAt: null,
+        ...(exceptPatientId ? { id: { not: exceptPatientId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (other) throw identificationTaken();
+  }
+
   private sanitizeCreatePayload(createPatientDto: CreatePatientDto) {
     return {
       ...createPatientDto,
+      ...this.profileFields(createPatientDto),
+      ...mergePatientIdentification(null, createPatientDto),
       dateOfBirth: this.normalizeDateOfBirth(createPatientDto.dateOfBirth),
       email: this.normalizeOptionalString(createPatientDto.email),
       phone: this.normalizeOptionalString(createPatientDto.phone),
@@ -51,12 +142,20 @@ export class PatientsService {
       allergies: this.normalizeOptionalString(createPatientDto.allergies),
       currentMedication: this.normalizeOptionalString(createPatientDto.currentMedication),
       notes: this.normalizeOptionalString(createPatientDto.notes),
+      ...mergePatientBilling(null, createPatientDto),
     };
+  }
+
+  /** Billing columns to write on update, or nothing when the request does not mention them. */
+  private billingUpdate(current: PatientBillingFields, dto: UpdatePatientDto) {
+    if (!BILLING_FIELDS.some((field) => dto[field] !== undefined)) return {};
+    return mergePatientBilling(current, dto);
   }
 
   private sanitizeUpdatePayload(updatePatientDto: UpdatePatientDto) {
     return {
-      ...updatePatientDto,
+      ...withoutMergedFields(updatePatientDto),
+      ...this.profileFields(updatePatientDto),
       dateOfBirth: this.normalizeDateOfBirth(updatePatientDto.dateOfBirth),
       email: this.normalizeOptionalString(updatePatientDto.email),
       phone: this.normalizeOptionalString(updatePatientDto.phone),
@@ -102,11 +201,11 @@ export class PatientsService {
         });
 
         // Some RLS policies only allow admins to read subscription details.
-        if (!subscription && currentUserRole !== 'CLIENTE') {
+        if (!subscription && currentUserRole !== 'MASTER') {
           await this.prisma.applyRlsContext(tx, {
             tenantId,
             userId: currentUserId,
-            role: 'CLIENTE',
+            role: 'MASTER',
           });
           subscription = await tx.tenantSubscription.findUnique({
             where: { tenantId },
@@ -121,6 +220,8 @@ export class PatientsService {
         }
 
         this.assertCanCreatePatient(tenantId, subscription);
+        assertGuardianForMinor(sanitized.dateOfBirth, sanitized.guardianName);
+        await this.assertIdentificationFree(tx, tenantId, sanitized);
 
         const patient = await tx.patient.create({
           data: {
@@ -147,11 +248,11 @@ export class PatientsService {
           data: { activePatientsCount: { increment: 1 } },
         });
 
-        if (updated.count === 0 && currentUserRole !== 'CLIENTE') {
+        if (updated.count === 0 && currentUserRole !== 'MASTER') {
           await this.prisma.applyRlsContext(tx, {
             tenantId,
             userId: currentUserId,
-            role: 'CLIENTE',
+            role: 'MASTER',
           });
           updated = await tx.tenantSubscription.updateMany({
             where: {
@@ -222,6 +323,9 @@ export class PatientsService {
         { firstName: { contains: search, mode: 'insensitive' } },
         { lastName: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search } },
+        // Stored without spaces or hyphens, so the search term is compared the same way.
+        { identificationNumber: { contains: normalizeTaxId(search) } },
       ];
     }
 
@@ -272,7 +376,7 @@ export class PatientsService {
         _count: {
           select: {
             appointments: true,
-            clinicalNotes: true,
+            clinicalNotes: { where: { deletedAt: null } },
             tasks: true,
           },
         },
@@ -314,10 +418,24 @@ export class PatientsService {
         if (assignedPsychologistId && toCanonicalRole(currentUserRole) === 'PROFESIONAL') {
           await this.patientTeam.assertActiveMembership(tx, tenantId, patientId, currentUserId);
         }
+
+        const identification = this.identificationUpdate(patient, updatePatientDto);
+        await this.assertIdentificationFree(tx, tenantId, identification, patientId);
+        // Checked only when the request touches the birth date or the guardian, so a minor
+        // registered before the rule existed can still have other fields edited.
+        if (otherData.dateOfBirth !== undefined || otherData.guardianName !== undefined) {
+          assertGuardianForMinor(
+            otherData.dateOfBirth === undefined ? patient.dateOfBirth : otherData.dateOfBirth,
+            otherData.guardianName === undefined ? patient.guardianName : otherData.guardianName,
+          );
+        }
+
         const updated = await tx.patient.update({
           where: { id: patientId },
           data: {
             ...otherData,
+            ...identification,
+            ...this.billingUpdate(patient, updatePatientDto),
             ...(assignedPsychologistId !== undefined ? { assignedPsychologistId } : {}),
           },
         });
@@ -373,11 +491,11 @@ export class PatientsService {
 
       let subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
 
-      if (!subscription && currentUserRole !== 'CLIENTE') {
+      if (!subscription && currentUserRole !== 'MASTER') {
         await this.prisma.applyRlsContext(tx, {
           tenantId,
           userId: currentUserId,
-          role: 'CLIENTE',
+          role: 'MASTER',
         });
         subscription = await tx.tenantSubscription.findUnique({ where: { tenantId } });
       }

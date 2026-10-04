@@ -49,7 +49,9 @@ describe('specialty onboarding E2E database safety', () => {
       jest.doMock('@nestjs/testing', () => ({ Test: { createTestingModule } }));
       jest.doMock('@prisma/client', () => ({ PrismaClient: class PrismaClient {} }));
       jest.doMock('../src/app.module', () => ({ AppModule: class AppModule {} }));
-      jest.doMock('../src/onboarding/onboarding.service', () => ({ OnboardingService: class {} }));
+      jest.doMock('../src/platform/platform-tenants.service', () => ({
+        PlatformTenantsService: class {},
+      }));
       jest.doMock('../src/prisma/prisma.service', () => ({ PrismaService: PrismaServiceToken }));
       jest.doMock('../src/specialties/tenant-specialties.service', () => ({
         TenantSpecialtiesService: class {},
@@ -73,7 +75,7 @@ describe('specialty onboarding E2E database safety', () => {
       jest.dontMock('@nestjs/testing');
       jest.dontMock('@prisma/client');
       jest.dontMock('../src/app.module');
-      jest.dontMock('../src/onboarding/onboarding.service');
+      jest.dontMock('../src/platform/platform-tenants.service');
       jest.dontMock('../src/prisma/prisma.service');
       jest.dontMock('../src/specialties/tenant-specialties.service');
     }

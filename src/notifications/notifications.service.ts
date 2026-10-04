@@ -1,7 +1,23 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NotificationLog, NotificationType, Prisma } from '@prisma/client';
 import * as admin from 'firebase-admin';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationPreferencesService } from './notification-preferences.service';
+import { WebPushService } from './web-push/web-push.service';
+
+export interface NotifyInput {
+  tenantId: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data?: Record<string, string>;
+  relatedEntityType?: string;
+  relatedEntityId?: string;
+  /** When set, the notification is created at most once per tenant for this key. */
+  dedupeKey?: string;
+}
 
 @Injectable()
 export class NotificationsService {
@@ -11,6 +27,8 @@ export class NotificationsService {
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
+    private preferences: NotificationPreferencesService,
+    private webPush: WebPushService,
   ) {
     this.initializeFirebase();
   }
@@ -30,7 +48,7 @@ export class NotificationsService {
         !privateKey.includes('BEGIN PRIVATE KEY')
       ) {
         this.logger.warn(
-          'Firebase credentials not configured. Push notifications will be disabled.',
+          'Firebase credentials not configured. Mobile push notifications will be disabled.',
         );
         return;
       }
@@ -45,70 +63,58 @@ export class NotificationsService {
 
       this.logger.log('Firebase initialized successfully');
     } catch (error) {
-      this.logger.warn('Failed to initialize Firebase. Push notifications will be disabled.');
+      this.logger.warn(
+        'Failed to initialize Firebase. Mobile push notifications will be disabled.',
+      );
     }
   }
 
   /**
-   * Send push notification via FCM
+   * Creates the in-app notification and, unless the user turned push off, delivers it to
+   * their devices: the mobile app through FCM and every subscribed browser through Web Push.
+   * Returns null when `dedupeKey` shows this notification was already created.
    */
-  async sendPushNotification(
-    tenantId: string,
-    userId: string,
-    title: string,
-    body: string,
-    data?: Record<string, string>,
-    type: string = 'SYSTEM_ANNOUNCEMENT',
-  ) {
+  async notify(input: NotifyInput): Promise<NotificationLog | null> {
+    let notification: NotificationLog;
     try {
-      // Get user's FCM token
-      const user = await this.prisma.user.findFirst({
-        where: { id: userId, tenantId },
-        select: { fcmToken: true },
+      notification = await this.prisma.notificationLog.create({
+        data: { ...input, status: 'SENT', sentAt: new Date() },
       });
+    } catch (error) {
+      // The unique (tenantId, dedupeKey) index is what makes concurrent runs send only once.
+      if (input.dedupeKey && (error as Prisma.PrismaClientKnownRequestError).code === 'P2002') {
+        return null;
+      }
+      throw error;
+    }
 
-      const notification = await this.prisma.notificationLog.create({
-        data: {
-          tenantId,
-          userId,
-          type: type as any,
-          title,
-          body,
-          data,
-          fcmToken: user?.fcmToken || null,
-          status: 'PENDING',
-        },
+    const { pushEnabled } = await this.preferences.get(input.userId);
+    if (!pushEnabled) return notification;
+
+    const outcome = await this.deliverPush(input);
+    if (outcome.fcmToken || outcome.fcmMessageId || outcome.errorMessage) {
+      return this.prisma.notificationLog.update({
+        where: { id: notification.id },
+        data: outcome,
       });
+    }
+    return notification;
+  }
 
-      if (!this.firebaseApp) {
-        this.logger.warn('Firebase not initialized. Skipping push notification.');
-        await this.prisma.notificationLog.update({
-          where: { id: notification.id },
-          data: {
-            status: 'FAILED',
-            failedAt: new Date(),
-            errorMessage: 'Firebase not configured',
-          },
-        });
-        return notification;
-      }
+  /** Push delivery never fails the notification: it stays readable in the app. */
+  private async deliverPush(input: NotifyInput) {
+    const { tenantId, userId, title, body, data } = input;
+    const outcome: { fcmToken?: string; fcmMessageId?: string; errorMessage?: string } = {};
 
-      if (!user?.fcmToken) {
-        this.logger.debug(`User ${userId} has no FCM token registered. In-app only.`);
-        await this.prisma.notificationLog.update({
-          where: { id: notification.id },
-          data: {
-            status: 'SENT',
-            sentAt: new Date(),
-            errorMessage: 'No FCM token - in-app only',
-          },
-        });
-        return notification;
-      }
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+      select: { fcmToken: true },
+    });
 
-      // Send real push notification via FCM
+    if (user?.fcmToken && this.firebaseApp) {
+      outcome.fcmToken = user.fcmToken;
       try {
-        const messageResult = await this.firebaseApp.messaging().send({
+        outcome.fcmMessageId = await this.firebaseApp.messaging().send({
           token: user.fcmToken,
           notification: { title, body },
           data: data || {},
@@ -127,26 +133,10 @@ export class NotificationsService {
               },
             },
           },
-          webpush: {
-            notification: {
-              icon: '/icons/notification-icon.png',
-              badge: '/icons/badge-icon.png',
-            },
-          },
-        });
-
-        this.logger.log(`FCM message sent successfully: ${messageResult}`);
-
-        await this.prisma.notificationLog.update({
-          where: { id: notification.id },
-          data: {
-            status: 'SENT',
-            sentAt: new Date(),
-            fcmMessageId: messageResult,
-          },
         });
       } catch (fcmError: any) {
         this.logger.error(`FCM send failed for user ${userId}: ${fcmError.message}`);
+        outcome.errorMessage = fcmError.message || 'FCM send failed';
 
         // If token is invalid, clear it from the user
         if (
@@ -159,22 +149,30 @@ export class NotificationsService {
             data: { fcmToken: null },
           });
         }
-
-        await this.prisma.notificationLog.update({
-          where: { id: notification.id },
-          data: {
-            status: 'FAILED',
-            failedAt: new Date(),
-            errorMessage: fcmError.message || 'FCM send failed',
-          },
-        });
       }
-
-      return notification;
-    } catch (error) {
-      this.logger.error('Failed to send push notification', error.stack);
-      throw error;
     }
+
+    try {
+      await this.webPush.sendToUser(tenantId, userId, { title, body, data });
+    } catch (error) {
+      this.logger.error(`Web Push failed for user ${userId}: ${(error as Error).message}`);
+    }
+
+    return outcome;
+  }
+
+  /**
+   * Send push notification via FCM
+   */
+  async sendPushNotification(
+    tenantId: string,
+    userId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+    type: string = 'SYSTEM_ANNOUNCEMENT',
+  ) {
+    return this.notify({ tenantId, userId, type: type as NotificationType, title, body, data });
   }
 
   /**
@@ -249,6 +247,12 @@ export class NotificationsService {
     hoursBefore: number,
     reminderRule: string = `${hoursBefore}h`,
   ) {
+    const { appointmentReminders } = await this.preferences.get(psychologistId);
+    if (!appointmentReminders) {
+      this.logger.debug(`User ${psychologistId} turned appointment reminders off. Skipping.`);
+      return;
+    }
+
     const title = '🔔 Recordatorio de cita';
     const totalMinutes = Math.round(hoursBefore * 60);
     const hours = Math.floor(totalMinutes / 60);
@@ -261,35 +265,23 @@ export class NotificationsService {
       .join(' ');
     const body = `Cita con ${appointment.patient.firstName} ${appointment.patient.lastName} en ${timeLabel}`;
 
-    const data = {
+    await this.notify({
+      tenantId,
+      userId: psychologistId,
       type: 'APPOINTMENT_REMINDER',
-      reminderRule,
-      appointmentId: appointment.id,
-      patientId: appointment.patientId,
-      startTime: appointment.startTime.toISOString(),
-    };
-
-    // Create in-app notification
-    await this.createInAppNotification(
-      tenantId,
-      psychologistId,
-      'APPOINTMENT_REMINDER',
       title,
       body,
-      data,
-      'appointment',
-      appointment.id,
-    );
-
-    // Optionally send push notification
-    await this.sendPushNotification(
-      tenantId,
-      psychologistId,
-      title,
-      body,
-      data,
-      'APPOINTMENT_REMINDER',
-    );
+      data: {
+        type: 'APPOINTMENT_REMINDER',
+        reminderRule,
+        appointmentId: appointment.id,
+        patientId: appointment.patientId,
+        startTime: appointment.startTime.toISOString(),
+        url: '/calendar',
+      },
+      relatedEntityType: 'appointment',
+      relatedEntityId: appointment.id,
+    });
 
     this.logger.log(
       `Sent appointment reminder to psychologist ${psychologistId} for appointment ${appointment.id}`,

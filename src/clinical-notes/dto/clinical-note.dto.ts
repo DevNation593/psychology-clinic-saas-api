@@ -1,5 +1,12 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsNumber, IsDateString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  IsDateString,
+  MaxLength,
+} from 'class-validator';
 
 export class CreateClinicalNoteDto {
   @ApiProperty({ example: 'patient-id' })
@@ -11,6 +18,14 @@ export class CreateClinicalNoteDto {
   @IsString()
   @IsOptional()
   appointmentId?: string;
+
+  @ApiPropertyOptional({
+    example: 'encounter-id',
+    description: 'An open encounter of the caller with this patient; the note is written in it.',
+  })
+  @IsString()
+  @IsOptional()
+  encounterId?: string;
 
   @ApiProperty({ example: 'Paciente refiere mejoría en síntomas de ansiedad...' })
   @IsString()
@@ -45,4 +60,21 @@ export class CreateClinicalNoteDto {
   sessionDate?: string;
 }
 
-export class UpdateClinicalNoteDto extends PartialType(CreateClinicalNoteDto) {}
+// A correction never moves the note to another patient or appointment.
+export class UpdateClinicalNoteDto extends PartialType(
+  OmitType(CreateClinicalNoteDto, ['patientId', 'appointmentId', 'encounterId'] as const),
+) {
+  @ApiProperty({ example: 'Se corrige el código del diagnóstico' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  changeReason: string;
+}
+
+export class DeleteClinicalNoteDto {
+  @ApiProperty({ example: 'Nota registrada en el paciente equivocado' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason: string;
+}

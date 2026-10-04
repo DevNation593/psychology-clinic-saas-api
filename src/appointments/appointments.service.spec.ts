@@ -1,5 +1,7 @@
 import { validateSync } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
+import { ForbiddenException } from '@nestjs/common';
+import { PermissionChecker } from '../common/permissions/permission-checker.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PatientTeamService } from '../patient-team/patient-team.service';
 import { ProfessionalEligibilityService } from '../patient-team/professional-eligibility.service';
@@ -12,7 +14,7 @@ describe('AppointmentsService canonical appointments', () => {
   const tenantId = 'tenant-1';
   const now = new Date('2026-09-28T12:00:00.000Z');
   const startTime = '2026-09-29T13:00:00.000Z';
-  const admin: TeamActor = { tenantId, userId: 'admin-1', role: 'ADMIN' };
+  const admin: TeamActor = { tenantId, userId: 'admin-1', role: 'MASTER' };
   const assistant: TeamActor = { tenantId, userId: 'assistant-1', role: 'ASISTENTE' };
   const clinician: TeamActor = { tenantId, userId: 'professional-1', role: 'PROFESIONAL' };
   const specialty = { id: 'nutrition', code: 'NUTRITION', name: 'Nutrición', isActive: true };
@@ -859,7 +861,11 @@ describe('AppointmentsController actor forwarding', () => {
       update: jest.fn(),
       cancel: jest.fn(),
     };
-    const controller = new AppointmentsController(service as unknown as AppointmentsService);
+    const permissions = { assertAllowed: jest.fn() };
+    const controller = new AppointmentsController(
+      service as unknown as AppointmentsService,
+      permissions as unknown as PermissionChecker,
+    );
     await (controller as any).create('tenant-1', {} as any, actor);
     await (controller as any).findAll('tenant-1', {} as any, actor);
     await (controller as any).findOne('tenant-1', 'appointment-1', actor);
@@ -870,5 +876,26 @@ describe('AppointmentsController actor forwarding', () => {
     expect(service.findOne).toHaveBeenCalledWith('tenant-1', 'appointment-1', actor);
     expect(service.update).toHaveBeenCalledWith('tenant-1', 'appointment-1', {}, actor);
     expect(service.cancel).toHaveBeenCalledWith('tenant-1', 'appointment-1', 'x', actor);
+    // An ordinary update asks for nothing beyond the route's own permission.
+    expect(permissions.assertAllowed).not.toHaveBeenCalled();
+  });
+
+  it('asks for the cancel permission when an update cancels the appointment', async () => {
+    const actor = { userId: 'assistant-1', tenantId: 'tenant-1', role: 'ASISTENTE' };
+    const service = { update: jest.fn() };
+    const permissions = {
+      assertAllowed: jest.fn().mockRejectedValue(new ForbiddenException('withdrawn')),
+    };
+    const controller = new AppointmentsController(
+      service as unknown as AppointmentsService,
+      permissions as unknown as PermissionChecker,
+    );
+
+    await expect(
+      (controller as any).update('tenant-1', 'appointment-1', { status: 'CANCELLED' }, actor),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(permissions.assertAllowed).toHaveBeenCalledWith(actor, 'appointments.cancel');
+    expect(service.update).not.toHaveBeenCalled();
   });
 });

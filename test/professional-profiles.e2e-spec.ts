@@ -1,12 +1,12 @@
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
-import { TenantsService } from '../src/tenants/tenants.service';
+import { PlatformTenantsService } from '../src/platform/platform-tenants.service';
 import { UsersService } from '../src/users/users.service';
 import { AuthService } from '../src/auth/auth.service';
 import { SubscriptionService } from '../src/subscription/subscription.service';
 import { ProfessionalProfilesService } from '../src/professional-profiles/professional-profiles.service';
-import { TEST_PASSWORD } from './helpers/create-test-tenant';
+import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 import { randomUUID } from 'crypto';
 
 jest.setTimeout(30000);
@@ -14,7 +14,7 @@ jest.setTimeout(30000);
 describe('Professional profile transition (E2E)', () => {
   let app: Awaited<ReturnType<ReturnType<typeof Test.createTestingModule>['compile']>>;
   let prisma: PrismaService;
-  let tenants: TenantsService;
+  let tenants: PlatformTenantsService;
   let users: UsersService;
   let auth: AuthService;
   let subscription: SubscriptionService;
@@ -30,31 +30,16 @@ describe('Professional profile transition (E2E)', () => {
     app = await Test.createTestingModule({ imports: [AppModule] }).compile();
     await app.init();
     prisma = app.get(PrismaService);
-    tenants = app.get(TenantsService);
+    tenants = app.get(PlatformTenantsService);
     users = app.get(UsersService);
     auth = app.get(AuthService);
     subscription = app.get(SubscriptionService);
     profiles = app.get(ProfessionalProfilesService);
     await prisma.cleanDatabase();
 
-    const first = await tenants.create({
-      name: 'Profiles clinic',
-      tenantType: 'CLINIC',
-      email: 'profiles-clinic@test.invalid',
-      adminFirstName: 'Default',
-      adminLastName: 'Admin',
-      adminEmail: 'profiles-admin@test.invalid',
-      adminPassword: TEST_PASSWORD,
-    });
-    const second = await tenants.create({
-      name: 'Other clinic',
-      tenantType: 'CLINIC',
-      email: 'profiles-other@test.invalid',
-      adminFirstName: 'Other',
-      adminLastName: 'Admin',
-      adminEmail: 'other-admin@test.invalid',
-      adminPassword: TEST_PASSWORD,
-    });
+    const deps = { tenants, prisma };
+    const first = await createTestTenant(deps, 1);
+    const second = await createTestTenant(deps, 2);
     tenantId = first.id;
     otherTenantId = second.id;
     await prisma.tenantSubscription.update({
@@ -97,14 +82,14 @@ describe('Professional profile transition (E2E)', () => {
         password: TEST_PASSWORD,
         firstName: 'Legacy',
         lastName: 'Professional',
-        role: 'PSICOLOGO',
+        role: 'PROFESIONAL',
         professionalProfile: { specialtyId },
       },
       'fixture-actor',
     );
     legacyId = result.id;
     expect(result).toMatchObject({
-      role: 'PSICOLOGO',
+      role: 'PROFESIONAL',
       professionalProfile: { specialtyId, isActive: true, specialty: { id: specialtyId } },
       professionalSpecialties: [{ specialtyId, isPrimary: true }],
     });
@@ -134,7 +119,7 @@ describe('Professional profile transition (E2E)', () => {
     expect(await profiles.countActiveProfiles(tenantId)).toBe(2);
   });
 
-  it('counts a clinical CLIENTE administrator and exposes its profile on login and refresh', async () => {
+  it('counts a clinical PROFESIONAL member and exposes its profile on login and refresh', async () => {
     const result = await users.create(
       {
         tenantId,
@@ -142,7 +127,7 @@ describe('Professional profile transition (E2E)', () => {
         password: TEST_PASSWORD,
         firstName: 'Clinical',
         lastName: 'Admin',
-        role: 'CLIENTE',
+        role: 'PROFESIONAL',
         professionalProfile: { specialtyId },
       },
       'fixture-actor',
@@ -152,22 +137,22 @@ describe('Professional profile transition (E2E)', () => {
     const login = await auth.login({ email: result.email, password: TEST_PASSWORD });
     expect(login.user).toMatchObject({
       id: result.id,
-      role: 'CLIENTE',
+      role: 'PROFESIONAL',
       professionalProfile: { specialty: { id: specialtyId, name: 'Own specialty' } },
     });
     const token = await auth.refreshTokens(login.refreshToken);
     expect(token.user).toMatchObject({
       id: result.id,
-      role: 'CLIENTE',
+      role: 'PROFESIONAL',
       professionalProfile: { specialty: { id: specialtyId, name: 'Own specialty' } },
     });
   });
 
   it('does not count an administrator without a profile', async () => {
     const admin = await prisma.user.findFirstOrThrow({
-      where: { tenantId, email: 'profiles-admin@test.invalid' },
+      where: { tenantId, email: 'admin+1@tenant.test' },
     });
-    expect(admin.role).toBe('CLIENTE');
+    expect(admin.role).toBe('MASTER');
     expect((await users.findOne(tenantId, admin.id)).professionalProfile).toBeNull();
     expect((await subscription.getUsageMetrics(tenantId)).usage.seats.used).toBe(3);
   });
@@ -192,16 +177,13 @@ describe('Professional profile transition (E2E)', () => {
     expect(await profiles.countActiveProfiles(tenantId)).toBe(3);
   });
 
-  it.each(['PSICOLOGO', 'PROFESIONAL'])(
-    'filters %s across legacy and canonical professionals',
-    async (role) => {
-      const result = await users.findAll(tenantId, { role });
-      expect(result.map((user) => user.id)).toEqual(
-        expect.arrayContaining([legacyId, canonicalId]),
-      );
-      expect(result).toHaveLength(2);
-    },
-  );
+  it('filters the team by the PROFESIONAL role', async () => {
+    const result = await users.findAll(tenantId, { role: 'PROFESIONAL' });
+    expect(result.map((user) => user.id)).toEqual(expect.arrayContaining([legacyId, canonicalId]));
+    // The two professionals above plus the clinical member created for the login test.
+    expect(result).toHaveLength(3);
+    expect(result.every((user) => user.role === 'PROFESIONAL')).toBe(true);
+  });
 
   it('allows exactly one of two concurrent activations for the final seat', async () => {
     const candidates = await Promise.all(
@@ -213,7 +195,7 @@ describe('Professional profile transition (E2E)', () => {
             password: TEST_PASSWORD,
             firstName: 'Race',
             lastName: name,
-            role: 'ADMIN',
+            role: 'PROFESIONAL',
             professionalProfile: { specialtyId, isActive: false },
           },
           'fixture-actor',

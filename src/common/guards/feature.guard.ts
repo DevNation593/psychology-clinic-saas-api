@@ -2,6 +2,8 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { REQUIRE_FEATURE_KEY } from '../decorators/require-feature.decorator';
+import { PLATFORM_ROUTE_KEY } from '../decorators/platform-route.decorator';
+import { SESSION_ROUTE_KEY } from '../decorators/session-route.decorator';
 
 @Injectable()
 export class FeatureGuard implements CanActivate {
@@ -20,16 +22,18 @@ export class FeatureGuard implements CanActivate {
       return true; // No feature requirement
     }
 
+    // Platform routes act on the platform tenant; session routes (logout, password change)
+    // must stay reachable for every role even when the clinic lacks the feature.
+    const skipped = [PLATFORM_ROUTE_KEY, SESSION_ROUTE_KEY].some((key) =>
+      this.reflector.getAllAndOverride<boolean>(key, [context.getHandler(), context.getClass()]),
+    );
+    if (skipped) return true;
+
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
     if (!user || !user.tenantId) {
       return false;
-    }
-
-    // SOPORTE bypasses feature checks
-    if (user.role === 'SOPORTE') {
-      return true;
     }
 
     const subscription = await this.prisma.tenantSubscription.findUnique({
@@ -47,7 +51,7 @@ export class FeatureGuard implements CanActivate {
     const configuredModules = await this.prisma.tenantModule.findMany({
       where: {
         tenantId: user.tenantId,
-        moduleKey: { in: [requiredFeature, `core.${requiredFeature}`] },
+        moduleKey: requiredFeature,
       },
       select: { enabled: true },
     });

@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { isAdminRole, isProfessionalRole } from '../common/roles/role-compatibility';
+import { isMasterRole, isProfessionalRole } from '../common/roles/role-compatibility';
 import { ProfessionalProfileInputDto } from './dto/professional-profile.dto';
 
 type ProfileDb = PrismaService | Prisma.TransactionClient;
@@ -18,7 +18,7 @@ export class ProfessionalProfilesService {
         message: 'El profesional debe tener exactamente una especialidad.',
       });
     }
-    if (!isProfessionalRole(role) && !isAdminRole(role) && input) {
+    if (!isProfessionalRole(role) && !isMasterRole(role) && input) {
       throw new UnprocessableEntityException({
         statusCode: 422,
         code: 'PROFESSIONAL_PROFILE_NOT_ALLOWED',

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bull';
 import { PrismaModule } from './prisma/prisma.module';
@@ -11,6 +12,7 @@ import { PatientsModule } from './patients/patients.module';
 import { PatientTeamModule } from './patient-team/patient-team.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { ClinicalNotesModule } from './clinical-notes/clinical-notes.module';
+import { ClinicalTimelineModule } from './clinical-timeline/clinical-timeline.module';
 import { TasksModule } from './tasks/tasks.module';
 import { NextSessionPlansModule } from './next-session-plans/next-session-plans.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -21,7 +23,17 @@ import { TenantSettingsModule } from './tenant-settings/tenant-settings.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { BillingModule } from './billing/billing.module';
 import { SpecialtyRecordsModule } from './specialty-records/specialty-records.module';
-import { OnboardingModule } from './onboarding/onboarding.module';
+import { ClinicalModulesModule } from './clinical-modules/clinical-modules.module';
+import { BranchesModule } from './branches/branches.module';
+import { EncountersModule } from './encounters/encounters.module';
+import { CatalogsModule } from './catalogs/catalogs.module';
+import { PatientFilesModule } from './patient-files/patient-files.module';
+import { ReportsModule } from './reports/reports.module';
+import { RecordDocumentsModule } from './record-documents/record-documents.module';
+import { DocumentTemplatesModule } from './document-templates/document-templates.module';
+import { DocumentVerificationModule } from './document-verification/document-verification.module';
+import { PermissionsModule } from './common/permissions/permissions.module';
+import { PlatformModule } from './platform/platform.module';
 import { HealthController } from './health.controller';
 import './common/utils/bigint-json';
 
@@ -47,6 +59,9 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
       },
     ]),
 
+    // Cron jobs. The subscription lifecycle runs here even without Redis.
+    ScheduleModule.forRoot(),
+
     // BullMQ for background jobs (requires Redis)
     ...(isRedisEnabled
       ? [
@@ -58,6 +73,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
 
     // Prisma database
     PrismaModule,
+    PermissionsModule,
 
     // Scheduler for background jobs (requires Redis)
     ...(isRedisEnabled ? [SchedulerModule] : []),
@@ -70,6 +86,7 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     PatientTeamModule,
     AppointmentsModule,
     ClinicalNotesModule,
+    ClinicalTimelineModule,
     TasksModule,
     NextSessionPlansModule,
     NotificationsModule,
@@ -79,7 +96,16 @@ const throttleTtlMs = throttleTtlRaw < 1000 ? throttleTtlRaw * 1000 : throttleTt
     SpecialtiesModule,
     BillingModule,
     SpecialtyRecordsModule,
-    OnboardingModule,
+    ClinicalModulesModule,
+    BranchesModule,
+    EncountersModule,
+    CatalogsModule,
+    PatientFilesModule,
+    ReportsModule,
+    RecordDocumentsModule,
+    DocumentTemplatesModule,
+    DocumentVerificationModule,
+    PlatformModule,
   ],
   providers: [
     {

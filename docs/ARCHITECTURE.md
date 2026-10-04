@@ -78,9 +78,16 @@ export class TenantGuard implements CanActivate {
 └──────┬──────────────┘
        │
        v
+┌──────────────────────┐
+│  PasswordChangeGuard │
+│  - Temporary password│
+└──────┬───────────────┘
+       │
+       v
 ┌─────────────────────┐
 │  TenantGuard        │
 │  - Check tenantId   │
+│  - Platform routes  │
 └──────┬──────────────┘
        │
        v
@@ -90,14 +97,36 @@ export class TenantGuard implements CanActivate {
 └──────┬──────────────┘
        │
        v
+┌─────────────────────┐
+│  SubscriptionGuard  │
+│  FeatureGuard       │
+│  SectionGuard       │
+└──────┬──────────────┘
+       │
+       v
    Execute endpoint
 ```
+
+The global guards run in this order (`src/auth/auth.module.ts`): `JwtAuthGuard`, `PasswordChangeGuard`, `TenantGuard`, `RolesGuard`, `SubscriptionGuard`, `FeatureGuard`, `SectionGuard` (the throttler runs before all of them).
+
+- `PasswordChangeGuard` answers `403 PASSWORD_CHANGE_REQUIRED` while the user has `mustChangePassword = true`, except on public routes and on routes marked `@SessionRoute()` (`POST /auth/logout`, `POST /auth/logout-all`, `POST /auth/change-password`). `JwtStrategy.validate` reads `mustChangePassword` and `isPlatformTenant` from the database on every request.
+- `TenantGuard` on a `@PlatformRoute()` controller requires `role === 'ADMIN'` and a platform tenant, and does not compare `:tenantId` with the caller's tenant. Outside platform routes an `ADMIN` receives `403 PLATFORM_ONLY` (session routes excepted).
+- `SubscriptionGuard`, `FeatureGuard` and `SectionGuard` do not apply to platform routes or to `@SessionRoute()` routes.
+- `SectionGuard` reads `@RequireSection('core.<section>')` and answers `403 SECTION_NOT_ENABLED` when the clinic's `TenantModule` row is missing or disabled.
 
 **Refresh Token Rotation**:
 - Each refresh generates a new token pair
 - Old refresh token is immediately revoked
 - Tokens belong to a "family" (tracked by `familyId`)
 - If a revoked token is used → entire family is revoked (security breach detected)
+
+**Roles**:
+
+`MASTER` es el titular de la cuenta del consultorio: hay exactamente uno por tenant (índice único parcial `User_tenantId_master_key`), lo crea el `ADMIN` de plataforma al dar de alta el consultorio y no puede cambiar de rol ni desactivarse. `ADMIN` es el administrador de la plataforma: solo accede a `/platform/*` y no concede acceso a datos internos de ningún consultorio. `SOPORTE` es un valor obsoleto sin poderes (sus funciones pasaron a `ADMIN`). `CLIENTE` y `PSICOLOGO` son valores obsoletos sin usuarios.
+
+**Consultorio de plataforma**: el `ADMIN` pertenece a un consultorio reservado, `Tenant.isPlatform = true` (a lo sumo uno, índice único parcial `Tenant_isPlatform_key`). Lo crea `npm run platform:create-admin`; no tiene `TenantSettings`, `TenantSubscription` ni secciones, y los listados y el resumen del panel lo excluyen. Las rutas `/platform/*` (módulo `src/platform/`) llevan `@PlatformRoute()` y `@Roles('ADMIN')`.
+
+**Secciones `core.*`**: qué partes de la app usa cada consultorio se guarda como filas de `TenantModule` con claves `core.calendar`, `core.patients`, `core.tasks`, `core.clinicalNotes`, `core.specialties`, `core.billing`, `core.team` y `core.storage`. El catálogo (claves, dependencias y premarcado por plan y tipo) vive en `src/common/sections/section-catalog.ts`. Solo el `ADMIN` las cambia (`PUT /platform/tenants/:tenantId/sections`); el titular recibe `403 SECTION_MANAGED_BY_PLATFORM` si intenta cambiar una clave `core.*`. `core.storage` no tiene `@RequireSection`: solo oculta la pantalla en la web.
 
 ### 3. Subscription & Seat Management
 
@@ -206,20 +235,18 @@ await this.prisma.auditLog.create({
 });
 ```
 
-**Encryption at Rest** (Optional):
+**Encryption at Rest** (always on, every plan):
 
-```typescript
-// Before saving
-const encryptedContent = encryptionService.encrypt(note.content);
-
-// After reading
-const decryptedContent = encryptionService.decrypt(note.content);
-```
+Clinical note text, specialty record data and the clinical snapshots of the audit log are
+encrypted by `ClinicalCryptoService` (`src/clinical-access/`) before they reach PostgreSQL and
+decrypted when a service returns them.
 
 Uses AES-256-GCM with:
-- Random IV per encryption
-- Authentication tag for integrity
-- Key derivation from `ENCRYPTION_KEY` env var
+- Random IV per value
+- Authentication tag for integrity, bound to the tenant id
+- Keys from `CLINICAL_ENCRYPTION_KEYS`, with key ids so keys can be rotated
+
+Details, key handling and rotation: `docs/CLINICAL_DATA_PROTECTION.md`.
 
 ### 6. Background Jobs (BullMQ)
 
@@ -308,22 +335,24 @@ if (firebaseApp && user.fcmToken) {
 
 ## Data Flow Examples
 
-### Creating a Tenant (Signup)
+### Creating a Tenant (platform ADMIN)
 
 ```
-POST /tenants
+POST /platform/tenants
    │
-   ├─> Validate input (DTO)
+   ├─> Guards: ADMIN of the platform tenant
    │
-   ├─> Check slug uniqueness
+   ├─> Validate input (DTO), plan/tenant-type match, section keys and dependencies
    │
-   ├─> Transaction:
-   │   ├─> Create Tenant
-   │   ├─> Create TenantSettings (defaults)
-   │   ├─> Create TenantSubscription (TRIAL, 1 seat)
-   │   └─> Create Admin User (TENANT_ADMIN)
+   ├─> Serializable transaction (advisory lock on the owner email, with retries):
+   │   ├─> Check the owner email is unique across the platform (409)
+   │   ├─> Create Tenant + TenantSettings
+   │   ├─> Create TenantSubscription (TRIAL: 14 days; paid plan: ACTIVE, one month)
+   │   ├─> Create MASTER user (mustChangePassword = true)
+   │   ├─> Apply the specialty selection
+   │   └─> Create the eight core.* TenantModule rows
    │
-   └─> Return tenant + subscription details
+   └─> Return tenant, owner (no password), subscription and sections
 ```
 
 ### Creating a User (Invite Flow)
@@ -456,7 +485,7 @@ Every 15 minutes:
 - Patient data belongs to tenant
 - Tenant admins can export/delete all data
 - Soft deletes preserve audit trail
-- Encryption at rest option for clinical notes
+- Clinical notes, specialty records and their audit snapshots encrypted at rest
 
 ### Audit Trail
 - All clinical note accesses logged

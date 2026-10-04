@@ -1,33 +1,77 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { ClinicalNote, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertOpenEncounter } from '../encounters/encounters.service';
 import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
-import { isAdminRole } from '../common/roles/role-compatibility';
-import { CreateClinicalNoteDto, UpdateClinicalNoteDto } from './dto/clinical-note.dto';
+import { ClinicalActor } from '../clinical-access/clinical-actor';
+import { ClinicalAuditService } from '../clinical-access/clinical-audit.service';
+import { ClinicalCryptoService } from '../clinical-access/clinical-crypto.service';
+import {
+  clinicalRecordForbidden,
+  clinicalRecordNotFound,
+} from '../clinical-access/clinical-errors';
+import {
+  CreateClinicalNoteDto,
+  DeleteClinicalNoteDto,
+  UpdateClinicalNoteDto,
+} from './dto/clinical-note.dto';
+
+const personSelect = { id: true, firstName: true, lastName: true } as const;
+
+/** Stored encrypted; everything outside this service works with the decrypted note. */
+export const ENCRYPTED_NOTE_FIELDS = [
+  'content',
+  'diagnosis',
+  'treatment',
+  'observations',
+  'deletionReason',
+] as const;
+
+/** The clinical state of a note, stored in the audit log before and after every change. */
+export function snapshotClinicalNote(note: ClinicalNote) {
+  return {
+    version: note.version,
+    patientId: note.patientId,
+    appointmentId: note.appointmentId,
+    psychologistId: note.psychologistId,
+    specialtyId: note.specialtyId,
+    content: note.content,
+    diagnosis: note.diagnosis,
+    treatment: note.treatment,
+    observations: note.observations,
+    sessionDate: note.sessionDate,
+    sessionDuration: note.sessionDuration,
+  };
+}
 
 @Injectable()
 export class ClinicalNotesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: ClinicalAuditService,
+    private readonly crypto: ClinicalCryptoService,
+  ) {}
 
-  async create(tenantId: string, psychologistId: string, createDto: CreateClinicalNoteDto) {
-    const { patientId, appointmentId, sessionDate, ...noteData } = createDto;
+  async create(tenantId: string, actor: ClinicalActor, createDto: CreateClinicalNoteDto) {
+    const { patientId, appointmentId, encounterId, sessionDate, ...noteData } = createDto;
 
     // Verify patient belongs to tenant
     const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, tenantId },
+      where: { id: patientId, tenantId, deletedAt: null },
     });
 
     if (!patient) {
       throw new NotFoundException('Paciente no encontrado');
     }
 
-    // If appointmentId provided, verify it exists and belongs to this psychologist
+    // If appointmentId provided, verify it exists and belongs to this professional
     if (appointmentId) {
       const appointment = await this.prisma.appointment.findFirst({
         where: {
           id: appointmentId,
           tenantId,
           patientId,
-          psychologistId,
+          psychologistId: actor.userId,
         },
       });
 
@@ -35,50 +79,55 @@ export class ClinicalNotesService {
         throw new NotFoundException('Cita no encontrada o no autorizada');
       }
     }
+    if (encounterId) {
+      await assertOpenEncounter(this.prisma, tenantId, patientId, encounterId, actor);
+    }
 
-    const note = await this.prisma.clinicalNote.create({
-      data: {
-        ...noteData,
+    return this.transaction(async (tx) => {
+      const stored = await tx.clinicalNote.create({
+        data: {
+          ...this.encrypt(tenantId, noteData),
+          tenantId,
+          patientId,
+          appointmentId,
+          encounterId,
+          psychologistId: actor.userId,
+          specialtyId: actor.specialtyId,
+          sessionDate: sessionDate ? new Date(sessionDate) : new Date(),
+        },
+        include: {
+          patient: { select: personSelect },
+          psychologist: { select: personSelect },
+        },
+      });
+      const note = this.decrypt(stored);
+
+      await this.audit.record(
         tenantId,
-        patientId,
-        appointmentId,
-        psychologistId,
-        sessionDate: sessionDate ? new Date(sessionDate) : new Date(),
-      },
-      include: {
-        patient: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
+        actor,
+        [
+          {
+            action: 'CREATE',
+            entity: 'CLINICAL_NOTE',
+            entityId: note.id,
+            patientId,
+            after: snapshotClinicalNote(note),
           },
-        },
-        psychologist: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-      },
+        ],
+        tx,
+      );
+
+      return note;
     });
-
-    // Create audit log entry
-    await this.createAuditLog(tenantId, psychologistId, 'CREATE', note.id);
-
-    return note;
   }
 
   async findAll(
     tenantId: string,
+    actor: ClinicalActor,
     filters?: { patientId?: string; psychologistId?: string },
-    userId?: string,
-    userRole?: string,
   ) {
-    const where: any = { tenantId };
-
-    // In clinic tenants, filter notes by psychologist ownership
-    // For now, all CLIENTEs can see all notes in their tenant
+    // The history is shared: every professional of the tenant reads all of it.
+    const where: Prisma.ClinicalNoteWhereInput = { tenantId, deletedAt: null };
 
     if (filters?.patientId) {
       where.patientId = filters.patientId;
@@ -88,33 +137,33 @@ export class ClinicalNotesService {
       where.psychologistId = filters.psychologistId;
     }
 
-    const notes = await this.prisma.clinicalNote.findMany({
+    const stored = await this.prisma.clinicalNote.findMany({
       where,
       include: {
-        patient: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
-        psychologist: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-          },
-        },
+        patient: { select: personSelect },
+        psychologist: { select: personSelect },
       },
       orderBy: { sessionDate: 'desc' },
     });
+    const notes = stored.map((note) => this.decrypt(note));
+
+    await this.audit.record(
+      tenantId,
+      actor,
+      notes.map((note) => ({
+        action: 'READ' as const,
+        entity: 'CLINICAL_NOTE' as const,
+        entityId: note.id,
+        patientId: note.patientId,
+      })),
+    );
 
     return notes;
   }
 
-  async findOne(tenantId: string, noteId: string, userId: string, userRole: string) {
-    const note = await this.prisma.clinicalNote.findFirst({
-      where: { id: noteId, tenantId },
+  async findOne(tenantId: string, noteId: string, actor: ClinicalActor) {
+    const stored = await this.prisma.clinicalNote.findFirst({
+      where: { id: noteId, tenantId, deletedAt: null },
       include: {
         patient: true,
         psychologist: { select: PUBLIC_USER_SELECT },
@@ -122,15 +171,14 @@ export class ClinicalNotesService {
       },
     });
 
-    if (!note) {
-      throw new NotFoundException('Nota clínica no encontrada');
+    if (!stored) {
+      throw clinicalRecordNotFound('Nota clínica no encontrada');
     }
+    const note = this.decrypt(stored);
 
-    // Any CLIENTE in the tenant can read notes
-    // Ownership check removed with new role system
-
-    // Create audit log entry for reading
-    await this.createAuditLog(tenantId, userId, 'READ', noteId);
+    await this.audit.record(tenantId, actor, [
+      { action: 'READ', entity: 'CLINICAL_NOTE', entityId: noteId, patientId: note.patientId },
+    ]);
 
     return note;
   }
@@ -138,78 +186,119 @@ export class ClinicalNotesService {
   async update(
     tenantId: string,
     noteId: string,
-    userId: string,
-    userRole: string,
+    actor: ClinicalActor,
     updateDto: UpdateClinicalNoteDto,
   ) {
-    const note = await this.prisma.clinicalNote.findFirst({
-      where: { id: noteId, tenantId },
-    });
+    const { changeReason, sessionDate, ...fields } = updateDto;
 
-    if (!note) {
-      throw new NotFoundException('Nota clínica no encontrada');
-    }
+    return this.transaction(async (tx) => {
+      const note = await this.findOwnNote(tx, tenantId, noteId, actor, 'editar');
 
-    // Any CLIENTE in the tenant can edit notes they authored
-    if (note.psychologistId !== userId) {
-      throw new ForbiddenException('Solo puedes editar tus propias notas clínicas');
-    }
+      const updated = this.decrypt(
+        await tx.clinicalNote.update({
+          where: { id: noteId },
+          data: {
+            ...this.encrypt(tenantId, fields),
+            ...(sessionDate ? { sessionDate: new Date(sessionDate) } : {}),
+            version: { increment: 1 },
+          },
+          include: {
+            patient: true,
+            psychologist: { select: PUBLIC_USER_SELECT },
+          },
+        }),
+      );
 
-    const updated = await this.prisma.clinicalNote.update({
-      where: { id: noteId },
-      data: updateDto,
-      include: {
-        patient: true,
-        psychologist: { select: PUBLIC_USER_SELECT },
-      },
-    });
-
-    // Create audit log
-    await this.createAuditLog(tenantId, userId, 'UPDATE', noteId, updateDto);
-
-    return updated;
-  }
-
-  async delete(tenantId: string, noteId: string, userId: string, userRole: string) {
-    const note = await this.prisma.clinicalNote.findFirst({
-      where: { id: noteId, tenantId },
-    });
-
-    if (!note) {
-      throw new NotFoundException('Nota clínica no encontrada');
-    }
-
-    // Admins can delete any note in the tenant; professionals only their own
-    if (!isAdminRole(userRole) && note.psychologistId !== userId) {
-      throw new ForbiddenException('Solo el autor o un administrador puede eliminar la nota');
-    }
-
-    await this.prisma.clinicalNote.delete({
-      where: { id: noteId },
-    });
-
-    // Create audit log
-    await this.createAuditLog(tenantId, userId, 'DELETE', noteId);
-
-    return { message: 'Nota clínica eliminada exitosamente' };
-  }
-
-  private async createAuditLog(
-    tenantId: string,
-    userId: string,
-    action: 'CREATE' | 'READ' | 'UPDATE' | 'DELETE',
-    entityId: string,
-    changes?: any,
-  ) {
-    await this.prisma.auditLog.create({
-      data: {
+      await this.audit.record(
         tenantId,
-        userId,
-        action,
-        entity: 'CLINICAL_NOTE',
-        entityId,
-        changes: changes || {},
-      },
+        actor,
+        [
+          {
+            action: 'UPDATE',
+            entity: 'CLINICAL_NOTE',
+            entityId: noteId,
+            patientId: note.patientId,
+            before: snapshotClinicalNote(note),
+            after: snapshotClinicalNote(updated),
+            reason: changeReason,
+          },
+        ],
+        tx,
+      );
+
+      return updated;
+    });
+  }
+
+  async delete(tenantId: string, noteId: string, actor: ClinicalActor, dto: DeleteClinicalNoteDto) {
+    return this.transaction(async (tx) => {
+      const note = await this.findOwnNote(tx, tenantId, noteId, actor, 'eliminar');
+
+      // The row stays for audit; it only stops being listed.
+      await tx.clinicalNote.update({
+        where: { id: noteId },
+        data: {
+          deletedAt: new Date(),
+          deletedById: actor.userId,
+          deletionReason: this.crypto.encrypt(tenantId, dto.reason),
+        },
+      });
+
+      await this.audit.record(
+        tenantId,
+        actor,
+        [
+          {
+            action: 'DELETE',
+            entity: 'CLINICAL_NOTE',
+            entityId: noteId,
+            patientId: note.patientId,
+            before: snapshotClinicalNote(note),
+            reason: dto.reason,
+          },
+        ],
+        tx,
+      );
+
+      return { message: 'Nota clínica eliminada exitosamente' };
+    });
+  }
+
+  private async findOwnNote(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    noteId: string,
+    actor: ClinicalActor,
+    verb: string,
+  ) {
+    const stored = await tx.clinicalNote.findFirst({
+      where: { id: noteId, tenantId, deletedAt: null },
+    });
+
+    if (!stored) {
+      throw clinicalRecordNotFound('Nota clínica no encontrada');
+    }
+    const note = this.decrypt(stored);
+
+    if (note.psychologistId !== actor.userId) {
+      throw clinicalRecordForbidden(`Solo puedes ${verb} tus propias notas clínicas`);
+    }
+
+    return note;
+  }
+
+  private encrypt<T extends Partial<ClinicalNote>>(tenantId: string, fields: T): T {
+    return this.crypto.encryptFields(tenantId, fields, ENCRYPTED_NOTE_FIELDS);
+  }
+
+  private decrypt<T extends ClinicalNote>(note: T): T {
+    return this.crypto.decryptFields(note.tenantId, note, ENCRYPTED_NOTE_FIELDS);
+  }
+
+  private transaction<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.prisma.applyRlsContext(tx);
+      return callback(tx);
     });
   }
 }

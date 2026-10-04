@@ -1,31 +1,36 @@
 import {
   areRolesEquivalent,
-  isAdminRole,
+  isMasterRole,
   isProfessionalRole,
   toCanonicalRole,
 } from './role-compatibility';
 
 describe('role compatibility', () => {
-  it.each([
-    ['CLIENTE', 'ADMIN'],
-    ['ADMIN', 'ADMIN'],
-    ['PSICOLOGO', 'PROFESIONAL'],
-    ['PROFESIONAL', 'PROFESIONAL'],
-    ['ASISTENTE', 'ASISTENTE'],
-  ] as const)('normalizes %s to %s', (input, expected) => {
-    expect(toCanonicalRole(input)).toBe(expected);
+  it.each(['MASTER', 'PROFESIONAL', 'ASISTENTE', 'SOPORTE', 'PACIENTE', 'ADMIN'] as const)(
+    'keeps %s as a canonical role',
+    (role) => {
+      expect(toCanonicalRole(role)).toBe(role);
+    },
+  );
+
+  it.each(['CLIENTE', 'PSICOLOGO', 'OTRO', ''])('does not resolve %s', (role) => {
+    expect(toCanonicalRole(role)).toBeUndefined();
   });
 
-  it('treats legacy and canonical aliases as equivalent', () => {
-    expect(areRolesEquivalent('ADMIN', 'CLIENTE')).toBe(true);
-    expect(areRolesEquivalent('PSICOLOGO', 'PROFESIONAL')).toBe(true);
-    expect(areRolesEquivalent('ASISTENTE', 'PROFESIONAL')).toBe(false);
+  it('compares roles by identity, without aliases', () => {
+    expect(areRolesEquivalent('MASTER', 'MASTER')).toBe(true);
+    expect(areRolesEquivalent('ADMIN', 'MASTER')).toBe(false);
+    expect(areRolesEquivalent('CLIENTE', 'MASTER')).toBe(false);
+    expect(areRolesEquivalent('PSICOLOGO', 'PROFESIONAL')).toBe(false);
+    expect(areRolesEquivalent('CLIENTE', 'CLIENTE')).toBe(false);
   });
 
-  it('classifies administrative and professional aliases', () => {
-    expect(isAdminRole('CLIENTE')).toBe(true);
-    expect(isAdminRole('ADMIN')).toBe(true);
-    expect(isProfessionalRole('PSICOLOGO')).toBe(true);
+  it('classifies the account holder and professionals', () => {
+    expect(isMasterRole('MASTER')).toBe(true);
+    expect(isMasterRole('ADMIN')).toBe(false);
+    expect(isMasterRole('CLIENTE')).toBe(false);
     expect(isProfessionalRole('PROFESIONAL')).toBe(true);
+    expect(isProfessionalRole('PSICOLOGO')).toBe(false);
+    expect(isProfessionalRole('MASTER')).toBe(false);
   });
 });

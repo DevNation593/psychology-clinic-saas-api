@@ -3,10 +3,12 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PatientTeamService } from './patient-team.service';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('patient-team')
 @ApiBearerAuth('access-token')
-@Roles('ADMIN', 'ASISTENTE', 'PROFESIONAL')
+@RequireSection('core.patients')
+@Roles('MASTER', 'ASISTENTE', 'PROFESIONAL')
 @Controller('tenants/:tenantId/patients/:patientId/team')
 export class PatientTeamController {
   constructor(private readonly service: PatientTeamService) {}

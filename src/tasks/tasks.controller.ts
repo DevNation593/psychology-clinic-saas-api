@@ -4,16 +4,16 @@ import { TasksService } from './tasks.service';
 import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { RequireFeature } from '../common/decorators/require-feature.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('tasks')
 @ApiBearerAuth('access-token')
-@RequireFeature('tasks')
+@RequireSection('core.tasks')
 @Controller('tenants/:tenantId/tasks')
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @Post()
   @ApiOperation({ summary: 'Create task' })
   @ApiResponse({ status: 201, description: 'Task created' })
@@ -54,7 +54,7 @@ export class TasksController {
     return this.tasksService.findOne(tenantId, taskId, user);
   }
 
-  @Roles('CLIENTE', 'PSICOLOGO')
+  @Roles('MASTER', 'PROFESIONAL')
   @Patch(':taskId')
   @ApiOperation({ summary: 'Update task' })
   @ApiResponse({ status: 200, description: 'Task updated' })
@@ -67,9 +67,9 @@ export class TasksController {
     return this.tasksService.update(tenantId, taskId, updateTaskDto, user);
   }
 
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @Delete(':taskId')
-  @ApiOperation({ summary: 'Delete task - Admin only' })
+  @ApiOperation({ summary: 'Delete task - Master only' })
   @ApiResponse({ status: 200, description: 'Task deleted' })
   async remove(@Param('tenantId') tenantId: string, @Param('taskId') taskId: string) {
     return this.tasksService.delete(tenantId, taskId);

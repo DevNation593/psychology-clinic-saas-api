@@ -24,6 +24,7 @@ import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UserRole } from '@prisma/client';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('users')
 @ApiBearerAuth('access-token')
@@ -52,9 +53,10 @@ export class UsersController {
     return this.usersService.findAll(tenantId, filters);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
+  @RequireSection('core.team')
   @Post()
-  @ApiOperation({ summary: 'Create an active clinic team member - Admin only' })
+  @ApiOperation({ summary: 'Create an active clinic team member - Master only' })
   @ApiResponse({ status: 201, description: 'Team member created' })
   async create(
     @Param('tenantId') tenantId: string,
@@ -83,9 +85,10 @@ export class UsersController {
     return this.usersService.updateSelf(tenantId, user.userId, updateSelfProfileDto);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
+  @RequireSection('core.team')
   @Patch(':userId')
-  @ApiOperation({ summary: 'Update user - Admin only' })
+  @ApiOperation({ summary: 'Update user - Master only' })
   @ApiResponse({ status: 200, description: 'User updated' })
   async update(
     @Param('tenantId') tenantId: string,
@@ -96,9 +99,10 @@ export class UsersController {
     return this.usersService.update(tenantId, userId, updateUserDto, actor.userId);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
+  @RequireSection('core.team')
   @Delete(':userId')
-  @ApiOperation({ summary: 'Deactivate user - Admin only (soft delete)' })
+  @ApiOperation({ summary: 'Deactivate user - Master only (soft delete)' })
   @ApiResponse({ status: 200, description: 'User deactivated and seat freed' })
   async deactivate(
     @Param('tenantId') tenantId: string,
@@ -108,9 +112,10 @@ export class UsersController {
     return this.usersService.deactivate(tenantId, userId, actor.userId);
   }
 
-  @Roles('ADMIN')
+  @Roles('MASTER')
+  @RequireSection('core.team')
   @Post(':userId/activate')
-  @ApiOperation({ summary: 'Activate a pending legacy invitation - Admin only' })
+  @ApiOperation({ summary: 'Activate a pending legacy invitation - Master only' })
   @ApiResponse({ status: 201, description: 'Pending invitation activated' })
   @ApiResponse({ status: 403, description: 'Provider-managed users require provider access grant' })
   @ApiResponse({ status: 409, description: 'ACTIVATION_NOT_PENDING' })
@@ -168,29 +173,5 @@ export class UsersController {
       changePasswordDto.currentPassword,
       changePasswordDto.newPassword,
     );
-  }
-
-  @Roles('SOPORTE')
-  @Post(':userId/grant-access')
-  @ApiOperation({
-    summary: 'Grant access to a legacy provider-managed account (Provider/OWNER only)',
-    description: 'Legacy adapter: activates only an existing provider-managed account.',
-  })
-  @ApiResponse({ status: 200, description: 'Access granted' })
-  @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async grantAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
-    return this.usersService.grantPsychologistAccess(tenantId, userId);
-  }
-
-  @Roles('SOPORTE')
-  @Post(':userId/revoke-access')
-  @ApiOperation({
-    summary: 'Revoke access to a legacy provider-managed account (Provider/OWNER only)',
-    description: 'Legacy adapter: deactivates only an existing provider-managed account.',
-  })
-  @ApiResponse({ status: 200, description: 'Access revoked' })
-  @ApiResponse({ status: 400, description: 'User is not managed by provider' })
-  async revokeAccess(@Param('tenantId') tenantId: string, @Param('userId') userId: string) {
-    return this.usersService.revokePsychologistAccess(tenantId, userId);
   }
 }
