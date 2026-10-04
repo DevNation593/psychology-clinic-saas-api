@@ -8,6 +8,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { BillingService } from './billing.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { RequireSection } from '../common/decorators/require-section.decorator';
+import { RequirePermission } from '../common/permissions/permission-catalog';
 
 @ApiTags('billing')
 @ApiBearerAuth('access-token')
@@ -20,6 +21,7 @@ export class BillingController {
   @Post('invoices')
   @Roles('MASTER', 'PROFESIONAL')
   @ApiOperation({ summary: 'Emitir factura electrónica mediante Faktur' })
+  @RequirePermission('billing.create')
   createInvoice(
     @Param('tenantId') tenantId: string,
     @CurrentUser() user: { userId: string },
@@ -32,6 +34,7 @@ export class BillingController {
   @Roles('MASTER', 'PROFESIONAL')
   @ApiOperation({ summary: 'Listar facturas del tenant' })
   @ApiQuery({ name: 'patientId', required: false })
+  @RequirePermission('billing.view')
   listInvoices(@Param('tenantId') tenantId: string, @Query('patientId') patientId?: string) {
     return this.billingService.listInvoices(tenantId, { patientId });
   }
@@ -39,6 +42,7 @@ export class BillingController {
   @Get('invoices/:invoiceId')
   @Roles('MASTER', 'PROFESIONAL')
   @ApiOperation({ summary: 'Consultar una factura' })
+  @RequirePermission('billing.view')
   getInvoice(@Param('tenantId') tenantId: string, @Param('invoiceId') invoiceId: string) {
     return this.billingService.getInvoice(tenantId, invoiceId);
   }

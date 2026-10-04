@@ -38,7 +38,8 @@ export class BillingService {
         id: issuerId,
         tenantId,
         isActive: true,
-        role: { in: ['MASTER', 'PROFESIONAL'] },
+        // An assistant reaches this point only with the billing permission granted.
+        role: { in: ['MASTER', 'PROFESIONAL', 'ASISTENTE'] },
       },
       select: { id: true },
     });
