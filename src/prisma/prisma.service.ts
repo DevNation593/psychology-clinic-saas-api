@@ -62,6 +62,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'usageMetrics',
       'invoice',
       'specialtyRecord',
+      'formDefinition',
+      'encounter',
+      'branch',
+      'medication',
+      'documentTemplate',
+      'userPermission',
+      'patientFile',
+      'professionalBranch',
       'professionalProfile',
       'user',
       'refreshToken',
@@ -123,6 +131,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     const orderedModels = [
       'auditLog',
       'specialtyRecord',
+      // Form definitions restrict deleting while answers exist, so they go after the records.
+      'formDefinition',
+      // Files restrict deleting their uploader, so they go before users.
+      'patientFile',
+      'encounter',
       'notificationLog',
       'nextSessionPlan',
       'task',
