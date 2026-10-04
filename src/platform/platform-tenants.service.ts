@@ -20,6 +20,7 @@ import {
   normalizeSpecialtyCodes,
 } from '../specialties/specialty-catalog.service';
 import { TenantSpecialtiesService } from '../specialties/tenant-specialties.service';
+import { MAIN_BRANCH_NAME } from '../branches/branches.service';
 import { addMonth } from '../subscription/subscription-billing.rules';
 import { getPlanFeatureFlags, getPlanLimits } from '../subscription/subscription-pricing';
 import { CreatePlatformTenantDto } from './dto/create-platform-tenant.dto';
@@ -149,6 +150,15 @@ export class PlatformTenantsService {
               select: { id: true },
             });
             await this.prisma.applyRlsContext(tx, { tenantId: tenant.id });
+            await tx.branch.create({
+              data: {
+                tenantId: tenant.id,
+                name: MAIN_BRANCH_NAME,
+                address: dto.address?.trim() || null,
+                phone: dto.phone?.trim() || null,
+                isMain: true,
+              },
+            });
             await tx.tenantSettings.create({
               data: {
                 tenantId: tenant.id,

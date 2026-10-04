@@ -6,6 +6,7 @@ import { RequireSection } from '../common/decorators/require-section.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ClinicalTimelineService } from './clinical-timeline.service';
 import { ClinicalTimelineQueryDto } from './dto/clinical-timeline-query.dto';
+import { RequirePermission } from '../common/permissions/permission-catalog';
 
 @ApiTags('clinical-timeline')
 @ApiBearerAuth('access-token')
@@ -22,6 +23,7 @@ export class ClinicalTimelineController {
     description:
       'Appointments, clinical notes and specialty records in chronological order. Requires an active professional profile; every clinical record returned is audited.',
   })
+  @RequirePermission('clinical_records.view')
   getTimeline(
     @Param('tenantId') tenantId: string,
     @Param('patientId') patientId: string,

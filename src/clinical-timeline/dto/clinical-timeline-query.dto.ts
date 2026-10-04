@@ -1,7 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsISO8601, IsOptional, IsString } from 'class-validator';
 
-export const TIMELINE_ENTRY_TYPES = ['APPOINTMENT', 'CLINICAL_NOTE', 'SPECIALTY_RECORD'] as const;
+export const TIMELINE_ENTRY_TYPES = [
+  'APPOINTMENT',
+  'ENCOUNTER',
+  'CLINICAL_NOTE',
+  'SPECIALTY_RECORD',
+] as const;
 export type TimelineEntryType = (typeof TIMELINE_ENTRY_TYPES)[number];
 
 export class ClinicalTimelineQueryDto {

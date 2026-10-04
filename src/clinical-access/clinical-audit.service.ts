@@ -7,6 +7,8 @@ import { ClinicalCryptoService } from './clinical-crypto.service';
 export const CLINICAL_AUDIT_ENTITIES: readonly AuditEntity[] = [
   'CLINICAL_NOTE',
   'SPECIALTY_RECORD',
+  'ENCOUNTER',
+  'PATIENT_FILE',
 ];
 
 export interface ClinicalAuditEntry {

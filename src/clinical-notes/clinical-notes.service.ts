@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ClinicalNote, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertOpenEncounter } from '../encounters/encounters.service';
 import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
 import { ClinicalActor } from '../clinical-access/clinical-actor';
 import { ClinicalAuditService } from '../clinical-access/clinical-audit.service';
@@ -52,7 +53,7 @@ export class ClinicalNotesService {
   ) {}
 
   async create(tenantId: string, actor: ClinicalActor, createDto: CreateClinicalNoteDto) {
-    const { patientId, appointmentId, sessionDate, ...noteData } = createDto;
+    const { patientId, appointmentId, encounterId, sessionDate, ...noteData } = createDto;
 
     // Verify patient belongs to tenant
     const patient = await this.prisma.patient.findFirst({
@@ -78,6 +79,9 @@ export class ClinicalNotesService {
         throw new NotFoundException('Cita no encontrada o no autorizada');
       }
     }
+    if (encounterId) {
+      await assertOpenEncounter(this.prisma, tenantId, patientId, encounterId, actor);
+    }
 
     return this.transaction(async (tx) => {
       const stored = await tx.clinicalNote.create({
@@ -86,6 +90,7 @@ export class ClinicalNotesService {
           tenantId,
           patientId,
           appointmentId,
+          encounterId,
           psychologistId: actor.userId,
           specialtyId: actor.specialtyId,
           sessionDate: sessionDate ? new Date(sessionDate) : new Date(),

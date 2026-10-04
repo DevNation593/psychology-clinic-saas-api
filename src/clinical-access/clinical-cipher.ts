@@ -2,6 +2,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 const PREFIX = 'enc:v1:';
 const JSON_ENVELOPE_KEY = '$enc';
+/** First bytes of an encrypted file. */
+const BUFFER_MAGIC = Buffer.from('ENC1', 'ascii');
 
 export interface ClinicalKey {
   id: string;
@@ -89,6 +91,49 @@ export class ClinicalCipher {
       decipher.update(Buffer.from(data, 'base64url')),
       decipher.final(),
     ]).toString('utf8');
+  }
+
+  /**
+   * Files: `ENC1`, the key id and its length, the IV, the tag and the ciphertext, in that
+   * order. Without a key the bytes are returned as they are.
+   */
+  encryptBuffer(tenantId: string, plain: Buffer): Buffer {
+    const active = this.keys[0];
+    if (!active) return plain;
+
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', active.key, iv);
+    cipher.setAAD(Buffer.from(tenantId));
+    const data = Buffer.concat([cipher.update(plain), cipher.final()]);
+    const keyId = Buffer.from(active.id, 'utf8');
+
+    return Buffer.concat([
+      BUFFER_MAGIC,
+      Buffer.from([keyId.length]),
+      keyId,
+      iv,
+      cipher.getAuthTag(),
+      data,
+    ]);
+  }
+
+  decryptBuffer(tenantId: string, stored: Buffer): Buffer {
+    if (!stored.subarray(0, BUFFER_MAGIC.length).equals(BUFFER_MAGIC)) return stored;
+
+    let offset = BUFFER_MAGIC.length;
+    const keyIdLength = stored[offset];
+    offset += 1;
+    const keyId = stored.subarray(offset, offset + keyIdLength).toString('utf8');
+    offset += keyIdLength;
+    const key = this.keys.find(({ id }) => id === keyId);
+    if (!key) throw new Error(`Clinical file cannot be decrypted: unknown key "${keyId}"`);
+
+    const iv = stored.subarray(offset, offset + 12);
+    const tag = stored.subarray(offset + 12, offset + 28);
+    const decipher = createDecipheriv('aes-256-gcm', key.key, iv);
+    decipher.setAAD(Buffer.from(tenantId));
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(stored.subarray(offset + 28)), decipher.final()]);
   }
 
   /** JSON columns keep being JSON: the value is replaced by `{ "$enc": "<ciphertext>" }`. */

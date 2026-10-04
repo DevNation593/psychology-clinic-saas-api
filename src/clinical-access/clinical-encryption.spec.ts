@@ -26,6 +26,7 @@ describe('clinical data at rest', () => {
       update: jest.fn(),
     },
     specialtyRecord: { create: jest.fn(), findMany: jest.fn() },
+    encounter: { findMany: jest.fn() },
     auditLog: { createMany: jest.fn(), findMany: jest.fn() },
   };
   const prisma = { ...db, $transaction: jest.fn(), applyRlsContext: jest.fn() };
@@ -69,6 +70,7 @@ describe('clinical data at rest', () => {
     jest.resetAllMocks();
     prisma.$transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback(db));
     db.patient.findFirst.mockResolvedValue({ id: 'patient-1' });
+    db.encounter.findMany.mockResolvedValue([]);
     db.clinicalNote.create.mockImplementation(({ data }) => ({ ...baseNote, ...data }));
     db.clinicalNote.update.mockImplementation(({ data }) => ({
       ...storedNote('Contenido original'),
