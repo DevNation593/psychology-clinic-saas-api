@@ -78,6 +78,8 @@ After deploying the migration, apply it with `npx prisma migrate deploy`.
 - `npm run test:e2e`: e2e tests
 - `npm run prisma:generate`: Prisma client
 - `npm run prisma:migrate`: create/apply dev migrations
+- `npm run prisma:seed`: **deletes every row** of the database in `DATABASE_URL` and loads the
+  demo data set (one clinic per plan and subscription state); prints the demo logins when done
 
 ## Docker
 

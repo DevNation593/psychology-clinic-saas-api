@@ -19,7 +19,7 @@ const NOTE_FIELDS = [
 const BATCH_SIZE = 200;
 
 export type EncryptionReport = Record<
-  'clinicalNotes' | 'specialtyRecords' | 'auditLogs',
+  'clinicalNotes' | 'specialtyRecords' | 'encounters' | 'patientFiles' | 'auditLogs',
   { scanned: number; updated: number }
 >;
 
@@ -28,7 +28,10 @@ type Delegate = {
   findMany(args: object): Promise<Row[]>;
   update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<unknown>;
 };
-type EncryptionClient = Record<'clinicalNote' | 'specialtyRecord' | 'auditLog', Delegate>;
+type EncryptionClient = Record<
+  'clinicalNote' | 'specialtyRecord' | 'encounter' | 'patientFile' | 'auditLog',
+  Delegate
+>;
 
 const reencryptText = (cipher: ClinicalCipher, tenantId: string, value: string) =>
   cipher.encrypt(tenantId, cipher.decrypt(tenantId, value));
@@ -110,9 +113,27 @@ export async function encryptClinicalData(
       ['data'],
       dryRun,
     ),
+    encounters: await processTable(
+      client.encounter,
+      {},
+      cipher,
+      ['reason', 'summary', 'deletionReason'],
+      [],
+      dryRun,
+    ),
+    // Names and descriptions only: the stored bytes keep the key they were written with,
+    // which is why a retired key must stay in CLINICAL_ENCRYPTION_KEYS while files use it.
+    patientFiles: await processTable(
+      client.patientFile,
+      {},
+      cipher,
+      ['fileName', 'description', 'deletionReason'],
+      [],
+      dryRun,
+    ),
     auditLogs: await processTable(
       client.auditLog,
-      { entity: { in: ['CLINICAL_NOTE', 'SPECIALTY_RECORD'] } },
+      { entity: { in: ['CLINICAL_NOTE', 'SPECIALTY_RECORD', 'ENCOUNTER', 'PATIENT_FILE'] } },
       cipher,
       ['reason'],
       ['changes'],
