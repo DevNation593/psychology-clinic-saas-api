@@ -30,7 +30,7 @@ describe('PatientsController legacy assignment compatibility', () => {
       req.user = {
         userId: req.header('x-test-user-id') || 'actor-1',
         tenantId: 'tenant-1',
-        role: req.header('x-test-role') || 'ADMIN',
+        role: req.header('x-test-role') || 'MASTER',
         email: 'actor@example.test',
       };
       next();
@@ -48,19 +48,19 @@ describe('PatientsController legacy assignment compatibility', () => {
 
   it('declares canonical write roles and keeps delete admin-only', () => {
     expect(Reflect.getMetadata(ROLES_KEY, PatientsController.prototype.create)).toEqual([
-      'ADMIN',
+      'MASTER',
       'ASISTENTE',
       'PROFESIONAL',
     ]);
     expect(Reflect.getMetadata(ROLES_KEY, PatientsController.prototype.update)).toEqual([
-      'ADMIN',
+      'MASTER',
       'ASISTENTE',
       'PROFESIONAL',
     ]);
-    expect(Reflect.getMetadata(ROLES_KEY, PatientsController.prototype.remove)).toEqual(['ADMIN']);
+    expect(Reflect.getMetadata(ROLES_KEY, PatientsController.prototype.remove)).toEqual(['MASTER']);
   });
 
-  it.each(['ADMIN', 'ASISTENTE', 'PROFESIONAL'])(
+  it.each(['MASTER', 'ASISTENTE', 'PROFESIONAL'])(
     'forwards POST with the %s actor and legacy pointer',
     async (role) => {
       service.create.mockResolvedValue({
@@ -86,7 +86,7 @@ describe('PatientsController legacy assignment compatibility', () => {
     },
   );
 
-  it.each(['ADMIN', 'ASISTENTE', 'PROFESIONAL'])(
+  it.each(['MASTER', 'ASISTENTE', 'PROFESIONAL'])(
     'forwards PATCH with the %s actor and explicit null pointer',
     async (role) => {
       service.update.mockResolvedValue({ id: 'patient-1', assignedPsychologistId: null });
@@ -110,9 +110,9 @@ describe('PatientsController legacy assignment compatibility', () => {
     service.softDelete.mockResolvedValue({ success: true });
     await request(app.getHttpServer())
       .delete(`${base}/patient-1`)
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .expect(200);
-    expect(service.softDelete).toHaveBeenCalledWith('tenant-1', 'patient-1', 'actor-1', 'ADMIN');
+    expect(service.softDelete).toHaveBeenCalledWith('tenant-1', 'patient-1', 'actor-1', 'MASTER');
     await request(app.getHttpServer())
       .delete(`${base}/patient-1`)
       .set('x-test-role', 'ASISTENTE')

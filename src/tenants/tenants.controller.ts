@@ -1,23 +1,13 @@
-import { Controller, Get, Post, Body, Patch, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsService } from './tenants.service';
-import { CreateTenantDto, UpdateTenantDto, CompleteOnboardingDto } from './dto/tenant.dto';
+import { UpdateTenantDto } from './dto/tenant.dto';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('tenants')
 @Controller('tenants')
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
-
-  @Roles('SOPORTE')
-  @Post()
-  @ApiOperation({ summary: 'Create new tenant (clinic) - System admin only' })
-  @ApiResponse({ status: 201, description: 'Tenant created successfully' })
-  @ApiResponse({ status: 409, description: 'Tenant email already exists' })
-  async create(@Body() createTenantDto: CreateTenantDto) {
-    return this.tenantsService.create(createTenantDto);
-  }
 
   @ApiBearerAuth('access-token')
   @Get(':tenantId')
@@ -29,18 +19,18 @@ export class TenantsController {
   }
 
   @ApiBearerAuth('access-token')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @Patch(':tenantId')
-  @ApiOperation({ summary: 'Update tenant - Admin only' })
+  @ApiOperation({ summary: 'Update tenant - Master only' })
   @ApiResponse({ status: 200, description: 'Tenant updated' })
   async update(@Param('tenantId') tenantId: string, @Body() updateTenantDto: UpdateTenantDto) {
     return this.tenantsService.update(tenantId, updateTenantDto);
   }
 
   @ApiBearerAuth('access-token')
-  @Roles('CLIENTE')
+  @Roles('MASTER')
   @Post(':tenantId/complete-onboarding')
-  @ApiOperation({ summary: 'Mark onboarding as completed - Admin only' })
+  @ApiOperation({ summary: 'Mark onboarding as completed - Master only' })
   @ApiResponse({ status: 200, description: 'Onboarding completed' })
   async completeOnboarding(@Param('tenantId') tenantId: string) {
     return this.tenantsService.completeOnboarding(tenantId);

@@ -8,7 +8,7 @@ import { TeamActor, TeamDb } from './patient-team.types';
 describe('PatientTeamService', () => {
   const now = new Date('2026-09-28T12:00:00Z');
   const original = new Date('2026-01-01T00:00:00Z');
-  const actor: TeamActor = { tenantId: 'tenant-1', userId: 'actor', role: 'ADMIN' };
+  const actor: TeamActor = { tenantId: 'tenant-1', userId: 'actor', role: 'MASTER' };
   const specialty = { id: 'nutrition', code: 'NUTRITION', name: 'Nutrición', isActive: true };
   const professional = (overrides = {}) => ({
     id: 'target',
@@ -139,7 +139,7 @@ describe('PatientTeamService', () => {
     },
   );
 
-  it.each(['PROFESIONAL', 'PSICOLOGO'])(
+  it.each(['PROFESIONAL'])(
     'lets an unassigned %s read the team of a patient in their clinic',
     async (role) => {
       db.patientProfessional.findUnique.mockResolvedValue(null);
@@ -202,7 +202,7 @@ describe('PatientTeamService', () => {
     await expect(call('assign', { ...actor, role: 'PROFESIONAL' })).rejects.toBe(failure);
   });
 
-  it.each(['ADMIN', 'ASISTENTE', 'CLIENTE', 'PROFESIONAL', 'PSICOLOGO'])(
+  it.each(['MASTER', 'ASISTENTE', 'PROFESIONAL'])(
     'allows authorized %s assignment with serializable RLS transaction',
     async (role) => {
       await call('assign', { ...actor, role });
@@ -218,7 +218,7 @@ describe('PatientTeamService', () => {
     },
   );
 
-  it.each(['PROFESIONAL', 'PSICOLOGO'])('forbids %s removal before target checks', async (role) => {
+  it.each(['PROFESIONAL'])('forbids %s removal before target checks', async (role) => {
     await expect(call('remove', { ...actor, role })).rejects.toMatchObject(forbidden);
     expect(db.appointment.findMany).not.toHaveBeenCalled();
     expect(eligibility.resolve).not.toHaveBeenCalled();
@@ -396,7 +396,7 @@ describe('PatientTeamService', () => {
   it('lists eligible flat candidates with canonical assignment state and requested specialty', async () => {
     eligibility.list.mockResolvedValue([
       professional(),
-      professional({ id: 'new-admin', role: 'ADMIN' }),
+      professional({ id: 'new-admin', role: 'MASTER' }),
     ]);
     db.patientProfessional.findMany.mockResolvedValue([assignment()]);
     const result = await service.listEligible('tenant-1', 'patient-1', 'nutrition', actor);
@@ -475,7 +475,7 @@ describe('PatientTeamService', () => {
     },
   );
 
-  it.each(['ADMIN', 'ASISTENTE'])(
+  it.each(['MASTER', 'ASISTENTE'])(
     'allows %s removal after appointments were cancelled or reassigned',
     async (role) => {
       await expect(call('remove', { ...actor, role })).resolves.toMatchObject({ isActive: false });

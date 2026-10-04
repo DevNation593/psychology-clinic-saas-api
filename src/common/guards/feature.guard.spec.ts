@@ -2,10 +2,24 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RequireFeature } from '../decorators/require-feature.decorator';
+import { PlatformRoute } from '../decorators/platform-route.decorator';
+import { SessionRoute } from '../decorators/session-route.decorator';
 import { FeatureGuard } from './feature.guard';
 
 @RequireFeature('tasks')
 class ClassLevelController {
+  handler() {}
+}
+
+@RequireFeature('tasks')
+@PlatformRoute()
+class GatedPlatformController {
+  handler() {}
+}
+
+@RequireFeature('tasks')
+@SessionRoute()
+class GatedSessionController {
   handler() {}
 }
 
@@ -20,7 +34,7 @@ describe('FeatureGuard', () => {
   };
   const guard = new FeatureGuard(new Reflector(), prisma as unknown as PrismaService);
 
-  const contextFor = (controller: { prototype: { handler: () => void } }, role = 'ADMIN') =>
+  const contextFor = (controller: { prototype: { handler: () => void } }, role = 'MASTER') =>
     ({
       getHandler: () => controller.prototype.handler,
       getClass: () => controller,
@@ -74,11 +88,53 @@ describe('FeatureGuard', () => {
     });
   });
 
-  it('bypasses the check for SOPORTE', async () => {
-    await expect(guard.canActivate(contextFor(ClassLevelController, 'SOPORTE'))).resolves.toBe(
+  it('applies the subscription rules to SOPORTE', async () => {
+    prisma.tenantSubscription.findUnique.mockResolvedValue({
+      planType: 'TRIAL',
+      featureTasks: false,
+    });
+
+    await expect(guard.canActivate(contextFor(ClassLevelController, 'SOPORTE'))).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(prisma.tenantSubscription.findUnique).toHaveBeenCalled();
+  });
+
+  it('skips the check on a platform route', async () => {
+    await expect(guard.canActivate(contextFor(GatedPlatformController, 'ADMIN'))).resolves.toBe(
       true,
     );
     expect(prisma.tenantSubscription.findUnique).not.toHaveBeenCalled();
+    expect(prisma.tenantModule.findMany).not.toHaveBeenCalled();
+  });
+
+  it('skips the check on a session route', async () => {
+    await expect(guard.canActivate(contextFor(GatedSessionController))).resolves.toBe(true);
+    expect(prisma.tenantSubscription.findUnique).not.toHaveBeenCalled();
+    expect(prisma.tenantModule.findMany).not.toHaveBeenCalled();
+  });
+
+  it('ignores core.* rows and decides webPush from the subscription flag', async () => {
+    @RequireFeature('webPush')
+    class WebPushController {
+      handler() {}
+    }
+    prisma.tenantSubscription.findUnique.mockResolvedValue({
+      planType: 'CLINIC_BASIC',
+      featureWebPush: false,
+    });
+    // A core.webPush row must not influence the decision: only the exact key is queried.
+    prisma.tenantModule.findMany.mockImplementation(async ({ where }) =>
+      where.moduleKey?.in?.includes('core.webPush') ? [{ enabled: true }] : [],
+    );
+
+    await expect(guard.canActivate(contextFor(WebPushController))).rejects.toMatchObject({
+      response: { error: 'FEATURE_NOT_AVAILABLE', feature: 'webPush' },
+    });
+    expect(prisma.tenantModule.findMany).toHaveBeenCalledWith({
+      where: { tenantId: 'tenant-1', moduleKey: 'webPush' },
+      select: { enabled: true },
+    });
   });
 
   it('skips controllers without a feature requirement', async () => {

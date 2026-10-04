@@ -68,6 +68,15 @@ export class CreateAppointmentDto {
   @IsString()
   @IsOptional()
   meetingUrl?: string;
+
+  @ApiPropertyOptional({
+    example: 'branch_cuid',
+    nullable: true,
+    description: 'An active branch of the clinic. Null on update removes the branch.',
+  })
+  @IsString()
+  @IsOptional()
+  branchId?: string | null;
 }
 
 export class UpdateAppointmentDto extends PartialType(CreateAppointmentDto) {
@@ -81,6 +90,7 @@ export class ListAppointmentsQueryDto {
   @IsString() @IsOptional() professionalId?: string;
   @IsString() @IsOptional() psychologistId?: string;
   @IsString() @IsOptional() specialtyId?: string;
+  @IsString() @IsOptional() branchId?: string;
   @IsString() @IsOptional() patientId?: string;
   @IsEnum(AppointmentStatus) @IsOptional() status?: AppointmentStatus;
   @IsDateString() @IsOptional() from?: string;

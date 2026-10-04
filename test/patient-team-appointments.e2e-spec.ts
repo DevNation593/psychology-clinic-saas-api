@@ -4,8 +4,10 @@ import { randomUUID } from 'crypto';
 import request from 'supertest';
 import { reconcilePatientTeamAppointments } from '../prisma/reconcile-patient-team-appointments';
 import { AppModule } from '../src/app.module';
+import { PlatformTenantsService } from '../src/platform/platform-tenants.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { assertSpecialtyStageDatabaseSafety } from './helpers/assert-e2e-database';
+import { createTestTenant } from './helpers/create-test-tenant';
 
 jest.setTimeout(120000);
 
@@ -130,31 +132,14 @@ describe('Patient team and appointments (E2E)', () => {
     psychologyId = psychology.id;
     nutritionId = nutrition.id;
 
-    const onboard = async (label: string) => {
-      const response = await request(app.getHttpServer())
-        .post('/api/v1/onboarding/tenants')
-        .send({
-          clinicName: `${label} clinic ${suffix}`,
-          contactEmail: `contact-${label}-${suffix}@example.test`,
-          timezone: 'America/Guayaquil',
-          locale: 'es-EC',
-          specialtyCodes: ['PSYCHOLOGY'],
-          adminFirstName: label,
-          adminLastName: 'Admin',
-          adminEmail: `admin-${label}-${suffix}@example.test`,
-          adminPassword: password,
-          adminProvidesCare: false,
-        })
-        .expect(201);
-      return response.body as { tenant: { id: string }; admin: { id: string; email: string } };
-    };
-    const primary = await onboard('primary');
-    const other = await onboard('other');
-    tenantId = primary.tenant.id;
-    otherTenantId = other.tenant.id;
-    adminId = primary.admin.id;
-    adminToken = await login(primary.admin.email);
-    otherAdminToken = await login(other.admin.email);
+    const deps = { tenants: app.get(PlatformTenantsService), prisma };
+    const primary = await createTestTenant(deps, 1);
+    const other = await createTestTenant(deps, 2);
+    tenantId = primary.id;
+    otherTenantId = other.id;
+    adminId = primary.master!.id;
+    adminToken = await login(primary.master!.email);
+    otherAdminToken = await login(other.master!.email);
 
     await request(app.getHttpServer())
       .put(`/api/v1/tenants/${tenantId}/specialties`)

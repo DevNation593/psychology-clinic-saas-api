@@ -5,6 +5,8 @@ export interface AuthUser {
   tenantId: string;
   email: string;
   role: string;
+  isPlatformTenant: boolean;
+  mustChangePassword: boolean;
 }
 
 export const CurrentUser = createParamDecorator(

@@ -4,13 +4,13 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
-  Logger,
 } from '@nestjs/common';
+import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma, TenantType, UserRole } from '@prisma/client';
 import { CreateTenantUserDto, CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
 import { AuthService } from '../auth/auth.service';
-import { isAdminRole, isProfessionalRole } from '../common/roles/role-compatibility';
+import { isMasterRole, isProfessionalRole } from '../common/roles/role-compatibility';
 import { ProfessionalProfilesService } from '../professional-profiles/professional-profiles.service';
 import { ProfessionalProfileInputDto } from '../professional-profiles/dto/professional-profile.dto';
 import { UpdateSelfProfileDto } from './dto/update-self-profile.dto';
@@ -57,15 +57,23 @@ const selfUserSelect = {
   professionalProfile: { include: { specialty: true } },
 } satisfies Prisma.UserSelect;
 
+const ASSIGNABLE_TEAM_ROLES: readonly UserRole[] = [UserRole.PROFESIONAL, UserRole.ASISTENTE];
+
+const roleNotAssignable = () =>
+  new BadRequestException({
+    statusCode: 400,
+    code: 'ROLE_NOT_ASSIGNABLE',
+    message: 'Solo se pueden asignar los roles Profesional o Asistente.',
+  });
+
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
-
   constructor(
     private prisma: PrismaService,
     private authService: AuthService,
     private profiles: ProfessionalProfilesService,
     private patientTeam: PatientTeamService,
+    private mail: MailService,
   ) {}
 
   private resolveProfileInput(
@@ -121,7 +129,7 @@ export class UsersService {
 
   async invite(tenantId: string, dto: InviteUserDto, invitedBy: string) {
     const user = await this.createOrInvite(tenantId, dto, invitedBy, true);
-    await this.sendInvitationEmail(tenantId, user.id, user.email);
+    await this.sendInvitationEmail(tenantId, user);
     return user;
   }
 
@@ -132,12 +140,7 @@ export class UsersService {
     invitation: boolean,
   ) {
     const { role } = dto;
-    if (!isAdminRole(role) && !isProfessionalRole(role) && role !== UserRole.ASISTENTE) {
-      throw new BadRequestException({
-        code: 'TEAM_ROLE_NOT_ALLOWED',
-        message: 'Rol no permitido para el equipo.',
-      });
-    }
+    if (!ASSIGNABLE_TEAM_ROLES.includes(role)) throw roleNotAssignable();
     if (dto.specialtyIds && dto.specialtyIds.length > 1) {
       throw new BadRequestException({
         code: 'PROFESSIONAL_SPECIALTY_REQUIRED',
@@ -242,13 +245,7 @@ export class UsersService {
 
   async findAll(tenantId: string, filters?: { role?: string; isActive?: boolean }) {
     const where: Prisma.UserWhereInput = { tenantId };
-    if (filters?.role) {
-      where.role = isProfessionalRole(filters.role)
-        ? { in: [UserRole.PSICOLOGO, UserRole.PROFESIONAL] }
-        : isAdminRole(filters.role)
-          ? { in: [UserRole.CLIENTE, UserRole.ADMIN] }
-          : (filters.role as UserRole);
-    }
+    if (filters?.role) where.role = filters.role as UserRole;
     if (filters?.isActive !== undefined) where.isActive = filters.isActive;
     return this.prisma.user.findMany({ where, select: userSelect, orderBy: { createdAt: 'desc' } });
   }
@@ -364,48 +361,24 @@ export class UsersService {
         });
       }
     }
-    if (
-      dto.role &&
-      !isAdminRole(dto.role) &&
-      !isProfessionalRole(dto.role) &&
-      dto.role !== UserRole.ASISTENTE
-    ) {
-      throw new BadRequestException({
-        code: 'TEAM_ROLE_NOT_ALLOWED',
-        message: 'Rol no permitido para el equipo.',
-      });
+    if (isMasterRole(user.role)) {
+      // Support manages provider access outside the clinic's own team rules.
+      const changesRole = !!dto.role && dto.role !== user.role;
+      if (accessFlow !== 'provider' && (changesRole || dto.isActive === false)) {
+        throw new BadRequestException({
+          statusCode: 400,
+          code: 'MASTER_IMMUTABLE',
+          message: 'El titular de la cuenta no puede cambiar de rol ni desactivarse.',
+        });
+      }
+    } else if (dto.role && !ASSIGNABLE_TEAM_ROLES.includes(dto.role)) {
+      throw roleNotAssignable();
     }
     if (dto.isActive === false && actorId === userId) {
       throw new ConflictException({
         code: 'CANNOT_DEACTIVATE_SELF',
         message: 'No puedes desactivar tu propia cuenta.',
       });
-    }
-    if (isAdminRole(user.role) && dto.role && !isAdminRole(dto.role) && actorId === userId) {
-      throw new ConflictException({
-        code: 'CANNOT_DEMOTE_SELF',
-        message: 'No puedes quitarte el rol administrador.',
-      });
-    }
-    if (
-      user.isActive &&
-      isAdminRole(user.role) &&
-      (dto.isActive === false || (dto.role && !isAdminRole(dto.role)))
-    ) {
-      const others = await tx.user.count({
-        where: {
-          tenantId,
-          id: { not: userId },
-          isActive: true,
-          role: { in: [UserRole.ADMIN, UserRole.CLIENTE] },
-        },
-      });
-      if (others === 0) {
-        throw new ConflictException({
-          code: 'LAST_ACTIVE_ADMIN_REQUIRED',
-          message: 'El consultorio debe conservar al menos un administrador activo.',
-        });
-      }
     }
     const normalizedEmail = dto.email?.trim().toLowerCase();
     if (normalizedEmail && normalizedEmail !== user.email.toLowerCase()) {
@@ -467,12 +440,18 @@ export class UsersService {
     ) {
       throw new ForbiddenException('El acceso de este usuario debe ser concedido por el proveedor');
     }
-    this.profiles.validateRoleProfile(nextRole, profile);
+    // Skip when nothing role/profile related changes, so profile-less professionals left by the
+    // data migration can still be deactivated or edited.
+    const touchesRoleOrProfile =
+      (dto.role !== undefined && dto.role !== user.role) ||
+      input !== undefined ||
+      dto.professionalProfile !== undefined;
+    if (touchesRoleOrProfile) this.profiles.validateRoleProfile(nextRole, profile);
     const hadClinicalCapacity = user.isActive && current?.isActive === true;
     const willHaveClinicalCapacity =
       (dto.isActive ?? user.isActive) &&
       profile?.isActive === true &&
-      (isAdminRole(nextRole) || isProfessionalRole(nextRole));
+      (isMasterRole(nextRole) || isProfessionalRole(nextRole));
     const losesClinicalCapacity = hadClinicalCapacity && !willHaveClinicalCapacity;
     if (losesClinicalCapacity) {
       await this.patientTeam.assertNoFutureAppointmentsForProfessional(tx, tenantId, userId);
@@ -569,7 +548,7 @@ export class UsersService {
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { password: hashedNewPassword },
+      data: { password: hashedNewPassword, mustChangePassword: false },
     });
 
     return { message: 'Contraseña cambiada exitosamente' };
@@ -590,12 +569,8 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Only the same user, CLIENTE (admin) or SOPORTE can change the avatar.
-    if (
-      currentUserRole !== 'SOPORTE' &&
-      !isAdminRole(currentUserRole) &&
-      currentUserId !== userId
-    ) {
+    // Only the same user or a MASTER can change the avatar.
+    if (!isMasterRole(currentUserRole) && currentUserId !== userId) {
       throw new ForbiddenException('Solo puedes actualizar tu propio avatar');
     }
 
@@ -650,7 +625,7 @@ export class UsersService {
   async listPendingPsychologists() {
     return this.prisma.user.findMany({
       where: {
-        role: { in: [UserRole.PSICOLOGO, UserRole.PROFESIONAL] },
+        role: UserRole.PROFESIONAL,
         managedByProvider: true,
         isActive: false,
       },
@@ -659,46 +634,15 @@ export class UsersService {
     });
   }
 
-  private async sendInvitationEmail(tenantId: string, userId: string, email: string) {
-    const apiUrl = process.env.EMAIL_API_URL;
-    const apiKey = process.env.EMAIL_API_KEY;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-    const activationLink = `${frontendUrl}/activate?tenantId=${tenantId}&userId=${userId}`;
-
-    if (!apiUrl) {
-      this.logger.warn(
-        `EMAIL_API_URL is not configured. Invitation for ${email} not sent. Activation link: ${activationLink}`,
-      );
-      return;
-    }
-
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          to: email,
-          template: 'user-invitation',
-          subject: 'Has sido invitado a Psychology Clinic SaaS',
-          variables: {
-            activationLink,
-            tenantId,
-            userId,
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        this.logger.error(
-          `Invitation email failed for ${email}. Status ${response.status}. Body: ${errorBody}`,
-        );
-      }
-    } catch (error) {
-      this.logger.error(`Invitation email request failed for ${email}`, error as any);
-    }
+  /** Pending invitations are activated by the account holder; the message only announces the account. */
+  private async sendInvitationEmail(tenantId: string, user: { email: string; firstName: string }) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    await this.mail.sendInvitation(user.email, {
+      firstName: user.firstName,
+      clinicName: tenant?.name ?? 'tu consultorio',
+    });
   }
 }

@@ -1,26 +1,29 @@
-export type CanonicalRole = 'ADMIN' | 'PROFESIONAL' | 'ASISTENTE' | 'SOPORTE' | 'PACIENTE';
-export type CompatibleRole = CanonicalRole | 'CLIENTE' | 'PSICOLOGO';
+export type CanonicalRole =
+  | 'MASTER'
+  | 'PROFESIONAL'
+  | 'ASISTENTE'
+  | 'SOPORTE'
+  | 'PACIENTE'
+  | 'ADMIN';
 
-const ROLE_ALIASES: Record<CompatibleRole, CanonicalRole> = {
-  ADMIN: 'ADMIN',
-  CLIENTE: 'ADMIN',
-  PROFESIONAL: 'PROFESIONAL',
-  PSICOLOGO: 'PROFESIONAL',
-  ASISTENTE: 'ASISTENTE',
-  SOPORTE: 'SOPORTE',
-  PACIENTE: 'PACIENTE',
-};
+const CANONICAL_ROLES: readonly string[] = [
+  'MASTER',
+  'PROFESIONAL',
+  'ASISTENTE',
+  'SOPORTE',
+  'PACIENTE',
+  'ADMIN',
+];
 
+/** CLIENTE and PSICOLOGO were migrated away; they resolve to nothing so they match no guard. */
 export function toCanonicalRole(role: string): CanonicalRole | undefined {
-  return ROLE_ALIASES[role as CompatibleRole];
+  return CANONICAL_ROLES.includes(role) ? (role as CanonicalRole) : undefined;
 }
 
 export function areRolesEquivalent(actual: string, required: string): boolean {
   const actualCanonical = toCanonicalRole(actual);
-  const requiredCanonical = toCanonicalRole(required);
-  return !!actualCanonical && actualCanonical === requiredCanonical;
+  return !!actualCanonical && actualCanonical === toCanonicalRole(required);
 }
 
-export const isAdminRole = (role: string): boolean => toCanonicalRole(role) === 'ADMIN';
-export const isProfessionalRole = (role: string): boolean =>
-  toCanonicalRole(role) === 'PROFESIONAL';
+export const isMasterRole = (role: string): boolean => role === 'MASTER';
+export const isProfessionalRole = (role: string): boolean => role === 'PROFESIONAL';

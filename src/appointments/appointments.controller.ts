@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, Patch, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { AppointmentStatus } from '@prisma/client';
 import { AppointmentsService } from './appointments.service';
 import {
   CreateAppointmentDto,
@@ -9,13 +10,20 @@ import {
 } from './dto/appointment.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
+import { RequirePermission } from '../common/permissions/permission-catalog';
+import { PermissionChecker } from '../common/permissions/permission-checker.service';
 
 @ApiTags('appointments')
 @ApiBearerAuth('access-token')
-@Roles('ADMIN', 'ASISTENTE', 'PROFESIONAL')
+@RequireSection('core.calendar')
+@Roles('MASTER', 'ASISTENTE', 'PROFESIONAL')
 @Controller('tenants/:tenantId/appointments')
 export class AppointmentsController {
-  constructor(private readonly appointmentsService: AppointmentsService) {}
+  constructor(
+    private readonly appointmentsService: AppointmentsService,
+    private readonly permissions: PermissionChecker,
+  ) {}
 
   @Post()
   @ApiOperation({
@@ -45,6 +53,7 @@ export class AppointmentsController {
       },
     },
   })
+  @RequirePermission('appointments.create')
   async create(
     @Param('tenantId') tenantId: string,
     @Body() createAppointmentDto: CreateAppointmentDto,
@@ -80,18 +89,24 @@ export class AppointmentsController {
   @ApiOperation({ summary: 'Update appointment (checks conflicts if time changed)' })
   @ApiResponse({ status: 200, description: 'Appointment updated' })
   @ApiResponse({ status: 409, description: 'Time slot conflict' })
+  @RequirePermission('appointments.update')
   async update(
     @Param('tenantId') tenantId: string,
     @Param('appointmentId') appointmentId: string,
     @Body() updateAppointmentDto: UpdateAppointmentDto,
     @CurrentUser() actor: AuthUser,
   ) {
+    // Cancelling through this route exercises the same permission as the cancel route.
+    if (updateAppointmentDto.status === AppointmentStatus.CANCELLED) {
+      await this.permissions.assertAllowed(actor, 'appointments.cancel');
+    }
     return this.appointmentsService.update(tenantId, appointmentId, updateAppointmentDto, actor);
   }
 
   @Post(':appointmentId/cancel')
   @ApiOperation({ summary: 'Cancel appointment' })
   @ApiResponse({ status: 200, description: 'Appointment cancelled' })
+  @RequirePermission('appointments.cancel')
   async cancel(
     @Param('tenantId') tenantId: string,
     @Param('appointmentId') appointmentId: string,

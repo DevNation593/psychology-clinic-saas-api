@@ -1,97 +1,10 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateTenantDto, UpdateTenantDto } from './dto/tenant.dto';
-import { AuthService } from '../auth/auth.service';
+import { UpdateTenantDto } from './dto/tenant.dto';
 
 @Injectable()
 export class TenantsService {
-  constructor(
-    private prisma: PrismaService,
-    private authService: AuthService,
-  ) {}
-
-  async create(createTenantDto: CreateTenantDto) {
-    const {
-      email,
-      adminEmail,
-      adminPassword,
-      adminFirstName,
-      adminLastName,
-      tenantType,
-      ...tenantData
-    } = createTenantDto;
-
-    // Check if admin email already exists
-    const existingUser = await this.prisma.user.findFirst({
-      where: { email: adminEmail },
-    });
-
-    if (existingUser) {
-      throw new ConflictException('El correo electrónico ya está en uso');
-    }
-
-    // Hash password
-    const hashedPassword = await this.authService.hashPassword(adminPassword);
-
-    // Create tenant with admin user and subscription in a transaction
-    const tenant = await this.prisma.$transaction(async (tx) => {
-      // Create tenant
-      const newTenant = await tx.tenant.create({
-        data: {
-          ...tenantData,
-          email,
-          tenantType: tenantType || 'PERSONAL',
-        },
-      });
-
-      await this.prisma.applyRlsContext(tx, { tenantId: newTenant.id });
-
-      // Create tenant settings
-      await tx.tenantSettings.create({
-        data: {
-          tenantId: newTenant.id,
-        },
-      });
-
-      // Create tenant subscription (trial mode)
-      const isClinic = (tenantType || 'PERSONAL') === 'CLINIC';
-      await tx.tenantSubscription.create({
-        data: {
-          tenantId: newTenant.id,
-          planType: 'TRIAL',
-          status: 'TRIALING',
-          seatsPsychologistsMax: isClinic ? 3 : 1,
-          seatsPsychologistsUsed: 0,
-          maxActivePatients: isClinic ? 20 : 10,
-          storageGB: 0,
-          monthlyNotificationsLimit: 100,
-          trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days trial
-          featureClinicalNotes: true,
-          featureAttachments: false,
-          featureTasks: false,
-        },
-      });
-
-      // Create admin user
-      await tx.user.create({
-        data: {
-          tenantId: newTenant.id,
-          email: adminEmail,
-          password: hashedPassword,
-          firstName: adminFirstName,
-          lastName: adminLastName,
-          role: 'CLIENTE',
-          isActive: true,
-          emailVerified: true,
-          activatedAt: new Date(),
-        },
-      });
-
-      return newTenant;
-    });
-
-    return this.findOne(tenant.id);
-  }
+  constructor(private prisma: PrismaService) {}
 
   async findOne(id: string) {
     const tenant = await this.prisma.tenant.findUnique({

@@ -7,14 +7,18 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { PasswordChangeGuard } from '../common/guards/password-change.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { SubscriptionGuard } from '../common/guards/subscription.guard';
 import { FeatureGuard } from '../common/guards/feature.guard';
+import { SectionGuard } from '../common/guards/section.guard';
+import { PermissionGuard } from '../common/guards/permission.guard';
 import { RlsContextInterceptor } from '../common/interceptors/rls-context.interceptor';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [PassportModule, JwtModule.register({}), ConfigModule],
+  imports: [PassportModule, JwtModule.register({}), ConfigModule, MailModule],
   controllers: [AuthController],
   providers: [
     AuthService,
@@ -22,6 +26,10 @@ import { RlsContextInterceptor } from '../common/interceptors/rls-context.interc
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PasswordChangeGuard,
     },
     {
       provide: APP_GUARD,
@@ -38,6 +46,14 @@ import { RlsContextInterceptor } from '../common/interceptors/rls-context.interc
     {
       provide: APP_GUARD,
       useClass: FeatureGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: SectionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
     },
     {
       provide: APP_INTERCEPTOR,

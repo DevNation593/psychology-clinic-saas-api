@@ -2,6 +2,9 @@ import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { ALLOW_INACTIVE_SUBSCRIPTION_KEY } from '../decorators/allow-inactive-subscription.decorator';
+import { PLATFORM_ROUTE_KEY } from '../decorators/platform-route.decorator';
+import { SESSION_ROUTE_KEY } from '../decorators/session-route.decorator';
 
 @Injectable()
 export class SubscriptionGuard implements CanActivate {
@@ -18,16 +21,24 @@ export class SubscriptionGuard implements CanActivate {
     ]);
     if (isPublic) return true;
 
+    const allowInactive = this.reflector.getAllAndOverride<boolean>(
+      ALLOW_INACTIVE_SUBSCRIPTION_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (allowInactive) return true;
+
+    // Platform routes act on the platform tenant; session routes (logout, password change)
+    // must stay reachable for every role even when the clinic's subscription is not active.
+    const skipped = [PLATFORM_ROUTE_KEY, SESSION_ROUTE_KEY].some((key) =>
+      this.reflector.getAllAndOverride<boolean>(key, [context.getHandler(), context.getClass()]),
+    );
+    if (skipped) return true;
+
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
     if (!user || !user.tenantId) {
       return true; // Let JwtAuthGuard handle this
-    }
-
-    // SOPORTE bypasses subscription checks
-    if (user.role === 'SOPORTE') {
-      return true;
     }
 
     const subscription = await this.prisma.tenantSubscription.findUnique({

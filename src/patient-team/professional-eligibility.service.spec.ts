@@ -53,7 +53,7 @@ describe('ProfessionalEligibilityService', () => {
   });
 
   it('accepts an ADMIN with an active professional profile', async () => {
-    db.user.findFirst.mockResolvedValue(professional({ id: 'admin-clinical', role: 'ADMIN' }));
+    db.user.findFirst.mockResolvedValue(professional({ id: 'admin-clinical', role: 'MASTER' }));
 
     await expect(
       service.resolve(teamDb, 'tenant-1', 'admin-clinical', 'nutrition'),
@@ -160,7 +160,7 @@ describe('ProfessionalEligibilityService', () => {
   it.each([undefined, 'nutrition'])(
     'lists active eligible professionals with specialty filter %s and stable sorting',
     async (specialtyId) => {
-      const admin = professional({ id: 'admin-clinical', role: 'ADMIN' });
+      const admin = professional({ id: 'admin-clinical', role: 'MASTER' });
       db.user.findMany.mockResolvedValue([admin]);
 
       await expect(service.list(teamDb, 'tenant-1', specialtyId)).resolves.toEqual([admin]);

@@ -45,6 +45,9 @@ jobs:
       - name: Verify patient-team migration upgrade
         run: npm run prisma:verify-patient-team-migration
 
+      - name: Verify master-role migration upgrade
+        run: npm run prisma:verify-master-role-migration
+
       - name: Apply Prisma migrations
         run: npx prisma migrate deploy
 

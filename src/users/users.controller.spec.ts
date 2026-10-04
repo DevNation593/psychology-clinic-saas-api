@@ -59,7 +59,7 @@ describe('UsersController self profile route', () => {
     usersService.createForTenant.mockResolvedValue({ id: 'created-user' });
     await request(app.getHttpServer())
       .post('/tenants/tenant-1/users')
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .set('x-test-user-id', 'admin-1')
       .send(member)
       .expect(201);
@@ -79,7 +79,7 @@ describe('UsersController self profile route', () => {
       .expect(403);
     await request(app.getHttpServer())
       .post('/tenants/other-tenant/users')
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .send(member)
       .expect(403);
     expect(usersService.createForTenant).not.toHaveBeenCalled();
@@ -90,7 +90,7 @@ describe('UsersController self profile route', () => {
     async (field) => {
       await request(app.getHttpServer())
         .post('/tenants/tenant-1/users')
-        .set('x-test-role', 'ADMIN')
+        .set('x-test-role', 'MASTER')
         .send({ ...member, [field]: field === 'tenantId' ? 'tenant-1' : true })
         .expect(400);
       expect(usersService.createForTenant).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe('UsersController self profile route', () => {
     const { password: _password, ...withoutPassword } = member;
     await request(app.getHttpServer())
       .post('/tenants/tenant-1/users')
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .send(withoutPassword)
       .expect(400);
     expect(usersService.createForTenant).not.toHaveBeenCalled();
@@ -112,13 +112,13 @@ describe('UsersController self profile route', () => {
     usersService.deactivate.mockResolvedValue({ message: 'ok' });
     await request(app.getHttpServer())
       .patch('/tenants/tenant-1/users/member-1')
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .set('x-test-user-id', 'admin-1')
       .send({ firstName: 'Changed' })
       .expect(200);
     await request(app.getHttpServer())
       .delete('/tenants/tenant-1/users/member-1')
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .set('x-test-user-id', 'admin-1')
       .expect(200);
     expect(usersService.update).toHaveBeenCalledWith(
@@ -143,7 +143,7 @@ describe('UsersController self profile route', () => {
     usersService.activate.mockResolvedValue({ id: 'pending-1', isActive: true });
     await request(app.getHttpServer())
       .post('/tenants/tenant-1/users/pending-1/activate')
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .set('x-test-user-id', 'admin-1')
       .send({ password: 'Password123!' })
       .expect(201);
@@ -158,7 +158,7 @@ describe('UsersController self profile route', () => {
   it('denies pending activation across tenants', async () => {
     await request(app.getHttpServer())
       .post('/tenants/other-tenant/users/pending-1/activate')
-      .set('x-test-role', 'ADMIN')
+      .set('x-test-role', 'MASTER')
       .send({ password: 'Password123!' })
       .expect(403);
     expect(usersService.activate).not.toHaveBeenCalled();
