@@ -1,3 +1,4 @@
+import { MailService } from '../mail/mail.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
@@ -31,6 +32,7 @@ describe('UsersService self profile updates', () => {
       {} as AuthService,
       {} as ProfessionalProfilesService,
       {} as PatientTeamService,
+      {} as MailService,
     );
   });
 
@@ -169,5 +171,33 @@ describe('UsersService self profile updates', () => {
       updateSelf('tenant-1', 'user-from-token', { firstName: 'Attempt' }),
     ).rejects.toThrow(NotFoundException);
     expect(db.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('UsersService changePassword', () => {
+  it('clears mustChangePassword when the user changes the password from the profile', async () => {
+    const bcrypt = await import('bcrypt');
+    const db = { user: { findFirst: jest.fn(), update: jest.fn() } };
+    const auth = { hashPassword: jest.fn().mockResolvedValue('new-hash') };
+    db.user.findFirst.mockResolvedValue({
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      password: await bcrypt.hash('Temporary1!', 4),
+      mustChangePassword: true,
+    });
+    const service = new UsersService(
+      db as unknown as PrismaService,
+      auth as unknown as AuthService,
+      {} as ProfessionalProfilesService,
+      {} as PatientTeamService,
+      {} as MailService,
+    );
+
+    await service.changePassword('tenant-1', 'user-1', 'Temporary1!', 'NewPassword2!');
+
+    expect(db.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { password: 'new-hash', mustChangePassword: false },
+    });
   });
 });

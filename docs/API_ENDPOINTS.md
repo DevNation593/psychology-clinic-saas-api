@@ -32,7 +32,7 @@ Base URL: `http://localhost:3000/api/v1`
 
 ## Authentication
 
-All endpoints except `/auth/login`, `/auth/refresh`, and `POST /tenants` require Bearer token authentication.
+All endpoints except the public ones (`/auth/login`, `/auth/refresh`, `/auth/forgot-password`, `/auth/reset-password`) require Bearer token authentication. There is no public signup: clinics are created by the platform `ADMIN` (see [Platform](#platform)).
 
 ```
 Authorization: Bearer <access_token>
@@ -40,29 +40,9 @@ Authorization: Bearer <access_token>
 
 ## Quick Start Flow
 
-### 1. Create Tenant (Signup)
+### 1. Create Tenant (platform ADMIN only)
 
-```bash
-POST /tenants
-Content-Type: application/json
-
-{
-  "name": "Mi Clínica",
-  "slug": "mi-clinica",
-  "email": "contacto@miclinica.com",
-  "phone": "+52 555 123 4567",
-  "adminFirstName": "Juan",
-  "adminLastName": "Pérez",
-  "adminEmail": "admin@miclinica.com",
-  "adminPassword": "SecurePass123!"
-}
-```
-
-Response creates:
-- Tenant
-- Tenant settings (default working hours)
-- Subscription (TRIAL, 14 days, 1 seat)
-- Admin user (TENANT_ADMIN role)
+Clinics are created with `POST /platform/tenants` by the platform `ADMIN`, who hands the temporary password to the owner (`MASTER`). The owner must change it on the first login. See [Platform](#platform).
 
 ### 2. Login
 
@@ -71,8 +51,8 @@ POST /auth/login
 Content-Type: application/json
 
 {
-  "email": "admin@miclinica.com",
-  "password": "SecurePass123!"
+  "email": "titular@miclinica.com",
+  "password": "<temporary or own password>"
 }
 ```
 
@@ -86,8 +66,9 @@ Response:
     "email": "admin@miclinica.com",
     "firstName": "Juan",
     "lastName": "Pérez",
-    "role": "TENANT_ADMIN",
-    "tenantId": "..."
+    "role": "MASTER",
+    "tenantId": "...",
+    "mustChangePassword": false
   }
 }
 ```
@@ -215,6 +196,28 @@ Content-Type: application/json
 
 This automatically creates an audit log entry tracking the creation.
 
+#### Clinical content rules
+
+Clinical notes, specialty records and the clinical timeline require an **active professional profile** in the tenant. A `MASTER` without one, an inactive profile, `ASISTENTE` and `SOPORTE` receive `403 PROFESSIONAL_NOT_AUTHORIZED` (or the role guard's 403). Every professional of the tenant reads the shared history; only the author corrects or removes a record (`403 CLINICAL_RECORD_FORBIDDEN` otherwise). Every read, creation, correction and removal is written to the audit log with the actor, patient, IP and user agent.
+
+```bash
+# Correct a note: the reason is mandatory, the version is incremented and
+# the previous state is kept in the audit log. patientId and appointmentId cannot change.
+PATCH /tenants/{tenantId}/clinical-notes/{noteId}
+{ "content": "Texto corregido", "changeReason": "Error de transcripción" }
+
+# Remove a note: soft delete with a mandatory reason. The row is kept for audit.
+DELETE /tenants/{tenantId}/clinical-notes/{noteId}
+{ "reason": "Nota registrada en el paciente equivocado" }
+
+# Shared timeline: appointments, notes and specialty records, newest first.
+GET /tenants/{tenantId}/patients/{patientId}/clinical-timeline?type=CLINICAL_NOTE&specialtyId=...&professionalId=...&from=...&to=...
+```
+
+Specialty records can only be created under the author's own specialty.
+
+`GET /tenants/{tenantId}/audit-logs` (MASTER) returns `changes: null`, `reason: null` and `contentRedacted: true` for clinical entries when the viewer has no active professional profile.
+
 ### 7. Create Next Session Plan
 
 ```bash
@@ -277,6 +280,117 @@ This means reminders are sent:
 
 Configured in `TenantSettings.reminderRules`
 
+## Platform
+
+Routes under `/platform/*` belong to the platform administration panel. They require the `ADMIN` role, and the `ADMIN` must belong to the reserved platform tenant (`Tenant.isPlatform`); any other user receives `403`. They do not compare `:tenantId` with the caller's own tenant and never expose internal clinic data (patients, appointments, notes, invoices). Errors use the same shape as the rest of the API: `{ statusCode, code, message, ... }`.
+
+`ADMIN` accounts are created by script (`npm run platform:create-admin`, see `DEPLOYMENT.md`), not by the API.
+
+### Summary
+
+| Route | Description |
+|---|---|
+| `GET /platform/summary` | `tenants: { active, suspended }`, `subscriptions: { trialing, active, pastDue, blocked }` (`blocked` = `UNPAID` + `CANCELED` + `INCOMPLETE`), `pendingPayments: { count, amount, currency }`, `trialsEndingSoon` (`id`, `name`, `trialEndsAt`), `recentTenants` (`id`, `name`, `planType`, `createdAt`). The platform tenant is excluded. |
+
+### Tenants
+
+| Route | Description |
+|---|---|
+| `GET /platform/tenants` | Paginated list. Query: `page`, `pageSize` (max 100, default 20), `search` (clinic name or email, owner name or email), `planType`, `status`, `isActive`. Returns `{ items, total, page, pageSize }`; each item has `id`, `name`, `tenantType`, `isActive`, `createdAt`, `master`, `planType`, `status`, `seatsPsychologistsUsed`/`seatsPsychologistsMax`, `activePatientsCount`/`maxActivePatients`. |
+| `GET /platform/tenants/:tenantId` | Detail: `tenant`, `master` (with `mustChangePassword`), `subscription`, `usage` (`seatsPsychologistsUsed`, `activePatientsCount`, `monthlyNotificationsSent`), `specialties` and the eight `sections` with `enabled`. |
+| `POST /platform/tenants` | Creates a clinic with its owner. Responds `201` with the detail shape. |
+| `PATCH /platform/tenants/:tenantId` | Edits `name`, `email`, `phone`, `address`. |
+| `PATCH /platform/tenants/:tenantId/subscription` | Changes the plan. Body: `planType`, `seatsPsychologistsMax?`, `maxActivePatients?`, `reason` (required). |
+| `POST /platform/tenants/:tenantId/suspend` | Body `{ reason }` (required). Sets `Tenant.isActive = false` and revokes the refresh tokens of the users of the tenant. |
+| `POST /platform/tenants/:tenantId/reactivate` | Sets `Tenant.isActive = true`. |
+| `PUT /platform/tenants/:tenantId/sections` | Body `{ sections: string[] }`: the keys that stay enabled; every other section is stored with `enabled = false`. |
+| `POST /platform/tenants/:tenantId/master/reset-password` | Body `{ temporaryPassword }` (min. 8 characters). Stores the hash, sets `mustChangePassword = true` and revokes the owner's refresh tokens. Responds `200` without a body. |
+| `GET /platform/section-catalog` | The eight sections (key, name, dependencies) and the pre-checked sections for every plan and tenant type (`defaults`). |
+
+Every route with `:tenantId` answers `404` if the clinic does not exist or is the platform tenant.
+
+**Create body (`POST /platform/tenants`)**
+
+```json
+{
+  "name": "Consultorio Demo",
+  "email": "contacto@demo.test",
+  "phone": "+593 99 999 9999",
+  "address": "Quito",
+  "tenantType": "CLINIC",
+  "timezone": "America/Guayaquil",
+  "locale": "es-EC",
+  "masterFirstName": "Ana",
+  "masterLastName": "Lopez",
+  "masterEmail": "ana@demo.test",
+  "temporaryPassword": "Temporal-2026",
+  "planType": "TRIAL",
+  "specialtyCodes": ["PSYCHOLOGY"],
+  "sections": ["core.calendar", "core.patients"]
+}
+```
+
+- `phone`, `address` and `sections` are optional. When `sections` is omitted, the pre-checked sections of the plan and tenant type are used.
+- `temporaryPassword` has at least 8 characters and is stored exactly as typed. It is never logged or written to the audit log.
+- `specialtyCodes` needs at least one code.
+- Everything runs in one serializable transaction. A `TRIAL` plan starts `TRIALING` with a 14-day trial; a paid plan starts `ACTIVE` with a one-month period and no payment record. The owner is created with `mustChangePassword = true`.
+- The owner email must be unique across the platform (`409` otherwise). The plan must match the tenant type (`400 PLAN_TYPE_MISMATCH`).
+
+**Plan change**
+
+- Applied immediately, without a payment. Limits and flags are recalculated from the plan; `seatsPsychologistsMax` and `maxActivePatients`, when sent, replace the plan values.
+- If the current usage exceeds the new limits: `409 PLAN_BELOW_USAGE` and nothing changes.
+- Cancels a pending scheduled plan change and the `PENDING` upgrade payments of the clinic.
+- Does not touch the sections.
+
+**Sections**
+
+- A key outside the catalog: `400 SECTION_UNKNOWN`.
+- An enabled section whose dependency is not enabled: `400 SECTION_DEPENDENCY` with `{ section, requires }`.
+- Turning a section off does not delete data. A clinic owner cannot change `core.*` module keys (`403 SECTION_MANAGED_BY_PLATFORM`).
+- Keys: `core.calendar`, `core.patients`, `core.tasks`, `core.clinicalNotes`, `core.specialties`, `core.billing`, `core.team`, `core.storage`.
+
+### Subscription payments
+
+| Route | Description |
+|---|---|
+| `GET /platform/subscription-payments?status=PENDING` | Payments of every clinic. |
+| `POST /platform/subscription-payments/:paymentId/confirm` | Body `{ reference, note? }`. Applies the payment; idempotent for the same reference. |
+| `POST /platform/subscription-payments/:paymentId/reject` | Body `{ reason }`. Closes the request without changes. |
+
+### Legacy provider-managed access
+
+| Route | Description |
+|---|---|
+| `GET /platform/legacy-access/pending` | Provider-managed professionals awaiting approval across all clinics. |
+| `POST /platform/legacy-access/:tenantId/:userId/grant` | Grants access (`409 PROFESSIONAL_SEAT_LIMIT_REACHED` if no seat is left). |
+| `POST /platform/legacy-access/:tenantId/:userId/revoke` | Revokes access. |
+
+### Audit
+
+Suspending, reactivating, editing the account, changing sections and resetting the owner password write an `AuditLog` entry (`tenantId` of the affected clinic, `userId` of the `ADMIN`). The password never appears in `changes`. Plan changes are recorded as `SubscriptionEvent`.
+
+### Change own password
+
+`POST /auth/change-password` (any authenticated user, including one with a temporary password)
+
+```json
+{ "currentPassword": "Temporal-2026", "newPassword": "MyOwnPassword1" }
+```
+
+Validates the current password (`401` if wrong), requires a new password of at least 8 characters that differs from the current one (`400 PASSWORD_UNCHANGED`), stores it and sets `mustChangePassword = false`. `POST /auth/reset-password` also clears the flag. The login and refresh responses include `user.mustChangePassword`.
+
+### Access rules
+
+- A user with `mustChangePassword = true` receives `403 PASSWORD_CHANGE_REQUIRED` on every route except the public ones, `POST /auth/logout`, `POST /auth/logout-all` and `POST /auth/change-password`. The flag is read from the database on each request, so a reset takes effect with the access token already issued.
+- An `ADMIN` outside `/platform/*` receives `403 PLATFORM_ONLY`, except on those three session routes.
+- A clinic section that is turned off (or has no row) answers `403 SECTION_NOT_ENABLED` with `{ section }`. Sections are enforced on appointments (`core.calendar`), patients (`core.patients`), tasks (`core.tasks`), clinical notes, timeline and next-session plans (`core.clinicalNotes`), specialty records and the handlers that change specialties or modules (`core.specialties`), billing (`core.billing`) and member management in users (`core.team`).
+- `SOPORTE` has no platform or cross-tenant power.
+
+### Removed routes
+
+`POST /onboarding/tenants`, `POST /tenants`, `/subscription-payments/*`, `/admin/psychologists/*` and the `grant-access` / `revoke-access` handlers of users no longer exist. Their replacements are `POST /platform/tenants`, `/platform/subscription-payments/*` and `/platform/legacy-access/*`.
+
 ## Role-Based Access
 
 ### TENANT_ADMIN Can:
@@ -314,6 +428,23 @@ Configured in `TenantSettings.reminderRules`
 | 404 | Not Found | Resource not found |
 | 409 | Conflict | Duplicate resource or business rule violation |
 | 429 | Too Many Requests | Rate limit exceeded |
+
+### Platform and section errors
+
+| Situation | Response |
+|---|---|
+| Non-`ADMIN` user on `/platform/*` | 403 |
+| `ADMIN` outside the panel | 403 `PLATFORM_ONLY` |
+| User with a temporary password | 403 `PASSWORD_CHANGE_REQUIRED` |
+| Section turned off or without a row | 403 `SECTION_NOT_ENABLED` |
+| Owner tries to change a `core.*` module key | 403 `SECTION_MANAGED_BY_PLATFORM` |
+| Owner email already used | 409 |
+| Unknown section key | 400 `SECTION_UNKNOWN` |
+| Section dependency not satisfied | 400 `SECTION_DEPENDENCY` |
+| Plan does not match the tenant type | 400 `PLAN_TYPE_MISMATCH` |
+| Plan below the current usage | 409 `PLAN_BELOW_USAGE` |
+| Clinic does not exist or is the platform tenant | 404 |
+| New password equals the current one | 400 `PASSWORD_UNCHANGED` |
 
 ### Seat Limit Error
 

@@ -7,9 +7,11 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { BillingService } from './billing.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('billing')
 @ApiBearerAuth('access-token')
+@RequireSection('core.billing')
 @Controller('tenants/:tenantId/billing')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
 export class BillingController {

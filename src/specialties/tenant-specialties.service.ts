@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -128,8 +129,13 @@ export class TenantSpecialtiesService {
         })
       : [];
     const ownedKeys = new Set(catalogOwners.map(({ moduleKey }) => moduleKey));
-    const removeKeys = obsoleteCandidates.filter((key) => ownedKeys.has(key));
-    const addKeys = desiredKeys.filter((key) => !existingKeys.includes(key));
+    // core.* sections are assigned by the platform administrator, never by a specialty selection.
+    const removeKeys = obsoleteCandidates.filter(
+      (key) => ownedKeys.has(key) && !key.startsWith('core.'),
+    );
+    const addKeys = desiredKeys.filter(
+      (key) => !existingKeys.includes(key) && !key.startsWith('core.'),
+    );
     if (removeKeys.length)
       await tx.tenantModule.deleteMany({ where: { tenantId, moduleKey: { in: removeKeys } } });
     if (addKeys.length)
@@ -159,6 +165,13 @@ export class TenantSpecialtiesService {
   }
 
   async updateModule(tenantId: string, moduleKey: string, enabled: boolean, actorId: string) {
+    if (moduleKey.startsWith('core.')) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'SECTION_MANAGED_BY_PLATFORM',
+        message: 'Esta sección la administra la plataforma.',
+      });
+    }
     return runSerializableTransaction(this.prisma, tenantId, actorId, async (tx) => {
       const owner = await tx.tenantSpecialty.findFirst({
         where: { tenantId, specialty: { isActive: true, modules: { some: { moduleKey } } } },

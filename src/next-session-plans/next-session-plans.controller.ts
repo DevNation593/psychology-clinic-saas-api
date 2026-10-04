@@ -4,9 +4,11 @@ import { NextSessionPlansService } from './next-session-plans.service';
 import { CreateNextSessionPlanDto, UpdateNextSessionPlanDto } from './dto/next-session-plan.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { RequireSection } from '../common/decorators/require-section.decorator';
 
 @ApiTags('next-session-plans')
 @ApiBearerAuth('access-token')
+@RequireSection('core.clinicalNotes')
 @Controller('tenants/:tenantId/next-session-plans')
 export class NextSessionPlansController {
   constructor(private readonly nextSessionPlansService: NextSessionPlansService) {}

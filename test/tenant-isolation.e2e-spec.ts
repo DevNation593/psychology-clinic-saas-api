@@ -3,7 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { TenantsService } from './../src/tenants/tenants.service';
+import { PlatformTenantsService } from './../src/platform/platform-tenants.service';
 import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 
 jest.setTimeout(30000);
@@ -11,7 +11,7 @@ jest.setTimeout(30000);
 describe('Tenant Isolation (E2E)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
-  let tenantsService: TenantsService;
+  let tenantsService: PlatformTenantsService;
   let tenant1Token: string;
   let tenant2Token: string;
   let tenant1Id: string;
@@ -43,12 +43,12 @@ describe('Tenant Isolation (E2E)', () => {
 
     await app.init();
     prisma = app.get<PrismaService>(PrismaService);
-    tenantsService = app.get<TenantsService>(TenantsService);
+    tenantsService = app.get(PlatformTenantsService);
 
     await prisma.cleanDatabase();
 
-    const tenant1 = await createTestTenant(tenantsService, 1);
-    const tenant2 = await createTestTenant(tenantsService, 2);
+    const tenant1 = await createTestTenant({ tenants: tenantsService, prisma }, 1);
+    const tenant2 = await createTestTenant({ tenants: tenantsService, prisma }, 2);
 
     tenant1Id = tenant1.id;
     tenant2Id = tenant2.id;

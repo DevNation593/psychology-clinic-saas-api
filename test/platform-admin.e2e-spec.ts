@@ -1,0 +1,217 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import request from 'supertest';
+import { AppModule } from './../src/app.module';
+import { AuthService } from './../src/auth/auth.service';
+import { PrismaService } from './../src/prisma/prisma.service';
+import { SECTION_KEYS } from './../src/common/sections/section-catalog';
+import { TEST_PASSWORD } from './helpers/create-test-tenant';
+
+jest.setTimeout(60000);
+
+describe('Platform admin panel (E2E)', () => {
+  let app: INestApplication;
+  let prisma: PrismaService;
+  let tenantId: string;
+  let adminToken: string;
+  let masterToken: string;
+
+  const masterEmail = 'titular@consultorio-e2e.test';
+  const temporaryPassword = 'Temporal-2026';
+  const ownPassword = 'Propia-2026!';
+  const resetPassword = 'Reinicio-2026';
+  const api = (path: string) => `/api/v1${path}`;
+  const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+  const http = () => request(app.getHttpServer());
+  const login = async (email: string, password: string) => {
+    const response = await http().post(api('/auth/login')).send({ email, password }).expect(200);
+    return response.body.accessToken as string;
+  };
+
+  beforeAll(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+    );
+    await app.init();
+    prisma = app.get<PrismaService>(PrismaService);
+
+    await prisma.cleanDatabase();
+    await prisma.specialty.upsert({
+      where: { code: 'PSYCHOLOGY' },
+      update: { isActive: true },
+      create: { code: 'PSYCHOLOGY', name: 'Psicología', isActive: true },
+    });
+    const platformTenant = await prisma.tenant.create({
+      data: { name: 'Plataforma', email: 'platform@tenant.test', isPlatform: true },
+    });
+    await prisma.user.create({
+      data: {
+        tenantId: platformTenant.id,
+        email: 'platform-admin@tenant.test',
+        password: await app.get<AuthService>(AuthService).hashPassword(TEST_PASSWORD),
+        firstName: 'Platform',
+        lastName: 'Admin',
+        role: 'ADMIN',
+        isActive: true,
+      },
+    });
+    adminToken = await login('platform-admin@tenant.test', TEST_PASSWORD);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('lets the ADMIN create a clinic with tasks disabled', async () => {
+    const response = await http()
+      .post(api('/platform/tenants'))
+      .set(bearer(adminToken))
+      .send({
+        name: 'Consultorio E2E',
+        email: 'contacto@consultorio-e2e.test',
+        tenantType: 'CLINIC',
+        timezone: 'America/Guayaquil',
+        locale: 'es-EC',
+        masterFirstName: 'Titular',
+        masterLastName: 'E2E',
+        masterEmail,
+        temporaryPassword,
+        planType: 'TRIAL',
+        specialtyCodes: ['PSYCHOLOGY'],
+        sections: SECTION_KEYS.filter((key) => key !== 'core.tasks'),
+      })
+      .expect(201);
+
+    tenantId = response.body.tenant.id;
+    const sections = response.body.sections as { key: string; enabled: boolean }[];
+    expect(sections).toHaveLength(SECTION_KEYS.length);
+    expect(sections.find((section) => section.key === 'core.tasks')?.enabled).toBe(false);
+    expect(sections.filter((section) => section.enabled)).toHaveLength(SECTION_KEYS.length - 1);
+    expect(response.body.master).toMatchObject({ email: masterEmail, mustChangePassword: true });
+    expect(response.body.master.password).toBeUndefined();
+  });
+
+  it('blocks the new master with PASSWORD_CHANGE_REQUIRED', async () => {
+    masterToken = await login(masterEmail, temporaryPassword);
+    const response = await http()
+      .get(api(`/tenants/${tenantId}/patients`))
+      .set(bearer(masterToken))
+      .expect(403);
+    expect(response.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+  });
+
+  it('lets the master change the password and list patients', async () => {
+    await http()
+      .post(api('/auth/change-password'))
+      .set(bearer(masterToken))
+      .send({ currentPassword: temporaryPassword, newPassword: ownPassword })
+      .expect(200);
+
+    await http()
+      .get(api(`/tenants/${tenantId}/patients`))
+      .set(bearer(masterToken))
+      .expect(200);
+  });
+
+  it('answers SECTION_NOT_ENABLED on tasks', async () => {
+    const response = await http()
+      .get(api(`/tenants/${tenantId}/tasks`))
+      .set(bearer(masterToken))
+      .expect(403);
+    expect(response.body).toMatchObject({ code: 'SECTION_NOT_ENABLED', section: 'core.tasks' });
+  });
+
+  it('opens tasks after the ADMIN enables the section', async () => {
+    await http()
+      .put(api(`/platform/tenants/${tenantId}/sections`))
+      .set(bearer(adminToken))
+      .send({ sections: [...SECTION_KEYS] })
+      .expect(200);
+
+    await http()
+      .get(api(`/tenants/${tenantId}/tasks`))
+      .set(bearer(masterToken))
+      .expect(200);
+  });
+
+  it.each(['patients', 'appointments', 'clinical-notes'])(
+    'answers PLATFORM_ONLY when the ADMIN asks for %s of the clinic',
+    async (resource) => {
+      const response = await http()
+        .get(api(`/tenants/${tenantId}/${resource}`))
+        .set(bearer(adminToken))
+        .expect(403);
+      expect(response.body.code).toBe('PLATFORM_ONLY');
+    },
+  );
+
+  it('rejects the master on /platform/tenants with 403', async () => {
+    await http().get(api('/platform/tenants')).set(bearer(masterToken)).expect(403);
+  });
+
+  it('blocks the master with PASSWORD_CHANGE_REQUIRED right after the ADMIN resets the password', async () => {
+    await http()
+      .post(api(`/platform/tenants/${tenantId}/master/reset-password`))
+      .set(bearer(adminToken))
+      .send({ temporaryPassword: resetPassword })
+      .expect(200);
+
+    // The access token issued before the reset is still valid; the flag is read on every request.
+    const response = await http()
+      .get(api(`/tenants/${tenantId}/patients`))
+      .set(bearer(masterToken))
+      .expect(403);
+    expect(response.body.code).toBe('PASSWORD_CHANGE_REQUIRED');
+  });
+
+  it('cuts the master off when the clinic is suspended and restores access on reactivation', async () => {
+    await http()
+      .post(api(`/platform/tenants/${tenantId}/master/reset-password`))
+      .set(bearer(adminToken))
+      .send({ temporaryPassword: resetPassword })
+      .expect(200);
+    const token = await login(masterEmail, resetPassword);
+    await http()
+      .post(api('/auth/change-password'))
+      .set(bearer(token))
+      .send({ currentPassword: resetPassword, newPassword: ownPassword })
+      .expect(200);
+    await http()
+      .get(api(`/tenants/${tenantId}/patients`))
+      .set(bearer(token))
+      .expect(200);
+
+    await http()
+      .post(api(`/platform/tenants/${tenantId}/suspend`))
+      .set(bearer(adminToken))
+      .send({ reason: 'Falta de pago' })
+      .expect(200);
+    await http()
+      .get(api(`/tenants/${tenantId}/patients`))
+      .set(bearer(token))
+      .expect(401);
+
+    await http()
+      .post(api(`/platform/tenants/${tenantId}/reactivate`))
+      .set(bearer(adminToken))
+      .expect(200);
+    await http()
+      .get(api(`/tenants/${tenantId}/patients`))
+      .set(bearer(token))
+      .expect(200);
+  });
+
+  it.each([
+    ['POST', '/onboarding/tenants'],
+    ['POST', '/tenants'],
+  ])('%s %s no longer exists', async (method, path) => {
+    expect(method).toBe('POST');
+    await http().post(api(path)).set(bearer(adminToken)).send({}).expect(404);
+  });
+});

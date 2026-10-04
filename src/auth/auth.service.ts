@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,17 +6,17 @@ import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
 import { LoginDto, AuthResponseDto } from './dto/auth.dto';
 import { getInactivityTimeoutMs } from './session-inactivity';
+import { MailService } from '../mail/mail.service';
 
 type JwtExpiresIn = NonNullable<JwtSignOptions['expiresIn']>;
 
 @Injectable()
 export class AuthService {
-  private readonly logger = new Logger(AuthService.name);
-
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private mail: MailService,
   ) {}
 
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
@@ -71,6 +71,7 @@ export class AuthService {
         lastName: user.lastName,
         role: user.role,
         tenantId: user.tenantId,
+        mustChangePassword: user.mustChangePassword,
         professionalProfile: user.professionalProfile ?? undefined,
       },
     };
@@ -152,6 +153,7 @@ export class AuthService {
               lastName: user.lastName,
               role: user.role,
               tenantId: user.tenantId,
+              mustChangePassword: user.mustChangePassword,
               professionalProfile: user.professionalProfile ?? undefined,
             },
           };
@@ -178,6 +180,38 @@ export class AuthService {
     });
   }
 
+  /**
+   * Lets an authenticated user replace their own password, including a temporary one.
+   * The new password is hashed exactly as received and never logged.
+   */
+  async changeOwnPassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, isActive: true } });
+    if (!user) {
+      throw new UnauthorizedException('Usuario no encontrado');
+    }
+
+    if (!(await bcrypt.compare(currentPassword, user.password))) {
+      throw new UnauthorizedException('La contraseña actual es incorrecta');
+    }
+
+    if (await bcrypt.compare(newPassword, user.password)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'PASSWORD_UNCHANGED',
+        message: 'La nueva contraseña debe ser distinta de la actual',
+      });
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: await this.hashPassword(newPassword), mustChangePassword: false },
+    });
+  }
+
   async requestPasswordReset(email: string): Promise<void> {
     // Avoid email enumeration: always return success.
     const user = await this.prisma.user.findFirst({
@@ -190,6 +224,7 @@ export class AuthService {
       return;
     }
 
+    const expiresIn = this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h';
     const token = this.jwtService.sign(
       {
         sub: user.id,
@@ -198,20 +233,17 @@ export class AuthService {
       },
       {
         secret: this.getResetSecret(user.password),
-        expiresIn: (this.configService.get<string>('JWT_RESET_EXPIRATION') || '1h') as JwtExpiresIn,
+        expiresIn: expiresIn as JwtExpiresIn,
       },
     );
 
-    // Integrate with your email provider in production.
-    // The token grants account access, so it is only logged outside production
-    // to keep the flow testable in development environments.
-    if (this.configService.get<string>('NODE_ENV') !== 'production') {
-      this.logger.debug(`Password reset token generated for ${email}: ${token}`);
-    } else {
-      this.logger.warn(
-        `Password reset requested for user ${user.id} but no email provider is configured`,
-      );
-    }
+    // Not awaited: the response must take the same time whether or not the account exists.
+    // The token grants access to the account, so it travels only inside the message.
+    void this.mail.sendPasswordReset(user.email, {
+      firstName: user.firstName,
+      token,
+      expiresIn,
+    });
   }
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -256,7 +288,7 @@ export class AuthService {
 
             await tx.user.update({
               where: { id: user.id },
-              data: { password: hashedPassword },
+              data: { password: hashedPassword, mustChangePassword: false },
             });
 
             // Invalidate all active sessions after password reset.

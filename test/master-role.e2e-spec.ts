@@ -4,7 +4,7 @@ import request from 'supertest';
 import { AuthService } from './../src/auth/auth.service';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { TenantsService } from './../src/tenants/tenants.service';
+import { PlatformTenantsService } from './../src/platform/platform-tenants.service';
 import { createTestTenant, TEST_PASSWORD } from './helpers/create-test-tenant';
 
 jest.setTimeout(30000);
@@ -30,7 +30,7 @@ describe('Master role (E2E)', () => {
     prisma = app.get<PrismaService>(PrismaService);
 
     await prisma.cleanDatabase();
-    const tenant = await createTestTenant(app.get<TenantsService>(TenantsService), 1);
+    const tenant = await createTestTenant({ tenants: app.get(PlatformTenantsService), prisma }, 1);
     tenantId = tenant.id;
 
     const login = await request(app.getHttpServer())

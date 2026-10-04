@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { SubscriptionService } from './subscription.service';
+import { SubscriptionBillingService } from './subscription-billing.service';
+import { AllowInactiveSubscription } from '../common/decorators/allow-inactive-subscription.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { TenantGuard } from '../common/guards/tenant.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -15,8 +17,13 @@ import { TenantType } from '@prisma/client';
 @ApiBearerAuth()
 @Controller('tenants/:tenantId/subscription')
 @UseGuards(JwtAuthGuard, TenantGuard, RolesGuard)
+// A tenant whose subscription lapsed must still be able to see it and ask for a plan.
+@AllowInactiveSubscription()
 export class SubscriptionController {
-  constructor(private readonly subscriptionService: SubscriptionService) {}
+  constructor(
+    private readonly subscriptionService: SubscriptionService,
+    private readonly billing: SubscriptionBillingService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Get current subscription details' })
@@ -32,13 +39,23 @@ export class SubscriptionController {
 
   @Post('upgrade')
   @Roles('MASTER')
-  @ApiOperation({ summary: 'Upgrade subscription plan (Master only)' })
+  @ApiOperation({
+    summary: 'Request a plan upgrade (Master only)',
+    description: 'Creates a pending payment. The plan changes only when that payment is confirmed.',
+  })
   async upgradePlan(
     @Param('tenantId') tenantId: string,
     @CurrentUser() user: any,
     @Body() dto: UpgradePlanDto,
   ) {
-    return this.subscriptionService.upgradePlan(tenantId, user.userId, dto.newPlan);
+    return this.billing.requestUpgrade(tenantId, user.userId, dto.newPlan);
+  }
+
+  @Get('payments')
+  @Roles('MASTER')
+  @ApiOperation({ summary: 'Payments of this subscription, pending ones included (Master only)' })
+  async listPayments(@Param('tenantId') tenantId: string) {
+    return this.billing.listForTenant(tenantId);
   }
 
   @Post('downgrade')
