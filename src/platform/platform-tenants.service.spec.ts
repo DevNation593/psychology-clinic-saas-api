@@ -238,6 +238,7 @@ describe('PlatformTenantsService', () => {
               return data;
             }),
           },
+          branch: { create: jest.fn(async ({ data }) => data) },
           tenantSpecialty: {
             createMany: jest.fn(async ({ data }) => {
               pending.selections.push(...data.map((r) => r.specialtyId));

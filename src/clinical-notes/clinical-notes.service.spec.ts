@@ -42,6 +42,7 @@ describe('ClinicalNotesService', () => {
   const db = {
     patient: { findFirst: jest.fn() },
     appointment: { findFirst: jest.fn() },
+    encounter: { findFirst: jest.fn() },
     clinicalNote: {
       create: jest.fn(),
       findMany: jest.fn(),
@@ -70,6 +71,34 @@ describe('ClinicalNotesService', () => {
   afterEach(() => jest.useRealTimers());
 
   describe('create', () => {
+    it('writes the note into an open encounter of the author and into no other', async () => {
+      db.clinicalNote.create.mockResolvedValue(note());
+      const inEncounter = {
+        patientId: 'patient-1',
+        content: 'Contenido',
+        encounterId: 'encounter-1',
+      };
+
+      db.encounter.findFirst.mockResolvedValueOnce({ professionalId: 'author', status: 'OPEN' });
+      await service.create('tenant-1', author, inEncounter);
+      expect(db.encounter.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'encounter-1',
+        tenantId: 'tenant-1',
+        patientId: 'patient-1',
+        deletedAt: null,
+      });
+      expect(db.clinicalNote.create.mock.calls[0][0].data).toMatchObject({
+        encounterId: 'encounter-1',
+      });
+
+      db.encounter.findFirst.mockResolvedValueOnce({ professionalId: 'author', status: 'CLOSED' });
+      await expect(service.create('tenant-1', author, inEncounter)).rejects.toMatchObject({
+        status: 409,
+        response: { code: 'ENCOUNTER_CLOSED' },
+      });
+      expect(db.clinicalNote.create).toHaveBeenCalledTimes(1);
+    });
+
     it('writes the note under the author and their specialty, and audits the creation', async () => {
       db.clinicalNote.create.mockResolvedValue(note());
 

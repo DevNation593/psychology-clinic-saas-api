@@ -170,7 +170,7 @@ describe('TaskRemindersService', () => {
       expect(notifications.notify.mock.calls[0][0]).toMatchObject({
         userId: 'user-1',
         type: 'SYSTEM_ANNOUNCEMENT',
-        body: '3 citas y 1 tarea por vencer',
+        body: '3 citas y 1 actividad por vencer',
         dedupeKey: 'digest:user-1:16/10/2026',
       });
       // Counts cover the rest of the local day: until 05:00 UTC of the 17th.

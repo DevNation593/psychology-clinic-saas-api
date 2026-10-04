@@ -56,7 +56,7 @@ describe('Web Push encryption', () => {
     browser.generateKeys();
     const auth = Buffer.alloc(16, 9);
     const keys = { p256dh: browser.getPublicKey('base64url'), auth: auth.toString('base64url') };
-    const payload = JSON.stringify({ title: 'Recordatorio', body: 'Tarea próxima a vencer' });
+    const payload = JSON.stringify({ title: 'Recordatorio', body: 'Actividad próxima a vencer' });
 
     const first = encryptPushPayload(Buffer.from(payload), keys);
     const second = encryptPushPayload(Buffer.from(payload), keys);

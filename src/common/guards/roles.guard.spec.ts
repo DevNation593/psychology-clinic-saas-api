@@ -2,6 +2,7 @@ import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { REQUIRE_PERMISSION_KEY } from '../permissions/permission-catalog';
 import { RolesGuard } from './roles.guard';
 
 function setup(role: string | undefined, requiredRoles?: string[], isPublic = false) {
@@ -50,6 +51,30 @@ describe('RolesGuard', () => {
   it('allows SOPORTE when explicitly declared in metadata', () => {
     const { guard, context } = setup('SOPORTE', ['MASTER', 'SOPORTE']);
     expect(guard.canActivate(context)).toBe(true);
+  });
+
+  it('leaves to the permission guard a role that can be granted the route permission', () => {
+    const reflector = new Reflector();
+    const metadata: Record<string, unknown> = {
+      [ROLES_KEY]: ['MASTER', 'PROFESIONAL'],
+      [REQUIRE_PERMISSION_KEY]: 'billing.view',
+    };
+    jest.spyOn(reflector, 'getAllAndOverride').mockImplementation((key) => metadata[key as string]);
+    const contextFor = (role: string) =>
+      ({
+        getHandler: () => undefined,
+        getClass: () => undefined,
+        switchToHttp: () => ({ getRequest: () => ({ user: { role } }) }),
+      }) as unknown as ExecutionContext;
+    const guard = new RolesGuard(reflector);
+
+    expect(guard.canActivate(contextFor('ASISTENTE'))).toBe(true);
+    // No one can be granted a clinical permission, so the role list stays final for it.
+    metadata[REQUIRE_PERMISSION_KEY] = 'clinical_records.view';
+    expect(() => guard.canActivate(contextFor('ASISTENTE'))).toThrow(ForbiddenException);
+    // A role that cannot receive the permission is refused as before.
+    metadata[REQUIRE_PERMISSION_KEY] = 'billing.view';
+    expect(() => guard.canActivate(contextFor('SOPORTE'))).toThrow(ForbiddenException);
   });
 
   it('allows a public route without a user', () => {

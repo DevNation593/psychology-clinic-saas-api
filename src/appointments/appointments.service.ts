@@ -7,6 +7,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { AppointmentStatus, Prisma } from '@prisma/client';
+import { assertBranchAvailable, assertProfessionalInBranch } from '../branches/branches.service';
 import { toCanonicalRole } from '../common/roles/role-compatibility';
 import { PUBLIC_USER_SELECT } from '../common/utils/public-user-select';
 import { getZonedDateParts } from '../common/utils/timezone';
@@ -34,6 +35,7 @@ const appointmentInclude = {
   professional: { select: userSelect },
   psychologist: { select: userSelect },
   specialty: { select: { id: true, code: true, name: true } },
+  branch: { select: { id: true, name: true } },
 } satisfies Prisma.AppointmentInclude;
 type AppointmentRow = Prisma.AppointmentGetPayload<{ include: typeof appointmentInclude }>;
 type ProfessionalReference = {
@@ -62,6 +64,10 @@ export class AppointmentsService {
       await this.findPatient(tx, tenantId, input.patientId);
       await this.authorizeCreate(tx, tenantId, input.patientId, reference.professionalId, actor);
       const specialtyId = await this.resolveSpecialty(tx, tenantId, reference);
+      if (input.branchId) {
+        await assertBranchAvailable(tx, tenantId, input.branchId);
+        await assertProfessionalInBranch(tx, tenantId, reference.professionalId, input.branchId);
+      }
       const settings = await tx.tenantSettings.findUnique({ where: { tenantId } });
       this.assertWorkingHours(settings, start);
       if (!settings?.allowDoubleBooking) {
@@ -84,6 +90,7 @@ export class AppointmentsService {
           endTime: end,
           duration: input.duration,
           status: AppointmentStatus.SCHEDULED,
+          ...(input.branchId && { branchId: input.branchId }),
           ...(input.title !== undefined && { title: input.title }),
           ...(input.description !== undefined && { description: input.description }),
           ...(input.location !== undefined && { location: input.location }),
@@ -126,6 +133,7 @@ export class AppointmentsService {
       });
     }
     if (filters.specialtyId) where.specialtyId = filters.specialtyId;
+    if (filters.branchId) where.branchId = filters.branchId;
     if (filters.patientId) where.patientId = filters.patientId;
     if (filters.status) where.status = filters.status;
     if (filters.from || filters.to) {
@@ -182,6 +190,9 @@ export class AppointmentsService {
       }
       await this.findPatient(tx, tenantId, existing.patientId);
       await this.authorizeUpdate(tx, tenantId, existing.patientId, currentProfessionalId, actor);
+      if (input.branchId && input.branchId !== existing.branchId) {
+        await assertBranchAvailable(tx, tenantId, input.branchId);
+      }
 
       const hasProfessionalReference =
         input.professionalId !== undefined || input.psychologistId !== undefined;
@@ -198,6 +209,10 @@ export class AppointmentsService {
       const patientChanged = patientId !== existing.patientId;
       const professionalChanged = professionalId !== currentProfessionalId;
       const specialtyChanged = specialtyId !== existing.specialtyId;
+      const branchId = input.branchId === undefined ? existing.branchId : input.branchId;
+      if (branchId && (professionalChanged || branchId !== existing.branchId)) {
+        await assertProfessionalInBranch(tx, tenantId, professionalId, branchId);
+      }
       const rescheduled = start.getTime() !== existing.startTime.getTime();
       const intervalChanged = rescheduled || duration !== existing.duration;
       const reactivating =
@@ -255,6 +270,8 @@ export class AppointmentsService {
           ...(intervalChanged && { startTime: start, endTime: end, duration }),
           // A moved appointment must be reminded again at its new time.
           ...(rescheduled && { reminderSent24h: false, reminderSent2h: false }),
+          // Null takes the appointment out of any branch.
+          ...(input.branchId !== undefined && { branchId: input.branchId }),
           ...(input.title !== undefined && { title: input.title }),
           ...(input.description !== undefined && { description: input.description }),
           ...(input.location !== undefined && { location: input.location }),

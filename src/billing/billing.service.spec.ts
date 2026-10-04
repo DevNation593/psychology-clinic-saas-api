@@ -85,7 +85,7 @@ describe('BillingService invoice issuer role compatibility', () => {
         id: 'issuer-1',
         tenantId: 'tenant-1',
         isActive: true,
-        role: { in: ['MASTER', 'PROFESIONAL'] },
+        role: { in: ['MASTER', 'PROFESIONAL', 'ASISTENTE'] },
       },
       select: { id: true },
     });

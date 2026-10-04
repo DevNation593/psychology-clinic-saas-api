@@ -5,6 +5,7 @@ import { CreatePatientDto, UpdatePatientDto } from './dto/patient.dto';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { RequireSection } from '../common/decorators/require-section.decorator';
+import { RequirePermission } from '../common/permissions/permission-catalog';
 
 @ApiTags('patients')
 @ApiBearerAuth('access-token')
@@ -17,6 +18,7 @@ export class PatientsController {
   @Post()
   @ApiOperation({ summary: 'Create new patient' })
   @ApiResponse({ status: 201, description: 'Patient created' })
+  @RequirePermission('patients.create')
   async create(
     @Param('tenantId') tenantId: string,
     @Body() createPatientDto: CreatePatientDto,
@@ -45,6 +47,7 @@ export class PatientsController {
   @Patch(':patientId')
   @ApiOperation({ summary: 'Update patient' })
   @ApiResponse({ status: 200, description: 'Patient updated' })
+  @RequirePermission('patients.update')
   async update(
     @Param('tenantId') tenantId: string,
     @Param('patientId') patientId: string,

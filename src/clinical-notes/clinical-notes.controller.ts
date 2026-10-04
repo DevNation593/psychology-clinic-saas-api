@@ -20,6 +20,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RequireSection } from '../common/decorators/require-section.decorator';
 import { ClinicalActor, CurrentClinicalActor } from '../clinical-access/clinical-actor';
 import { ClinicalProfileGuard } from '../clinical-access/clinical-profile.guard';
+import { RequirePermission } from '../common/permissions/permission-catalog';
 
 @ApiTags('clinical-notes')
 @ApiBearerAuth('access-token')
@@ -36,6 +37,7 @@ export class ClinicalNotesController {
     description: 'Creates audit log entry automatically',
   })
   @ApiResponse({ status: 201, description: 'Clinical note created' })
+  @RequirePermission('clinical_records.create')
   async create(
     @Param('tenantId') tenantId: string,
     @Body() createDto: CreateClinicalNoteDto,
@@ -53,6 +55,7 @@ export class ClinicalNotesController {
   @ApiQuery({ name: 'patientId', required: false })
   @ApiQuery({ name: 'psychologistId', required: false })
   @ApiResponse({ status: 200, description: 'Clinical notes list' })
+  @RequirePermission('clinical_records.view')
   async findAll(
     @Param('tenantId') tenantId: string,
     @CurrentClinicalActor() actor: ClinicalActor,
@@ -70,6 +73,7 @@ export class ClinicalNotesController {
   })
   @ApiResponse({ status: 200, description: 'Clinical note found' })
   @ApiResponse({ status: 403, description: 'Access denied' })
+  @RequirePermission('clinical_records.view')
   async findOne(
     @Param('tenantId') tenantId: string,
     @Param('noteId') noteId: string,
@@ -87,6 +91,7 @@ export class ClinicalNotesController {
   })
   @ApiResponse({ status: 200, description: 'Clinical note updated' })
   @ApiResponse({ status: 403, description: 'Access denied' })
+  @RequirePermission('clinical_records.update')
   async update(
     @Param('tenantId') tenantId: string,
     @Param('noteId') noteId: string,
@@ -104,6 +109,7 @@ export class ClinicalNotesController {
       'Soft delete: requires a reason and keeps the note for audit. Creates audit log entry.',
   })
   @ApiResponse({ status: 200, description: 'Clinical note deleted' })
+  @RequirePermission('clinical_records.update')
   async remove(
     @Param('tenantId') tenantId: string,
     @Param('noteId') noteId: string,

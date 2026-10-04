@@ -14,6 +14,7 @@ describe('ClinicalTimelineService', () => {
     appointment: { findMany: jest.fn() },
     clinicalNote: { findMany: jest.fn() },
     specialtyRecord: { findMany: jest.fn() },
+    encounter: { findMany: jest.fn() },
     auditLog: { createMany: jest.fn() },
   };
   const service = new ClinicalTimelineService(
@@ -53,21 +54,58 @@ describe('ClinicalTimelineService', () => {
         specialty,
       },
     ]);
+    prisma.encounter.findMany.mockResolvedValue([
+      {
+        id: 'encounter-1',
+        tenantId: 'tenant-1',
+        encounterType: 'CONTROL',
+        status: 'CLOSED',
+        reason: 'Control mensual',
+        summary: null,
+        startedAt: new Date('2026-09-12T10:00:00Z'),
+        professional: person,
+        specialty,
+        branch: null,
+      },
+    ]);
   });
 
-  it('merges the three sources newest first and audits the clinical records read', async () => {
+  it('merges the four sources newest first and audits the clinical records read', async () => {
     const timeline = await service.getTimeline('tenant-1', 'patient-1', actor, {});
 
     expect(timeline.map(({ type, id }) => [type, id])).toEqual([
       ['CLINICAL_NOTE', 'note-1'],
       ['SPECIALTY_RECORD', 'record-1'],
+      ['ENCOUNTER', 'encounter-1'],
       ['APPOINTMENT', 'appointment-1'],
     ]);
-    expect(timeline[2].professional).toEqual(person);
+    expect(timeline[3].professional).toEqual(person);
+    expect(timeline[2].record).toMatchObject({
+      encounterType: 'CONTROL',
+      reason: 'Control mensual',
+    });
     expect(prisma.auditLog.createMany.mock.calls[0][0].data).toEqual([
       expect.objectContaining({ action: 'READ', entity: 'CLINICAL_NOTE', entityId: 'note-1' }),
       expect.objectContaining({ action: 'READ', entity: 'SPECIALTY_RECORD', entityId: 'record-1' }),
+      expect.objectContaining({ action: 'READ', entity: 'ENCOUNTER', entityId: 'encounter-1' }),
     ]);
+  });
+
+  it('reads only live encounters of the patient, within the filters', async () => {
+    await service.getTimeline('tenant-1', 'patient-1', actor, {
+      type: 'ENCOUNTER',
+      professionalId: 'pro-1',
+      from: '2026-09-01T00:00:00.000Z',
+    });
+
+    expect(prisma.encounter.findMany.mock.calls[0][0].where).toEqual({
+      tenantId: 'tenant-1',
+      patientId: 'patient-1',
+      deletedAt: null,
+      professionalId: 'pro-1',
+      startedAt: { gte: new Date('2026-09-01T00:00:00.000Z') },
+    });
+    expect(prisma.specialtyRecord.findMany).not.toHaveBeenCalled();
   });
 
   it('scopes every source to the tenant and patient and leaves out removed records', async () => {
@@ -109,6 +147,7 @@ describe('ClinicalTimelineService', () => {
     expect(timeline.map(({ type }) => type)).toEqual(['SPECIALTY_RECORD']);
     expect(prisma.appointment.findMany).not.toHaveBeenCalled();
     expect(prisma.clinicalNote.findMany).not.toHaveBeenCalled();
+    expect(prisma.encounter.findMany).not.toHaveBeenCalled();
   });
 
   it('rejects a patient of another tenant before reading anything', async () => {

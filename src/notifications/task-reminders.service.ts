@@ -104,7 +104,7 @@ export class TaskRemindersService {
         tenantId: task.tenantId,
         userId: recipient.id,
         type: 'TASK_DUE_SOON',
-        title: '⏰ Tarea próxima a vencer',
+        title: '⏰ Actividad próxima a vencer',
         body: `"${task.title}" de ${task.patient.firstName} ${task.patient.lastName} vence el ${when}`,
         data: {
           type: 'TASK_DUE_SOON',
@@ -187,7 +187,7 @@ export class TaskRemindersService {
         title: '☀️ Tu día de hoy',
         body: [
           `${appointments} ${appointments === 1 ? 'cita' : 'citas'}`,
-          `${tasks} ${tasks === 1 ? 'tarea por vencer' : 'tareas por vencer'}`,
+          `${tasks} ${tasks === 1 ? 'actividad por vencer' : 'actividades por vencer'}`,
         ].join(' y '),
         data: { type: 'MORNING_DIGEST', url: '/dashboard' },
         dedupeKey: `digest:${user.id}:${localDate}`,

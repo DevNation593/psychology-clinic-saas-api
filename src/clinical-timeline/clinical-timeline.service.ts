@@ -4,6 +4,7 @@ import { ClinicalActor } from '../clinical-access/clinical-actor';
 import { ClinicalAuditService } from '../clinical-access/clinical-audit.service';
 import { ClinicalCryptoService } from '../clinical-access/clinical-crypto.service';
 import { ENCRYPTED_NOTE_FIELDS } from '../clinical-notes/clinical-notes.service';
+import { ENCRYPTED_ENCOUNTER_FIELDS } from '../encounters/encounters.service';
 import { decryptSpecialtyRecord } from '../specialty-records/specialty-records.service';
 import { ClinicalTimelineQueryDto, TimelineEntryType } from './dto/clinical-timeline-query.dto';
 
@@ -30,7 +31,7 @@ export class ClinicalTimelineService {
     private readonly crypto: ClinicalCryptoService,
   ) {}
 
-  /** Appointments, notes and specialty records of one patient, newest first. */
+  /** Appointments, encounters, notes and specialty records of one patient, newest first. */
   async getTimeline(
     tenantId: string,
     patientId: string,
@@ -55,7 +56,7 @@ export class ClinicalTimelineService {
         : undefined;
     const specialty = query.specialtyId ? { specialtyId: query.specialtyId } : {};
 
-    const [appointments, storedNotes, storedRecords] = await Promise.all([
+    const [appointments, storedNotes, storedRecords, storedEncounters] = await Promise.all([
       wants('APPOINTMENT')
         ? this.prisma.appointment.findMany({
             where: {
@@ -116,7 +117,27 @@ export class ClinicalTimelineService {
             },
           })
         : [],
+      wants('ENCOUNTER')
+        ? this.prisma.encounter.findMany({
+            where: {
+              tenantId,
+              patientId,
+              deletedAt: null,
+              ...specialty,
+              ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+              ...(range ? { startedAt: range } : {}),
+            },
+            include: {
+              professional: { select: personSelect },
+              specialty: { select: specialtySelect },
+              branch: { select: { id: true, name: true } },
+            },
+          })
+        : [],
     ]);
+    const encounters = storedEncounters.map((encounter) =>
+      this.crypto.decryptFields(tenantId, encounter, ENCRYPTED_ENCOUNTER_FIELDS),
+    );
     const notes = storedNotes.map((note) =>
       this.crypto.decryptFields(tenantId, note, ENCRYPTED_NOTE_FIELDS),
     );
@@ -135,6 +156,12 @@ export class ClinicalTimelineService {
         entityId: record.id,
         patientId,
       })),
+      ...encounters.map((encounter) => ({
+        action: 'READ' as const,
+        entity: 'ENCOUNTER' as const,
+        entityId: encounter.id,
+        patientId,
+      })),
     ]);
 
     const entries: TimelineEntry[] = [
@@ -151,6 +178,14 @@ export class ClinicalTimelineService {
         id: record.id,
         date: record.sessionDate,
         professional: psychologist,
+        specialty: spec,
+        record,
+      })),
+      ...encounters.map(({ professional, specialty: spec, ...record }) => ({
+        type: 'ENCOUNTER' as const,
+        id: record.id,
+        date: record.startedAt,
+        professional,
         specialty: spec,
         record,
       })),

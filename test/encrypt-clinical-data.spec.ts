@@ -60,6 +60,24 @@ describe('encrypt-clinical-data script', () => {
     specialtyRecord: fakeTable([
       { id: 'r1', tenantId: 't1', data: { bmi: 24 }, notes: 'Revisar', deletionReason: null },
     ]),
+    encounter: fakeTable([
+      {
+        id: 'e1',
+        tenantId: 't1',
+        reason: 'Motivo de consulta sin cifrar',
+        summary: null,
+        deletionReason: null,
+      },
+    ]),
+    patientFile: fakeTable([
+      {
+        id: 'f1',
+        tenantId: 't1',
+        fileName: 'hemograma sin cifrar.pdf',
+        description: null,
+        deletionReason: null,
+      },
+    ]),
     auditLog: fakeTable([
       {
         id: 'a1',
@@ -80,14 +98,20 @@ describe('encrypt-clinical-data script', () => {
     expect(report).toEqual({
       clinicalNotes: { scanned: 3, updated: 2 },
       specialtyRecords: { scanned: 1, updated: 1 },
+      encounters: { scanned: 1, updated: 1 },
+      patientFiles: { scanned: 1, updated: 1 },
       auditLogs: { scanned: 2, updated: 1 },
     });
     const stored = JSON.stringify([
       db.clinicalNote.rows,
       db.specialtyRecord.rows,
+      db.encounter.rows,
+      db.patientFile.rows,
       db.auditLog.rows,
     ]);
-    expect(stored).not.toMatch(/texto plano|F41|retirada|equivocado|bmi|Revisar|enc:v1:old:/);
+    expect(stored).not.toMatch(
+      /texto plano|F41|retirada|equivocado|bmi|Revisar|sin cifrar|enc:v1:old:/,
+    );
 
     const [n1, n2] = db.clinicalNote.rows;
     expect(cipher.decrypt('t1', n1.content as string)).toBe('Nota en texto plano');
@@ -110,7 +134,7 @@ describe('encrypt-clinical-data script', () => {
 
     const report = await encryptClinicalData(db, cipher);
 
-    expect(Object.values(report).map(({ updated }) => updated)).toEqual([0, 0, 0]);
+    expect(Object.values(report).map(({ updated }) => updated)).toEqual([0, 0, 0, 0, 0]);
     expect(JSON.stringify(db.clinicalNote.rows)).toBe(firstRun);
   });
 

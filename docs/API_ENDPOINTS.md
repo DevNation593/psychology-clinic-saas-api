@@ -216,6 +216,148 @@ GET /tenants/{tenantId}/patients/{patientId}/clinical-timeline?type=CLINICAL_NOT
 
 Specialty records can only be created under the author's own specialty.
 
+#### Clinical modules, tenant forms and records
+
+Every clinical record follows a **definition**: one version of a module the platform defines in code (`src/clinical-modules/definitions`) or of a form the clinic designed. The API validates the data against that definition, computes its calculated fields and stores the version used, so a record is always read with the definition it was written under.
+
+```bash
+# Every version of every module and tenant form. `canRecord` marks the versions the caller may
+# write: enabled for the clinic, current, and within the caller's specialty.
+#   scope GENERAL   -> any professional (general.vital-signs, general.diagnoses, general.allergies,
+#                      general.orders, general.referrals, general.soap-note); general.prescriptions
+#                      only for prescribing specialties
+#   scope SPECIALTY -> professionals of that specialty, when the clinic has the module enabled
+#   scope CUSTOM    -> forms of the clinic, served as custom.<formDefinitionId>
+GET /tenants/{tenantId}/clinical-modules
+
+# Create a record. `schemaVersion` is the version returned above. Calculated fields are ignored
+# if sent. Invalid data answers 422 CLINICAL_RECORD_INVALID with `details: [{ field, message }]`.
+POST /tenants/{tenantId}/patients/{patientId}/specialty-records
+{ "moduleKey": "general.vital-signs", "schemaVersion": 1, "data": { "weightKg": 70, "heightCm": 170 } }
+
+# Records carry `alerts: [{ level, message }]`, the alert rules of their definition they trigger.
+GET /tenants/{tenantId}/patients/{patientId}/specialty-records?moduleKey=...
+
+# Standing alerts of the patient: every allergy record and the latest record of each other module.
+GET /tenants/{tenantId}/patients/{patientId}/specialty-records/alerts
+
+# Correct (author only): validated against the version the record was written under.
+PATCH /tenants/{tenantId}/patients/{patientId}/specialty-records/{recordId}
+{ "data": { "weightKg": 69.5, "heightCm": 170 }, "changeReason": "Peso mal digitado" }
+
+# Remove (author only): soft delete with a mandatory reason.
+DELETE /tenants/{tenantId}/patients/{patientId}/specialty-records/{recordId}
+{ "reason": "Paciente equivocado" }
+```
+
+A request without `schemaVersion` comes from a client older than the definitions: it is checked against the legacy version of the module when one exists (the previous required keys, any value), otherwise against the current one. Other codes: `400 CLINICAL_MODULE_UNKNOWN`, `409 CLINICAL_MODULE_VERSION_OUTDATED`.
+
+```bash
+# Forms designed by the clinic (MASTER writes; MASTER and PROFESIONAL read).
+GET   /tenants/{tenantId}/form-definitions
+POST  /tenants/{tenantId}/form-definitions
+{ "name": "Ficha de lesión", "category": "Evaluación", "specialtyCode": null,
+  "schema": { "sections": [{ "key": "injury", "title": "Lesión", "fields": [
+    { "key": "pain", "label": "Dolor", "type": "scale", "min": 0, "max": 10, "required": true } ] }],
+    "alerts": [{ "when": "pain >= 8", "level": "critical", "message": "Dolor intenso" }] } }
+
+# Name, description, category, specialty and status change in place. A schema that differs from
+# the current one is stored as the next version; earlier versions are never modified.
+PATCH /tenants/{tenantId}/form-definitions/{formId}
+```
+
+Field types: `text`, `textarea`, `integer`, `decimal`, `date`, `time`, `checkbox`, `radio`, `select`, `multiselect`, `scale`, `table` (scalar columns) and `calculated`. Formulas and alert conditions use a small expression language that is parsed, never evaluated as code: field keys, numbers, `'text'`, `+ - * / ^`, comparisons, `and` / `or` / `not`, and `sum`, `avg`, `min`, `max`, `round`, `abs`. An invalid definition answers `400 FORM_DEFINITION_INVALID` with one issue per problem.
+
+#### Encounters, branches, catalogs and permissions
+
+```bash
+# An encounter groups the records of one attention. One open encounter per professional and
+# patient (409 ENCOUNTER_ALREADY_OPEN). With `appointmentId`, only the professional of the
+# appointment can attend it; the appointment becomes IN_PROGRESS.
+POST /tenants/{tenantId}/patients/{patientId}/encounters
+{ "encounterType": "FIRST_VISIT", "reason": "Dolor lumbar", "appointmentId": "...", "branchId": "..." }
+GET  /tenants/{tenantId}/patients/{patientId}/encounters
+
+# Records created with `encounterId` are written into that open encounter (409 ENCOUNTER_CLOSED).
+# Closing is the sign-off of the professional: no more records, and the appointment is COMPLETED.
+POST   /tenants/{tenantId}/patients/{patientId}/encounters/{encounterId}/close   { "summary": "..." }
+PATCH  /tenants/{tenantId}/patients/{patientId}/encounters/{encounterId}         # type or reason, while open
+DELETE /tenants/{tenantId}/patients/{patientId}/encounters/{encounterId}         { "reason": "..." }  # only without records
+
+# Branches. Every clinic has a main one. A PERSONAL tenant has a single active branch.
+GET   /tenants/{tenantId}/branches
+POST  /tenants/{tenantId}/branches               # MASTER
+PATCH /tenants/{tenantId}/branches/{branchId}    # MASTER: fields, isActive, isMain
+# Appointments accept `branchId` on create and update, and `?branchId=` on list.
+
+# Catalogs: suggestions only, the fields stay free text.
+GET   /tenants/{tenantId}/diagnosis-codes?search=f32&system=CIE10
+GET   /tenants/{tenantId}/medications?search=ibu
+POST  /tenants/{tenantId}/medications
+PATCH /tenants/{tenantId}/medications/{medicationId}
+
+# One record, to print it as a document.
+GET /tenants/{tenantId}/patients/{patientId}/specialty-records/{recordId}
+
+# Permissions: what the role allows and what was withdrawn from the user. `me` reads the caller.
+GET /tenants/{tenantId}/users/{userId|me}/permissions
+PUT /tenants/{tenantId}/users/{userId}/permissions    { "revoked": ["appointments.cancel"] }   # MASTER
+```
+
+```bash
+# Clinical files of a patient: PDF, JPG or PNG up to 10 MB, checked by their content.
+# Multipart fields: file, category (EXAMEN | IMAGEN | INFORME | CONSENTIMIENTO | RECETA | OTRO),
+# description?, encounterId?. Stored encrypted; counted against the plan (413 STORAGE_LIMIT_REACHED).
+GET    /tenants/{tenantId}/patients/{patientId}/files
+POST   /tenants/{tenantId}/patients/{patientId}/files
+GET    /tenants/{tenantId}/patients/{patientId}/files/{fileId}/download   # audited
+DELETE /tenants/{tenantId}/patients/{patientId}/files/{fileId}            { "reason": "..." }  # uploader only
+
+# Storage page of the account holder. File names are masked without a professional profile.
+GET /tenants/{tenantId}/storage/breakdown
+GET /tenants/{tenantId}/storage/files
+
+# Professionals who attend in a branch. Tied to none, a professional attends in all of them;
+# tied to some, appointments are booked only there (409 PROFESSIONAL_NOT_IN_BRANCH).
+PUT /tenants/{tenantId}/branches/{branchId}/professionals   { "userIds": ["..."] }   # MASTER
+```
+
+Files live on the disk of the API server under `STORAGE_LOCAL_PATH`, which must be a persistent volume included in the backups. Their bytes keep the encryption key they were written with, so a retired key stays in `CLINICAL_ENCRYPTION_KEYS` while files use it. Clinical notes also accept `encounterId`, and the clinical timeline returns `ENCOUNTER` entries.
+
+The role still decides who may call a route. A permission can only be **withdrawn** from one user (`403 PERMISSION_DENIED` afterwards), never granted beyond the role, and the account holder cannot be restricted. The catalog is in `src/common/permissions/permission-catalog.ts`.
+
+A permission can also be **granted** to one user when the catalog lists their role in `grantable` (today `billing.view` and `billing.create` for `ASISTENTE`): `PUT …/permissions { "revoked": [], "granted": ["billing.view"] }`. No clinical permission is grantable. Each entry of `GET …/permissions` carries `source`: `role` (can be withdrawn) or `grant` (can be given).
+
+```bash
+# Activity of the clinic: appointments by status and encounters by type, by branch and by
+# professional. Up to a year (400 REPORT_RANGE_INVALID). Counts only, no clinical content.
+GET /tenants/{tenantId}/reports/activity?from=2026-10-01T05:00:00.000Z&to=2026-11-01T05:00:00.000Z&branchId=   # MASTER
+
+# Templates of the clinic for certificates and consents. Variables: {{paciente}}, {{identificacion}},
+# {{edad}}, {{fecha}}, {{profesional}}, {{consultorio}}; any other is refused (400 TEMPLATE_VARIABLE_UNKNOWN).
+GET   /tenants/{tenantId}/document-templates?moduleKey=general.consents   # professionals get the active ones
+POST  /tenants/{tenantId}/document-templates    { "moduleKey": "general.certificates", "name": "...", "title": null, "body": "..." }   # MASTER
+PATCH /tenants/{tenantId}/document-templates/{templateId}   { "isActive": false }   # MASTER
+
+# Saves the record as a PDF (letterhead, signature block, QR) among the files of the patient. Returns the file.
+POST /tenants/{tenantId}/patients/{patientId}/specialty-records/{recordId}/document
+
+# Public, no token: checks a document by the code printed on it. 404 DOCUMENT_NOT_FOUND otherwise.
+GET /public/documents/{code}
+# → { code, status: VALID | WITHDRAWN, documentType, issuedAt, correctedAt, withdrawnAt, clinic,
+#     specialty, professional: { name, title, licenseNumber }, patientInitials }
+```
+
+Every record carries a `verificationCode` (16 characters, printed as `ABCD-EFGH-JKMN-PQRS`); a record from before the codes receives one the first time it is read with `GET …/specialty-records/{recordId}`. The public check never returns the content of the record nor the name of the patient. Its QR points to `FRONTEND_URL/verify/{code}`.
+
+Forms accept the field type `signature`: a PNG data URL (`data:image/png;base64,…`, up to 200 000 characters) checked by its bytes and stored encrypted with the rest of the record. It is not allowed as a table column.
+
+The diagnosis catalog is loaded with `npm run catalog:import-diagnosis-codes -- <file.csv>` (`system,code,description`). Without a file it loads `prisma/data/diagnosis-codes.starter.csv`, a starter set that must be checked against the official classification before production use.
+
+#### Patient identification
+
+`identificationType` (`CEDULA`, `RUC`, `PASSPORT`, `OTHER`) and `identificationNumber` go together; the pair is unique among the live patients of the clinic (`409 PATIENT_IDENTIFICATION_TAKEN`, `400 PATIENT_IDENTIFICATION_INVALID`). `GET /tenants/{tenantId}/patients?search=` also matches the identification number and the phone. A patient under 18 needs `guardianName` (`422 PATIENT_GUARDIAN_REQUIRED`); the rule is checked on creation and whenever an update touches the birth date or the guardian.
+
 `GET /tenants/{tenantId}/audit-logs` (MASTER) returns `changes: null`, `reason: null` and `contentRedacted: true` for clinical entries when the viewer has no active professional profile.
 
 ### 7. Create Next Session Plan

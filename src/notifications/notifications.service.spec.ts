@@ -46,7 +46,7 @@ describe('NotificationsService', () => {
     tenantId: 'tenant-1',
     userId: 'user-1',
     type: 'TASK_DUE_SOON',
-    title: 'Tarea próxima a vencer',
+    title: 'Actividad próxima a vencer',
     body: 'Registro de pensamientos',
     data: { taskId: 'task-1', url: '/patients/p1' },
     relatedEntityType: 'task',

@@ -25,7 +25,7 @@ export class TasksService {
       throw new ForbiddenException({
         statusCode: 403,
         code: 'TASK_ASSIGNMENT_FORBIDDEN',
-        message: 'Solo puedes asignarte tareas a ti mismo.',
+        message: 'Solo puedes asignarte actividades a ti mismo.',
       });
     }
   }
@@ -183,7 +183,7 @@ export class TasksService {
     });
 
     if (!task) {
-      throw new NotFoundException('Tarea no encontrada');
+      throw new NotFoundException('Actividad no encontrada');
     }
 
     return task;
@@ -195,7 +195,7 @@ export class TasksService {
     });
 
     if (!task) {
-      throw new NotFoundException('Tarea no encontrada');
+      throw new NotFoundException('Actividad no encontrada');
     }
 
     this.assertCanAssign(actor, updateTaskDto.assignedToId);
@@ -228,13 +228,13 @@ export class TasksService {
     });
 
     if (!task) {
-      throw new NotFoundException('Tarea no encontrada');
+      throw new NotFoundException('Actividad no encontrada');
     }
 
     await this.prisma.task.delete({
       where: { id: taskId },
     });
 
-    return { message: 'Tarea eliminada exitosamente' };
+    return { message: 'Actividad eliminada exitosamente' };
   }
 }

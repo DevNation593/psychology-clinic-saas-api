@@ -11,7 +11,7 @@ describe('section catalog', () => {
     expect(SECTION_CATALOG.map((s) => s.name)).toEqual([
       'Calendario',
       'Pacientes',
-      'Tareas',
+      'Actividades',
       'Notas clínicas',
       'Módulos clínicos',
       'Facturación',

@@ -129,10 +129,29 @@ enum AuditAction {
 enum AuditEntity {
   CLINICAL_NOTE
   SPECIALTY_RECORD
+  ENCOUNTER
+  PATIENT_FILE
   PATIENT
   APPOINTMENT
   USER
   TENANT
+}
+
+enum EncounterType {
+  FIRST_VISIT
+  FOLLOW_UP
+  CONTROL
+  EMERGENCY
+  TELECONSULTATION
+  HOME_VISIT
+  PROCEDURE
+  ASSESSMENT
+  INTERCONSULTATION
+}
+
+enum EncounterStatus {
+  OPEN
+  CLOSED
 }
 
 enum InvoiceStatus {
@@ -188,8 +207,59 @@ model Tenant {
   invoices          Invoice[]
   specialties        TenantSpecialty[]
   enabledModules     TenantModule[]
+  formDefinitions      FormDefinition[]
+  branches             Branch[]
+  encounters           Encounter[]
+  medications          Medication[]
+  documentTemplates DocumentTemplate[]
+  userPermissions      UserPermission[]
+  patientFiles         PatientFile[]
+  professionalBranches ProfessionalBranch[]
 
   @@index([isActive])
+}
+
+// A physical location of the clinic. Every clinic has one main branch.
+model Branch {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name         String
+  address      String?
+  city         String?
+  phone        String?
+  openingHours String?
+  // Consulting rooms of the branch, by name.
+  rooms        String[] @default([])
+  isMain       Boolean  @default(false)
+  isActive     Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments  Appointment[]
+  encounters    Encounter[]
+  professionals ProfessionalBranch[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+}
+
+// Where a professional attends. A professional without rows attends in every branch.
+model ProfessionalBranch {
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, branchId])
+  @@index([branchId])
+  @@index([tenantId])
 }
 
 model BillingSettings {
@@ -232,7 +302,7 @@ model Invoice {
   issueDate    DateTime            @default(now())
   currency     String              @default("USD")
   subtotal     Decimal             @db.Decimal(10, 2)
-  tax         Decimal             @db.Decimal(10, 2) @default(0)
+  tax                 Decimal             @default(0) @db.Decimal(10, 2)
   total       Decimal             @db.Decimal(10, 2)
   customerName String
   customerEmail String
@@ -513,6 +583,10 @@ model User {
   professionalSpecialties ProfessionalSpecialty[]
   professionalProfile     ProfessionalProfile?
   specialtyRecords        SpecialtyRecord[]
+  encounters               Encounter[]
+  permissionOverrides      UserPermission[]        @relation("UserPermissionOverrides")
+  branchAssignments        ProfessionalBranch[]
+  uploadedFiles            PatientFile[]
   issuedInvoices           Invoice[]             @relation("IssuedInvoices")
 
   @@unique([tenantId, email])
@@ -559,6 +633,26 @@ model Patient {
   emergencyContactName  String?
   emergencyContactPhone String?
 
+  // Identification. Unique per tenant among live patients (partial index
+  // Patient_tenantId_identification_key, created in the migration).
+  identificationType   String? // CEDULA, RUC, PASSPORT or OTHER
+  identificationNumber String?
+
+  maritalStatus String?
+  occupation    String?
+  nationality   String?
+  bloodType     String?
+  disability    String?
+
+  insuranceProvider     String?
+  insurancePolicyNumber String?
+
+  // Legal guardian; required when the patient is a minor.
+  guardianName           String?
+  guardianRelationship   String?
+  guardianIdentification String?
+  guardianPhone          String?
+
   // Assigned psychologist
   assignedPsychologistId String?
   assignedPsychologist   User?   @relation("AssignedPatients", fields: [assignedPsychologistId], references: [id], onDelete: SetNull)
@@ -589,10 +683,13 @@ model Patient {
   specialtyRecords SpecialtyRecord[]
   professionalAssignments PatientProfessional[]
   invoices         Invoice[]
+  encounters              Encounter[]
+  files            PatientFile[]
 
   @@index([tenantId])
   @@index([tenantId, isActive])
   @@index([lastName])
+  @@index([tenantId, identificationNumber])
 }
 
 model PatientProfessional {
@@ -638,6 +735,8 @@ model Specialty {
   sessionPlans            NextSessionPlan[]
   subscriptionSpecialties SubscriptionSpecialty[]
   records                 SpecialtyRecord[]
+  formDefinitions         FormDefinition[]
+  encounters              Encounter[]
 }
 
 model SpecialtyRecord {
@@ -652,7 +751,18 @@ model SpecialtyRecord {
   specialty      Specialty    @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
   appointmentId  String?
   appointment    Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  // The encounter the record was written in, when the professional opened one.
+  encounterId      String?
+  encounter        Encounter?      @relation(fields: [encounterId], references: [id], onDelete: SetNull)
   moduleKey      String
+  // The version of the module or form definition the data was validated against.
+  schemaVersion    Int             @default(1)
+  // Printed on the document and encoded in its QR, so that a third party can check it is
+  // authentic without reading its content.
+  verificationCode String? @unique
+  // Set for answers to a form defined by the tenant (moduleKey `custom.<formDefinitionId>`).
+  formDefinitionId String?
+  formDefinition   FormDefinition? @relation(fields: [formDefinitionId], references: [id], onDelete: Restrict)
   recordDate     DateTime     @default(now())
   data           Json
   notes          String?
@@ -669,6 +779,199 @@ model SpecialtyRecord {
   @@index([tenantId, patientId, recordDate])
   @@index([tenantId, specialtyId, moduleKey])
   @@index([appointmentId])
+  @@index([formDefinitionId])
+  @@index([encounterId])
+}
+
+// One attention of a patient by a professional. It groups the records written during it.
+model Encounter {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patientId      String
+  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  professionalId String
+  professional   User         @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  specialtyId    String
+  specialty      Specialty    @relation(fields: [specialtyId], references: [id], onDelete: Restrict)
+  // An appointment is attended in at most one encounter.
+  appointmentId  String?      @unique
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  encounterType EncounterType
+  status        EncounterStatus @default(OPEN)
+
+  // Stored encrypted.
+  reason  String
+  summary String?
+
+  startedAt DateTime  @default(now())
+  // Closing is the professional's sign-off: no record is added afterwards.
+  closedAt  DateTime?
+
+  version        Int       @default(1)
+  deletedAt      DateTime?
+  deletedById    String?
+  deletionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  records SpecialtyRecord[]
+  notes   ClinicalNote[]
+  files   PatientFile[]
+
+  @@index([tenantId, patientId, startedAt])
+  @@index([tenantId, professionalId, status])
+}
+
+// A clinical file of a patient: a lab result, an image, a signed consent. The bytes live in
+// the file storage under `storageKey`, encrypted like the rest of the clinical content.
+model PatientFile {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patientId    String
+  patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedById String
+  uploadedBy   User       @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  encounterId  String?
+  encounter    Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
+
+  category String
+  // Stored encrypted: a file name or a description can say what the patient has.
+  fileName    String
+  description String?
+
+  mimeType   String
+  sizeBytes  Int
+  storageKey String @unique
+
+  // Clinical files are never removed physically: removal sets deletedAt.
+  deletedAt      DateTime?
+  deletedById    String?
+  deletionReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, patientId, createdAt])
+  @@index([encounterId])
+}
+
+// Diagnosis classification shared by every clinic (CIE-10, CIE-11).
+model DiagnosisCode {
+  id          String  @id @default(cuid())
+  system      String
+  code        String
+  description String
+  isActive    Boolean @default(true)
+
+  @@unique([system, code])
+  @@index([description])
+}
+
+// Medication catalog of a clinic, offered when prescribing.
+model Medication {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  commercialName     String
+  activeIngredient   String?
+  concentration      String?
+  presentation       String?
+  pharmaceuticalForm String?
+  isActive           Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, isActive, commercialName])
+}
+
+/// Text a clinic reuses in its certificates and consents. `{{paciente}}`-style variables are
+/// filled in by the client when the template is applied to a record.
+model DocumentTemplate {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // The clinical module whose records it prefills, e.g. general.certificates.
+  moduleKey String
+  name      String
+  title     String?
+  body      String
+  isActive  Boolean @default(true)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, moduleKey, name])
+  @@index([tenantId, moduleKey, isActive])
+}
+
+// A permission granted to or withdrawn from one user, over what the role gives by default.
+model UserPermission {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation("UserPermissionOverrides", fields: [userId], references: [id], onDelete: Cascade)
+
+  permission String
+  granted    Boolean
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, permission])
+  @@index([tenantId])
+}
+
+// A clinical form designed by the tenant. Its content lives in immutable versions:
+// editing a form adds a version, and every answer keeps the version it was filled with.
+model FormDefinition {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  category    String?
+  // Null: any professional of the tenant can fill it. Set: only that specialty.
+  specialtyId String?
+  specialty   Specialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+
+  isActive       Boolean @default(true)
+  currentVersion Int     @default(1)
+  createdById    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions FormDefinitionVersion[]
+  records  SpecialtyRecord[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
+}
+
+model FormDefinitionVersion {
+  id               String         @id @default(cuid())
+  formDefinitionId String
+  formDefinition   FormDefinition @relation(fields: [formDefinitionId], references: [id], onDelete: Cascade)
+
+  version     Int
+  schema      Json
+  createdById String
+  createdAt   DateTime @default(now())
+
+  @@unique([formDefinitionId, version])
 }
 
 model TenantSpecialty {
@@ -774,6 +1077,8 @@ model Appointment {
   professional   User?      @relation("AppointmentProfessional", fields: [professionalId], references: [id], onDelete: Restrict)
   specialtyId    String?
   specialty      Specialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  branchId       String?
+  branch         Branch?    @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   title       String  @default("Consulta")
   description String?
@@ -805,6 +1110,7 @@ model Appointment {
   // Relations
   clinicalNotes ClinicalNote[]
   specialtyRecords SpecialtyRecord[]
+  encounter        Encounter?
 
   @@index([tenantId])
   @@index([patientId])
@@ -836,6 +1142,9 @@ model ClinicalNote {
   psychologist   User       @relation(fields: [psychologistId], references: [id], onDelete: Restrict)
   specialtyId    String?
   specialty      Specialty? @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  // The encounter the note was written in, when the professional opened one.
+  encounterId    String?
+  encounter      Encounter? @relation(fields: [encounterId], references: [id], onDelete: SetNull)
 
   // Content - can be encrypted at rest
   content      String // Clinical session notes
@@ -860,6 +1169,7 @@ model ClinicalNote {
   @@index([patientId])
   @@index([psychologistId])
   @@index([appointmentId])
+  @@index([encounterId])
   @@index([sessionDate])
 }
 

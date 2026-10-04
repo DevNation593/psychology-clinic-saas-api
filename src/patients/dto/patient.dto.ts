@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsEmail, IsDateString } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsEmail,
+  IsDateString,
+  MaxLength,
+} from 'class-validator';
 
 export class CreatePatientDto {
   @ApiProperty({ example: 'Juan' })
@@ -59,6 +66,92 @@ export class CreatePatientDto {
   @IsString()
   @IsOptional()
   emergencyContactPhone?: string;
+
+  // Identification. Format and pairing rules are enforced in the service; null or an empty
+  // string clears a field. The pair is unique among the live patients of the clinic.
+  @ApiPropertyOptional({
+    example: 'CEDULA',
+    enum: ['CEDULA', 'RUC', 'PASSPORT', 'OTHER'],
+    nullable: true,
+  })
+  @IsString()
+  @IsOptional()
+  identificationType?: string | null;
+
+  @ApiPropertyOptional({ example: '1712345678', nullable: true })
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  identificationNumber?: string | null;
+
+  @ApiPropertyOptional({ example: 'Casado/a' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(60)
+  maritalStatus?: string;
+
+  @ApiPropertyOptional({ example: 'Docente' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(120)
+  occupation?: string;
+
+  @ApiPropertyOptional({ example: 'Ecuatoriana' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(80)
+  nationality?: string;
+
+  @ApiPropertyOptional({ example: 'O+' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(10)
+  bloodType?: string;
+
+  @ApiPropertyOptional({ example: 'Discapacidad auditiva 40 %' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  disability?: string;
+
+  @ApiPropertyOptional({ example: 'Seguros del Pichincha' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(120)
+  insuranceProvider?: string;
+
+  @ApiPropertyOptional({ example: 'POL-000123' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(60)
+  insurancePolicyNumber?: string;
+
+  @ApiPropertyOptional({
+    example: 'María Pérez',
+    description: 'Representante legal. Obligatorio cuando el paciente es menor de edad.',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(160)
+  guardianName?: string;
+
+  @ApiPropertyOptional({ example: 'Madre' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(60)
+  guardianRelationship?: string;
+
+  @ApiPropertyOptional({ example: '1709876543' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  guardianIdentification?: string;
+
+  @ApiPropertyOptional({ example: '+593 99 123 4567' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(40)
+  guardianPhone?: string;
 
   @ApiPropertyOptional({
     description:

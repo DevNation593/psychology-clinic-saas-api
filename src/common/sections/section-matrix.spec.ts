@@ -1,6 +1,16 @@
 import { REQUIRE_SECTION_KEY } from '../decorators/require-section.decorator';
 import { AppointmentsController } from '../../appointments/appointments.controller';
 import { BillingController } from '../../billing/billing.controller';
+import { CatalogsController } from '../../catalogs/catalogs.controller';
+import { ReportsController } from '../../reports/reports.controller';
+import { RecordDocumentsController } from '../../record-documents/record-documents.controller';
+import { DocumentTemplatesController } from '../../document-templates/document-templates.controller';
+import { ClinicalModulesController } from '../../clinical-modules/clinical-modules.controller';
+import { EncountersController } from '../../encounters/encounters.controller';
+import {
+  PatientFilesController,
+  StorageController,
+} from '../../patient-files/patient-files.controller';
 import { ClinicalNotesController } from '../../clinical-notes/clinical-notes.controller';
 import { ClinicalTimelineController } from '../../clinical-timeline/clinical-timeline.controller';
 import { NextSessionPlansController } from '../../next-session-plans/next-session-plans.controller';
@@ -35,7 +45,15 @@ describe('section matrix', () => {
     [ClinicalTimelineController, 'core.clinicalNotes'],
     [NextSessionPlansController, 'core.clinicalNotes'],
     [SpecialtyRecordsController, 'core.specialties'],
+    [ClinicalModulesController, 'core.specialties'],
+    [EncountersController, 'core.specialties'],
+    [CatalogsController, 'core.specialties'],
+    [PatientFilesController, 'core.storage'],
+    [StorageController, 'core.storage'],
     [BillingController, 'core.billing'],
+    [ReportsController, 'core.calendar'],
+    [RecordDocumentsController, 'core.storage'],
+    [DocumentTemplatesController, 'core.specialties'],
   ] as [Controller, SectionKey][])('%p requires %s on every handler', (controller, expected) => {
     expect(classSection(controller)).toBe(expected);
   });

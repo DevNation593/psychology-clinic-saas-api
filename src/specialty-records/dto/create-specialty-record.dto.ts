@@ -1,18 +1,44 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsISO8601, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsInt,
+  IsISO8601,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreateSpecialtyRecordDto {
-  @ApiProperty({ example: 'NUTRITION' })
+  @ApiPropertyOptional({
+    example: 'NUTRITION',
+    description:
+      'Kept for older clients. The specialty is taken from the module; a different code is rejected.',
+  })
   @IsString()
-  specialtyCode: string;
+  @IsOptional()
+  specialtyCode?: string;
 
-  @ApiProperty({ example: 'nutrition.assessments' })
+  @ApiProperty({
+    example: 'nutrition.assessments',
+    description: 'A module key, or `custom.<formDefinitionId>` for a form designed by the clinic.',
+  })
   @IsString()
   moduleKey: string;
 
-  @ApiProperty({
-    example: { weightKg: 72.5, heightCm: 168, bmi: 25.7, dietaryGoals: 'Reducir grasa corporal' },
+  @ApiPropertyOptional({
+    example: 2,
+    description:
+      'Version of the definition the data follows, as returned by GET clinical-modules. Without it the legacy version of the module is used when one exists, otherwise the current one.',
   })
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  schemaVersion?: number;
+
+  @ApiProperty({ example: { weightKg: 72.5, heightCm: 168, waistCm: 84 } })
   @IsObject()
   data: Record<string, unknown>;
 
@@ -31,4 +57,46 @@ export class CreateSpecialtyRecordDto {
   @IsString()
   @IsOptional()
   appointmentId?: string;
+
+  @ApiPropertyOptional({
+    example: 'encounter_cuid',
+    description: 'An open encounter of the caller with this patient; the record is written in it.',
+  })
+  @IsString()
+  @IsOptional()
+  encounterId?: string;
+}
+
+export class UpdateSpecialtyRecordDto {
+  @ApiPropertyOptional({
+    description:
+      'Replaces the data. It is checked against the version the record was written under.',
+  })
+  @IsObject()
+  @IsOptional()
+  data?: Record<string, unknown>;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Null or an empty string clears the notes.' })
+  @IsString()
+  @IsOptional()
+  notes?: string | null;
+
+  @ApiPropertyOptional({ example: '2026-09-22T10:00:00.000Z' })
+  @IsISO8601()
+  @IsOptional()
+  recordDate?: string;
+
+  @ApiProperty({ example: 'Peso registrado con un dígito de más.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  changeReason: string;
+}
+
+export class DeleteSpecialtyRecordDto {
+  @ApiProperty({ example: 'Registro cargado en el paciente equivocado.' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason: string;
 }

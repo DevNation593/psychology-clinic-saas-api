@@ -1,22 +1,33 @@
-import { PlanType, PrismaClient, TenantType } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { buildDemoSpecialtyScenarios } from './demo-specialty-scenarios';
-import { seedDemoSpecialties } from './seed-demo-specialties';
+import * as fs from 'fs';
+import { ClinicalCipher, parseClinicalKeys } from '../src/clinical-access/clinical-cipher';
+import { FileStorage, LocalFileStorage } from '../src/patient-files/file-storage';
 import { createPlatformAdmin } from './create-platform-admin';
-import { defaultSections, SECTION_KEYS } from '../src/common/sections/section-catalog';
+import { encryptClinicalData } from './encrypt-clinical-data';
+import {
+  importDiagnosisCodes,
+  parseDiagnosisCsv,
+  STARTER_DIAGNOSIS_CODES,
+} from './import-diagnosis-codes';
+import {
+  SeedClock,
+  SeedContext,
+  SeedLogin,
+  SPECIALTY_MODULE_KEYS,
+  SpecialtyCatalog,
+} from './seed-helpers';
+import { seedClinicalWorkflow } from './seed-clinical-workflow';
+import { seedMainClinic } from './seed-main-clinic';
+import { seedTenantStates } from './seed-tenant-states';
 
-const prisma = new PrismaClient();
+export const DEMO_PASSWORD = 'Password123!';
+const PLATFORM_ADMIN_EMAIL = 'admin@plataforma.test';
 
-const DEMO_PASSWORD = 'Password123!';
-
-type SpecialtyCatalog = Record<
-  'psychology' | 'nutrition' | 'physiotherapy' | 'dentistry',
-  { id: string }
->;
-
-async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
+async function seedSpecialtyCatalog(db: PrismaClient): Promise<SpecialtyCatalog> {
   const specialties = await Promise.all([
-    prisma.specialty.upsert({
+    db.specialty.upsert({
       where: { code: 'PSYCHOLOGY' },
       update: { name: 'Psicología', isActive: true },
       create: {
@@ -25,7 +36,7 @@ async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
         description: 'Atención psicológica y psicoterapia.',
       },
     }),
-    prisma.specialty.upsert({
+    db.specialty.upsert({
       where: { code: 'NUTRITION' },
       update: { name: 'Nutrición', isActive: true },
       create: {
@@ -34,7 +45,7 @@ async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
         description: 'Evaluación nutricional y planes alimenticios.',
       },
     }),
-    prisma.specialty.upsert({
+    db.specialty.upsert({
       where: { code: 'PHYSIOTHERAPY' },
       update: { name: 'Fisioterapia', isActive: true },
       create: {
@@ -43,7 +54,7 @@ async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
         description: 'Evaluación funcional y rehabilitación.',
       },
     }),
-    prisma.specialty.upsert({
+    db.specialty.upsert({
       where: { code: 'DENTISTRY' },
       update: { name: 'Odontología', isActive: true },
       create: {
@@ -53,23 +64,32 @@ async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
       },
     }),
   ]);
+  // Retired from the catalog: no plan offers it and no clinic can select it.
+  await db.specialty.upsert({
+    where: { code: 'SPEECH_THERAPY' },
+    update: { isActive: false },
+    create: {
+      code: 'SPEECH_THERAPY',
+      name: 'Terapia de lenguaje',
+      description: 'Especialidad retirada del catálogo.',
+      isActive: false,
+    },
+  });
 
   const [psychology, nutrition, physiotherapy, dentistry] = specialties;
-  await prisma.specialtyModule.createMany({
-    data: [
-      { specialtyId: psychology.id, moduleKey: 'psychology.session-notes' },
-      { specialtyId: psychology.id, moduleKey: 'psychology.assessments' },
-      { specialtyId: nutrition.id, moduleKey: 'nutrition.assessments' },
-      { specialtyId: nutrition.id, moduleKey: 'nutrition.diet-plans' },
-      { specialtyId: physiotherapy.id, moduleKey: 'physiotherapy.evolution' },
-      { specialtyId: physiotherapy.id, moduleKey: 'physiotherapy.exercise-plans' },
-      { specialtyId: dentistry.id, moduleKey: 'dentistry.treatments' },
-      { specialtyId: dentistry.id, moduleKey: 'dentistry.odontogram' },
-    ],
+  const catalog: SpecialtyCatalog = { psychology, nutrition, physiotherapy, dentistry };
+
+  await db.specialtyModule.createMany({
+    data: Object.entries(SPECIALTY_MODULE_KEYS).flatMap(([key, moduleKeys]) =>
+      moduleKeys.map((moduleKey) => ({
+        specialtyId: catalog[key as keyof SpecialtyCatalog].id,
+        moduleKey,
+      })),
+    ),
     skipDuplicates: true,
   });
 
-  await prisma.planSpecialty.createMany({
+  await db.planSpecialty.createMany({
     data: specialties.flatMap((specialty) => [
       { planType: 'TRIAL', specialtyId: specialty.id },
       { planType: 'PERSONAL_BASIC', specialtyId: specialty.id },
@@ -81,662 +101,177 @@ async function seedSpecialtyCatalog(): Promise<SpecialtyCatalog> {
     skipDuplicates: true,
   });
 
-  return { psychology, nutrition, physiotherapy, dentistry };
+  return catalog;
 }
 
-/** Creates the eight section rows for a demo tenant; core.* rows are not inserted elsewhere. */
-async function seedSections(tenantId: string, planType: PlanType, tenantType: TenantType) {
-  const enabled = new Set<string>(defaultSections(planType, tenantType));
-  await prisma.tenantModule.createMany({
-    data: SECTION_KEYS.map((moduleKey) => ({
-      tenantId,
-      moduleKey,
-      enabled: enabled.has(moduleKey),
-    })),
-  });
+/** Empties every table the seed writes, and the bytes of the clinical files when a storage is given. */
+export async function clearDatabase(db: PrismaClient, storage?: SeedStorage) {
+  if (storage) {
+    // The rows are about to go: their bytes would be left behind with nothing pointing at them.
+    const files = await db.patientFile.findMany({ select: { storageKey: true } });
+    await Promise.all(files.map(({ storageKey }) => storage.remove(storageKey)));
+  }
+  // Files restrict deleting their uploader, so they go before the users.
+  await db.patientFile.deleteMany();
+  await db.documentTemplate.deleteMany();
+  await db.professionalBranch.deleteMany();
+  await db.specialtyRecord.deleteMany();
+  await db.formDefinition.deleteMany();
+  await db.encounter.deleteMany();
+  await db.medication.deleteMany();
+  await db.userPermission.deleteMany();
+  await db.diagnosisCode.deleteMany();
+  await db.invoice.deleteMany();
+  await db.billingSettings.deleteMany();
+  await db.tenantModule.deleteMany();
+  await db.subscriptionSpecialty.deleteMany();
+  await db.planSpecialty.deleteMany();
+  await db.specialtyModule.deleteMany();
+  await db.professionalSpecialty.deleteMany();
+  await db.professionalProfile.deleteMany();
+  await db.tenantSpecialty.deleteMany();
+  await db.auditLog.deleteMany();
+  await db.notificationLog.deleteMany();
+  await db.notificationPreference.deleteMany();
+  await db.pushSubscription.deleteMany();
+  await db.nextSessionPlan.deleteMany();
+  await db.task.deleteMany();
+  await db.clinicalNote.deleteMany();
+  await db.appointment.deleteMany();
+  await db.patientProfessional.deleteMany();
+  await db.patient.deleteMany();
+  await db.refreshToken.deleteMany();
+  await db.subscriptionEvent.deleteMany();
+  await db.subscriptionPayment.deleteMany();
+  await db.usageMetrics.deleteMany();
+  await db.user.deleteMany();
+  await db.branch.deleteMany();
+  await db.tenantSettings.deleteMany();
+  await db.tenantSubscription.deleteMany();
+  await db.tenant.deleteMany();
 }
 
-function daysFromNow(days: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d;
+/** Where the seed keeps the bytes of the clinical files it creates. */
+export type SeedStorage = Pick<FileStorage, 'put' | 'remove'>;
+
+export interface SeedResult {
+  logins: SeedLogin[];
+  /** Things worth trying that are not a login. */
+  highlights: string[];
+  /** Whether clinical content was stored encrypted (it is when a key is configured). */
+  encrypted: boolean;
 }
 
-async function clearDatabase() {
-  await prisma.specialtyRecord.deleteMany();
-  await prisma.invoice.deleteMany();
-  await prisma.billingSettings.deleteMany();
-  await prisma.tenantModule.deleteMany();
-  await prisma.subscriptionSpecialty.deleteMany();
-  await prisma.planSpecialty.deleteMany();
-  await prisma.specialtyModule.deleteMany();
-  await prisma.professionalSpecialty.deleteMany();
-  await prisma.professionalProfile.deleteMany();
-  await prisma.tenantSpecialty.deleteMany();
-  await prisma.auditLog.deleteMany();
-  await prisma.notificationLog.deleteMany();
-  await prisma.nextSessionPlan.deleteMany();
-  await prisma.task.deleteMany();
-  await prisma.clinicalNote.deleteMany();
-  await prisma.appointment.deleteMany();
-  await prisma.patient.deleteMany();
-  await prisma.refreshToken.deleteMany();
-  await prisma.subscriptionEvent.deleteMany();
-  await prisma.usageMetrics.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.tenantSettings.deleteMany();
-  await prisma.tenantSubscription.deleteMany();
-  await prisma.tenant.deleteMany();
-}
+/**
+ * Replaces every row with the demo data set: the platform tenant, one clinic with data in
+ * every state, one clinic that walks through the clinical workflow (branches, encounters,
+ * documents, files) and one clinic per plan and subscription state. All dates hang from `now`.
+ * Patient files are seeded only when a `storage` is given for their bytes.
+ */
+export async function seedDatabase(
+  db: PrismaClient,
+  options: { now?: Date; cipher?: ClinicalCipher; storage?: SeedStorage } = {},
+): Promise<SeedResult> {
+  await clearDatabase(db, options.storage);
 
-async function seedMainTenant(hashedPassword: string, catalog: SpecialtyCatalog) {
-  const tenant = await prisma.tenant.create({
-    data: {
-      name: 'Demo Consultorio Integral',
-      email: 'contacto@demopsicologia.com',
-      phone: '+593999000001',
-      address: 'Av. Principal 123, Quito',
-      legalName: 'Demo Consultorio Integral S.A.',
-      taxIdentificationType: 'RUC',
-      taxIdentificationNumber: '1790012345001',
-      tenantType: 'CLINIC',
-      isActive: true,
-      onboardingCompleted: true,
-    },
-  });
-
-  await prisma.tenantSettings.create({
-    data: {
-      tenantId: tenant.id,
-      workingHoursStart: '08:30',
-      workingHoursEnd: '18:30',
-      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-      defaultAppointmentDuration: 60,
-      allowDoubleBooking: false,
-      reminderEnabled: true,
-      reminderRules: ['24h', '2h'],
-      timezone: 'America/Guayaquil',
-      locale: 'es-EC',
-    },
-  });
-
-  const subscription = await prisma.tenantSubscription.create({
-    data: {
-      tenantId: tenant.id,
-      planType: 'CLINIC_PRO',
-      status: 'ACTIVE',
-      startDate: daysFromNow(-45),
-      currentPeriodStart: daysFromNow(-5),
-      currentPeriodEnd: daysFromNow(25),
-      basePrice: 214,
-      pricePerSeat: 29,
-      currency: 'USD',
-      seatsPsychologistsMax: 10,
-      seatsPsychologistsUsed: 4,
-      maxActivePatients: 500,
-      storageGB: 5,
-      monthlyNotificationsLimit: 5000,
-      includedSpecialties: 3,
-      specialtyPrice: 15,
-      monthlyElectronicInvoicesLimit: 50,
-      featureClinicalNotes: true,
-      featureClinicalNotesEncryption: true,
-      featureAttachments: true,
-      featureTasks: true,
-      featurePsychologicalTests: true,
-      featureWebPush: true,
-      featureFCMPush: true,
-      featureAdvancedAnalytics: true,
-      featureVideoConsultation: true,
-      featureCalendarSync: true,
-      featureOnlineSchedulingWidget: true,
-      featureCustomReports: true,
-      featureAPIAccess: true,
-      featureWhatsAppIntegration: false,
-      featureSSO: false,
-      activePatientsCount: 5,
-      storageUsedBytes: BigInt(850 * 1024 * 1024),
-      monthlyNotificationsSent: 97,
-      lastNotificationReset: daysFromNow(-5),
-    },
-  });
-
-  await prisma.billingSettings.create({
-    data: {
-      tenantId: tenant.id,
-      provider: 'FAKTUR',
-      apiUrl: 'https://api.faktur.ec',
-      invoicePath: '/invoices',
-      environment: 'TEST',
-      establishment: '001',
-      emissionPoint: '001',
-      nextSequential: 1,
-      businessName: 'Demo Consultorio Integral S.A.',
-      businessAddress: 'Av. Principal 123, Quito',
-      isEnabled: false,
-    },
-  });
-
-  await prisma.tenantSpecialty.createMany({
-    data: [
-      { tenantId: tenant.id, specialtyId: catalog.psychology.id },
-      { tenantId: tenant.id, specialtyId: catalog.nutrition.id },
-      { tenantId: tenant.id, specialtyId: catalog.physiotherapy.id },
-      { tenantId: tenant.id, specialtyId: catalog.dentistry.id },
-    ],
-  });
-
-  await prisma.subscriptionSpecialty.createMany({
-    data: [
-      { tenantSubscriptionId: subscription.id, specialtyId: catalog.psychology.id },
-      { tenantSubscriptionId: subscription.id, specialtyId: catalog.nutrition.id },
-      { tenantSubscriptionId: subscription.id, specialtyId: catalog.physiotherapy.id },
-      { tenantSubscriptionId: subscription.id, specialtyId: catalog.dentistry.id },
-    ],
-  });
-
-  await prisma.tenantModule.createMany({
-    data: [
-      { tenantId: tenant.id, moduleKey: 'psychology.session-notes' },
-      { tenantId: tenant.id, moduleKey: 'psychology.assessments' },
-      { tenantId: tenant.id, moduleKey: 'nutrition.assessments' },
-      { tenantId: tenant.id, moduleKey: 'nutrition.diet-plans' },
-      { tenantId: tenant.id, moduleKey: 'physiotherapy.evolution' },
-      { tenantId: tenant.id, moduleKey: 'physiotherapy.exercise-plans' },
-      { tenantId: tenant.id, moduleKey: 'dentistry.treatments' },
-      { tenantId: tenant.id, moduleKey: 'dentistry.odontogram' },
-    ],
-  });
-  await seedSections(tenant.id, 'CLINIC_PRO', 'CLINIC');
-
-  const admin = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email: 'admin.demo@psic.com',
-      password: hashedPassword,
-      firstName: 'Daniela',
-      lastName: 'Mendoza',
-      phone: '+593999000010',
-      role: 'MASTER',
-      isActive: true,
-      emailVerified: true,
-      activatedAt: daysFromNow(-45),
-      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Daniela%20Mendoza',
-    },
-  });
-
-  const assistant = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email: 'asistente.demo@psic.com',
-      password: hashedPassword,
-      firstName: 'Mariana',
-      lastName: 'Rojas',
-      phone: '+593999000013',
-      role: 'ASISTENTE',
-      isActive: true,
-      emailVerified: true,
-      activatedAt: daysFromNow(-20),
-      avatarUrl: 'https://api.dicebear.com/8.x/initials/svg?seed=Mariana%20Rojas',
-    },
-  });
-
-  const specialtyDemos = await seedDemoSpecialties(prisma, {
-    tenantId: tenant.id,
-    hashedPassword,
-    assignedById: admin.id,
-    specialtyIds: {
-      psychology: catalog.psychology.id,
-      nutrition: catalog.nutrition.id,
-      physiotherapy: catalog.physiotherapy.id,
-      dentistry: catalog.dentistry.id,
-    },
-    referenceDate: new Date(),
-  });
-
-  const {
-    psychology: { professional: psych1, patient: patient1, appointment: completedAppointment },
-    nutrition: { professional: nutritionist, patient: patient3 },
-    physiotherapy: { professional: physiotherapist, patient: patient4 },
-    dentistry: { professional: dentist, patient: patient5 },
-  } = specialtyDemos;
-
-  const patient2 = await prisma.patient.create({
-    data: {
-      tenantId: tenant.id,
-      firstName: 'Jorge',
-      lastName: 'Salazar',
-      email: 'jorge.salazar@email.com',
-      phone: '+593999100003',
-      dateOfBirth: new Date('1988-09-02'),
-      gender: 'MALE',
-      emergencyContactName: 'Rosa Salazar',
-      emergencyContactPhone: '+593999100004',
-      assignedPsychologistId: psych1.id,
-      currentMedication: 'Escitalopram 10mg',
-    },
-  });
-
-  await prisma.patientProfessional.create({
-    data: {
-      tenantId: tenant.id,
-      patientId: patient2.id,
-      professionalId: psych1.id,
-      assignedById: admin.id,
-      isActive: true,
-    },
-  });
-
-  await prisma.appointment.create({
-    data: {
-      tenantId: tenant.id,
-      patientId: patient2.id,
-      psychologistId: psych1.id,
-      professionalId: psych1.id,
-      specialtyId: catalog.psychology.id,
-      title: 'TCC - gestion de estres',
-      startTime: daysFromNow(1),
-      endTime: new Date(daysFromNow(1).getTime() + 60 * 60 * 1000),
-      duration: 60,
-      status: 'CONFIRMED',
-      isOnline: true,
-      meetingUrl: 'https://meet.example.com/demo-psic-001',
-      location: 'Online',
-    },
-  });
-
-  await prisma.clinicalNote.create({
-    data: {
-      tenantId: tenant.id,
-      patientId: patient1.id,
-      psychologistId: psych1.id,
-      specialtyId: catalog.psychology.id,
-      appointmentId: completedAppointment.id,
-      content:
-        'Paciente muestra menor evitacion social. Se reforzaron tecnicas de respiracion y registro de pensamientos automaticos.',
-      diagnosis: 'Trastorno de ansiedad social',
-      treatment: 'Terapia cognitivo conductual con exposicion gradual.',
-      observations: 'Mantener frecuencia semanal por 4 sesiones adicionales.',
-      sessionDate: daysFromNow(-3),
-      sessionDuration: 60,
-    },
-  });
-
-  await prisma.task.createMany({
-    data: [
-      {
-        tenantId: tenant.id,
-        patientId: patient2.id,
-        createdById: admin.id,
-        assignedToId: psych1.id,
-        title: 'Revisar cuestionario PHQ-9',
-        description: 'Analizar variacion respecto a la ultima medicion.',
-        status: 'PENDING',
-        priority: 'HIGH',
-        dueDate: daysFromNow(1),
-      },
-      {
-        tenantId: tenant.id,
-        patientId: patient3.id,
-        createdById: admin.id,
-        assignedToId: nutritionist.id,
-        title: 'Revisar adherencia al plan nutricional',
-        status: 'IN_PROGRESS',
-        priority: 'MEDIUM',
-        dueDate: daysFromNow(2),
-      },
-      {
-        tenantId: tenant.id,
-        patientId: patient4.id,
-        createdById: admin.id,
-        assignedToId: physiotherapist.id,
-        title: 'Actualizar progresión de ejercicios',
-        status: 'COMPLETED',
-        priority: 'LOW',
-        completedAt: daysFromNow(-2),
-      },
-      {
-        tenantId: tenant.id,
-        patientId: patient5.id,
-        createdById: admin.id,
-        assignedToId: dentist.id,
-        title: 'Revisar sensibilidad de la pieza 24',
-        status: 'PENDING',
-        priority: 'MEDIUM',
-        dueDate: daysFromNow(3),
-      },
-      {
-        tenantId: tenant.id,
-        patientId: patient1.id,
-        createdById: admin.id,
-        assignedToId: psych1.id,
-        title: 'Enviar material de psicoeducacion',
-        status: 'PENDING',
-        priority: 'URGENT',
-        dueDate: daysFromNow(-1),
-      },
-    ],
-  });
-
-  await prisma.nextSessionPlan.create({
-    data: {
-      tenantId: tenant.id,
-      patientId: patient1.id,
-      psychologistId: psych1.id,
-      specialtyId: catalog.psychology.id,
-      objectives: 'Consolidar exposicion en contextos laborales.',
-      techniques: 'Reestructuracion cognitiva y role-play.',
-      homework: 'Registro ABC 3 veces por semana.',
-      notes: 'Evaluar reduccion de evitacion en proxima sesion.',
-    },
-  });
-
-  await prisma.notificationLog.createMany({
-    data: [
-      {
-        tenantId: tenant.id,
-        userId: admin.id,
-        type: 'SYSTEM_ANNOUNCEMENT',
-        status: 'SENT',
-        title: 'Bienvenido al entorno demo',
-        body: 'La base de datos fue sembrada correctamente.',
-        sentAt: daysFromNow(-1),
-      },
-      {
-        tenantId: tenant.id,
-        userId: psych1.id,
-        type: 'APPOINTMENT_REMINDER',
-        status: 'PENDING',
-        title: 'Recordatorio de cita',
-        body: 'Tienes una cita confirmada para manana.',
-      },
-      {
-        tenantId: tenant.id,
-        userId: psych1.id,
-        type: 'TASK_DUE_SOON',
-        status: 'READ',
-        title: 'Tarea proxima a vencer',
-        body: 'Revisar cuestionario PHQ-9 vence pronto.',
-        readAt: daysFromNow(-1),
-        sentAt: daysFromNow(-2),
-      },
-    ],
-  });
-
-  await prisma.auditLog.createMany({
-    data: [
-      {
-        tenantId: tenant.id,
-        userId: psych1.id,
-        action: 'CREATE',
-        entity: 'CLINICAL_NOTE',
-        entityId: completedAppointment.id,
-        changes: { createdFrom: 'seed' },
-      },
-      {
-        tenantId: tenant.id,
-        userId: admin.id,
-        action: 'UPDATE',
-        entity: 'PATIENT',
-        entityId: patient2.id,
-        changes: { field: 'currentMedication', value: 'Escitalopram 10mg' },
-      },
-    ],
-  });
-
-  await prisma.subscriptionEvent.createMany({
-    data: [
-      {
-        tenantId: tenant.id,
-        eventType: 'TRIAL_ENDED',
-        previousPlan: 'TRIAL',
-        previousStatus: 'TRIALING',
-        newPlan: 'CLINIC_BASIC',
-        newStatus: 'ACTIVE',
-        reason: 'Fin de trial y activacion inicial',
-        createdAt: daysFromNow(-31),
-      },
-      {
-        tenantId: tenant.id,
-        eventType: 'PLAN_UPGRADED',
-        previousPlan: 'CLINIC_BASIC',
-        newPlan: 'CLINIC_PRO',
-        previousStatus: 'ACTIVE',
-        newStatus: 'ACTIVE',
-        reason: 'Upgrade para habilitar analiticas avanzadas',
-        createdAt: daysFromNow(-20),
-      },
-    ],
-  });
-
-  await prisma.usageMetrics.createMany({
-    data: [
-      {
-        tenantId: tenant.id,
-        periodStart: daysFromNow(-30),
-        periodEnd: daysFromNow(-1),
-        seatsPsychologistsUsed: 4,
-        activePatientsCount: 5,
-        storageUsedGB: 0.63,
-        notificationsSent: 61,
-        appointmentsCreated: 18,
-        clinicalNotesCreated: 7,
-        tasksCreated: 9,
-        estimatedCost: 207,
-        recordedAt: daysFromNow(-1),
-      },
-      {
-        tenantId: tenant.id,
-        periodStart: daysFromNow(-1),
-        periodEnd: daysFromNow(29),
-        seatsPsychologistsUsed: 4,
-        activePatientsCount: 5,
-        storageUsedGB: 0.81,
-        notificationsSent: 97,
-        appointmentsCreated: 6,
-        clinicalNotesCreated: 3,
-        tasksCreated: 5,
-        estimatedCost: 207,
-        recordedAt: new Date(),
-      },
-    ],
-  });
-
-  return {
-    tenant,
-    users: {
-      admin,
-      psych1,
-      nutritionist,
-      physiotherapist,
-      dentist,
-      assistant,
-    },
-  };
-}
-
-async function seedSecondaryTenant(hashedPassword: string, catalog: SpecialtyCatalog) {
-  const tenant = await prisma.tenant.create({
-    data: {
-      name: 'Demo Consultorio Personal',
-      email: 'contacto@demopersonal.com',
-      phone: '+593999200001',
-      tenantType: 'PERSONAL',
-      legalName: 'Demo Consultorio Personal',
-      taxIdentificationType: 'RUC',
-      taxIdentificationNumber: '1790012345002',
-      isActive: true,
-      onboardingCompleted: false,
-    },
-  });
-
-  await prisma.tenantSettings.create({
-    data: {
-      tenantId: tenant.id,
-      workingHoursStart: '09:00',
-      workingHoursEnd: '17:00',
-      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
-      defaultAppointmentDuration: 60,
-      reminderEnabled: true,
-      reminderRules: ['24h'],
-      timezone: 'America/Guayaquil',
-      locale: 'es-EC',
-    },
-  });
-
-  const subscription = await prisma.tenantSubscription.create({
-    data: {
-      tenantId: tenant.id,
-      planType: 'TRIAL',
-      status: 'TRIALING',
-      startDate: daysFromNow(-4),
-      trialEndsAt: daysFromNow(10),
-      currentPeriodStart: daysFromNow(-4),
-      currentPeriodEnd: daysFromNow(10),
-      basePrice: 0,
-      pricePerSeat: 0,
-      currency: 'USD',
-      seatsPsychologistsMax: 1,
-      seatsPsychologistsUsed: 1,
-      maxActivePatients: 10,
-      storageGB: 0,
-      monthlyNotificationsLimit: 100,
-      includedSpecialties: 1,
-      specialtyPrice: 15,
-      monthlyElectronicInvoicesLimit: 50,
-      featureClinicalNotes: true,
-      featureAttachments: false,
-      featureTasks: false,
-      activePatientsCount: 1,
-      storageUsedBytes: BigInt(50 * 1024 * 1024),
-      monthlyNotificationsSent: 8,
-      lastNotificationReset: daysFromNow(-4),
-      scheduledPlanChange: 'PERSONAL_BASIC',
-      scheduledPlanChangeAt: daysFromNow(10),
-    },
-  });
-
-  await prisma.billingSettings.create({
-    data: {
-      tenantId: tenant.id,
-      provider: 'FAKTUR',
-      apiUrl: 'https://api.faktur.ec',
-      invoicePath: '/invoices',
-      environment: 'TEST',
-      establishment: '001',
-      emissionPoint: '001',
-      nextSequential: 1,
-      businessName: 'Demo Consultorio Personal',
-      isEnabled: false,
-    },
-  });
-
-  await prisma.tenantSpecialty.create({
-    data: { tenantId: tenant.id, specialtyId: catalog.psychology.id },
-  });
-  await prisma.subscriptionSpecialty.create({
-    data: { tenantSubscriptionId: subscription.id, specialtyId: catalog.psychology.id },
-  });
-  await prisma.tenantModule.createMany({
-    data: [{ tenantId: tenant.id, moduleKey: 'psychology.session-notes' }],
-  });
-  await seedSections(tenant.id, 'TRIAL', 'PERSONAL');
-
-  const admin = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email: 'admin.trial@psic.com',
-      password: hashedPassword,
-      firstName: 'Carla',
-      lastName: 'Noboa',
-      role: 'MASTER',
-      isActive: true,
-      emailVerified: true,
-      activatedAt: daysFromNow(-4),
-    },
-  });
-
-  const psych = await prisma.user.create({
-    data: {
-      tenantId: tenant.id,
-      email: 'psic.trial@psic.com',
-      password: hashedPassword,
-      firstName: 'Miguel',
-      lastName: 'Arias',
-      role: 'PROFESIONAL',
-      isActive: true,
-      emailVerified: true,
-      activatedAt: daysFromNow(-4),
-      professionalTitle: 'Psicólogo clínico',
-      professionalProfile: {
-        create: {
-          specialtyId: catalog.psychology.id,
-          professionalTitle: 'Psicólogo clínico',
-          isActive: true,
-        },
-      },
-      professionalSpecialties: {
-        create: { specialtyId: catalog.psychology.id, isPrimary: true },
-      },
-    },
-  });
-
-  await prisma.patient.create({
-    data: {
-      tenantId: tenant.id,
-      firstName: 'Priscila',
-      lastName: 'Viteri',
-      email: 'priscila.viteri@email.com',
-      phone: '+593999200010',
-      assignedPsychologistId: psych.id,
-    },
-  });
-
-  return { tenant, admin };
-}
-
-async function main() {
-  console.log('🌱 Starting deterministic demo seed...');
-  await clearDatabase();
-
-  const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, 10);
-  const specialtyCatalog = await seedSpecialtyCatalog();
-  const platform = await createPlatformAdmin(prisma, {
-    email: 'admin@plataforma.test',
+  const catalog = await seedSpecialtyCatalog(db);
+  // A starter set of frequent codes; the official classification is imported separately.
+  await importDiagnosisCodes(
+    db,
+    parseDiagnosisCsv(fs.readFileSync(STARTER_DIAGNOSIS_CODES, 'utf8')),
+  );
+  const platform = await createPlatformAdmin(db, {
+    email: PLATFORM_ADMIN_EMAIL,
     password: DEMO_PASSWORD,
     firstName: 'Admin',
     lastName: 'Plataforma',
   });
-  const mainTenant = await seedMainTenant(hashedPassword, specialtyCatalog);
-  const personalTenant = await seedSecondaryTenant(hashedPassword, specialtyCatalog);
 
-  console.log('✅ Seed completed successfully.');
-  console.log('');
-  console.log('Login credentials (all users):');
-  console.log(`  Password: ${DEMO_PASSWORD}`);
-  console.log('');
-  console.log(`Platform tenant: ${platform.tenantId}`);
-  console.log('  admin@plataforma.test (ADMIN)');
-  console.log('');
-  console.log(`Clinic tenant: ${mainTenant.tenant.name}`);
-  console.log('  admin.demo@psic.com (MASTER)');
-  for (const scenario of buildDemoSpecialtyScenarios()) {
-    console.log(
-      `  ${scenario.professional.email} (${scenario.professional.role}, ${scenario.professional.title})`,
+  let paymentReferences = 0;
+  const ctx: SeedContext = {
+    db,
+    clock: new SeedClock(options.now ?? new Date()),
+    catalog,
+    hashedPassword: await bcrypt.hash(DEMO_PASSWORD, 10),
+    platformAdminId: platform.userId,
+    logins: [
+      {
+        tenant: 'Plataforma',
+        email: PLATFORM_ADMIN_EMAIL,
+        role: 'ADMIN',
+        note: 'Administrador de la plataforma: solo entra al panel /platform',
+      },
+    ],
+    highlights: [],
+    cipher: options.cipher?.enabled ? options.cipher : undefined,
+    storage: options.storage,
+    nextPaymentReference: () => `TRF-DEMO-${String(++paymentReferences).padStart(4, '0')}`,
+  };
+
+  await seedMainClinic(ctx);
+  await seedClinicalWorkflow(ctx);
+  await seedTenantStates(ctx);
+
+  // The rows above are written as plain text; with a key configured they are stored as the
+  // API stores them, so the demo data is readable by the API and nothing else.
+  const encrypted = options.cipher?.enabled ?? false;
+  if (encrypted) {
+    await encryptClinicalData(
+      db as unknown as Parameters<typeof encryptClinicalData>[0],
+      options.cipher,
     );
   }
-  console.log('  asistente.demo@psic.com (ASISTENTE)');
-  console.log('');
-  console.log(`Personal tenant: ${personalTenant.tenant.name}`);
-  console.log('  admin.trial@psic.com (MASTER)');
-  console.log('  psic.trial@psic.com (PROFESIONAL)');
+
+  return { logins: ctx.logins, highlights: ctx.highlights, encrypted };
 }
 
-main()
-  .catch((error) => {
+function printSummary({ logins, highlights, encrypted }: SeedResult) {
+  const emailWidth = Math.max(...logins.map(({ email }) => email.length));
+  const roleWidth = Math.max(...logins.map(({ role }) => role.length));
+
+  console.log('✅ Seed completed successfully.');
+  console.log(`Clinical content: ${encrypted ? 'encrypted' : 'plain text (no key configured)'}`);
+  console.log(`Password for every account: ${DEMO_PASSWORD}`);
+  for (const tenant of new Set(logins.map((login) => login.tenant))) {
+    console.log('');
+    console.log(tenant);
+    for (const login of logins.filter((candidate) => candidate.tenant === tenant)) {
+      console.log(
+        `  ${login.email.padEnd(emailWidth)}  ${login.role.padEnd(roleWidth)}  ${login.note}`,
+      );
+    }
+  }
+  if (highlights.length > 0) {
+    console.log('');
+    for (const highlight of highlights) console.log(highlight);
+  }
+}
+
+async function main() {
+  await import('dotenv/config');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('The demo seed deletes every row; it does not run with NODE_ENV=production');
+  }
+
+  const prisma = new PrismaClient();
+  try {
+    console.log('🌱 Starting deterministic demo seed...');
+    const result = await seedDatabase(prisma, {
+      cipher: new ClinicalCipher(parseClinicalKeys(process.env.CLINICAL_ENCRYPTION_KEYS)),
+      // The same folder the API reads the clinical files from.
+      storage: new LocalFileStorage({
+        get: (key: string) => process.env[key],
+      } as unknown as ConfigService),
+    });
+    printSummary(result);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+if (require.main === module) {
+  main().catch((error) => {
     console.error('❌ Seed failed:', error);
     process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
   });
+}

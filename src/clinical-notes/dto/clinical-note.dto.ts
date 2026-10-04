@@ -19,6 +19,14 @@ export class CreateClinicalNoteDto {
   @IsOptional()
   appointmentId?: string;
 
+  @ApiPropertyOptional({
+    example: 'encounter-id',
+    description: 'An open encounter of the caller with this patient; the note is written in it.',
+  })
+  @IsString()
+  @IsOptional()
+  encounterId?: string;
+
   @ApiProperty({ example: 'Paciente refiere mejoría en síntomas de ansiedad...' })
   @IsString()
   @IsNotEmpty()
@@ -54,7 +62,7 @@ export class CreateClinicalNoteDto {
 
 // A correction never moves the note to another patient or appointment.
 export class UpdateClinicalNoteDto extends PartialType(
-  OmitType(CreateClinicalNoteDto, ['patientId', 'appointmentId'] as const),
+  OmitType(CreateClinicalNoteDto, ['patientId', 'appointmentId', 'encounterId'] as const),
 ) {
   @ApiProperty({ example: 'Se corrige el código del diagnóstico' })
   @IsString()
