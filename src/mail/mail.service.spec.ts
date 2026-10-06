@@ -11,7 +11,7 @@ describe('mail templates', () => {
       expiresIn: '1h',
     });
 
-    expect(mail.subject).toBe('Restablece tu contraseña de PsyClinic');
+    expect(mail.subject).toBe('Restablece tu contraseña de HCX Care');
     for (const body of [mail.html, mail.text]) {
       expect(body).toContain('https://app.example.com/reset-password?token=abc.def');
       expect(body).toContain('vence en 1 hora');
@@ -48,7 +48,7 @@ describe('MailService', () => {
   const configured = {
     EMAIL_API_URL: 'https://mail.example.test/send',
     EMAIL_API_KEY: 'key-123',
-    EMAIL_FROM: 'PsyClinic <no-reply@example.test>',
+    EMAIL_FROM: 'HCX Care <no-reply@example.test>',
     FRONTEND_URL: 'https://app.example.test/',
   };
   const serviceWith = (values: Record<string, string>) =>
@@ -78,9 +78,9 @@ describe('MailService', () => {
     expect(request.headers).toMatchObject({ Authorization: 'Bearer key-123' });
     const body = JSON.parse(request.body);
     expect(body).toMatchObject({
-      from: 'PsyClinic <no-reply@example.test>',
+      from: 'HCX Care <no-reply@example.test>',
       to: 'ana@example.com',
-      subject: 'Restablece tu contraseña de PsyClinic',
+      subject: 'Restablece tu contraseña de HCX Care',
     });
     expect(body.text).toContain('https://app.example.test/reset-password?token=abc.def%2Bghi');
     expect(body.html).toContain('https://app.example.test/reset-password?token=abc.def%2Bghi');
@@ -93,7 +93,7 @@ describe('MailService', () => {
     });
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.subject).toBe('Te invitaron a Centro Integral en PsyClinic');
+    expect(body.subject).toBe('Te invitaron a Centro Integral en HCX Care');
     expect(body.text).toContain('https://app.example.test/login');
   });
 
