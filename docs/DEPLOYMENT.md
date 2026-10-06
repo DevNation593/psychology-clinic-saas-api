@@ -57,7 +57,7 @@ FCM_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
 # The API posts { from, to, subject, html, text } with a Bearer key.
 EMAIL_API_URL=https://api.resend.com/emails
 EMAIL_API_KEY=<provider-api-key>
-EMAIL_FROM="PsyClinic <no-reply@yourdomain.com>"
+EMAIL_FROM="HCX Care <no-reply@yourdomain.com>"
 # Base URL of the web app: the links in the messages point here.
 FRONTEND_URL=https://app.yourdomain.com
 

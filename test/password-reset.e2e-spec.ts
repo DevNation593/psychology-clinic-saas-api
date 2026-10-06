@@ -34,7 +34,7 @@ describe('Password reset (E2E)', () => {
 
   beforeAll(async () => {
     process.env.EMAIL_API_URL = 'https://mail.example.test/send';
-    process.env.EMAIL_FROM = 'PsyClinic <no-reply@example.test>';
+    process.env.EMAIL_FROM = 'HCX Care <no-reply@example.test>';
     process.env.FRONTEND_URL = 'https://app.example.test';
     const realFetch = global.fetch;
     fetchSpy = jest
@@ -80,8 +80,8 @@ describe('Password reset (E2E)', () => {
 
     expect(message).toMatchObject({
       to: email,
-      from: 'PsyClinic <no-reply@example.test>',
-      subject: 'Restablece tu contraseña de PsyClinic',
+      from: 'HCX Care <no-reply@example.test>',
+      subject: 'Restablece tu contraseña de HCX Care',
     });
     expect(message.text).toContain('https://app.example.test/reset-password?token=');
     const token = tokenFrom(message);

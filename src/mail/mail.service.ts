@@ -11,7 +11,7 @@ const SEND_TIMEOUT_MS = 10_000;
  *
  *   EMAIL_API_URL   endpoint that sends one message
  *   EMAIL_API_KEY   Bearer token
- *   EMAIL_FROM      sender, e.g. "PsyClinic <no-reply@example.com>"
+ *   EMAIL_FROM      sender, e.g. "HCX Care <no-reply@example.com>"
  *
  * Sending never throws: callers must not fail, or reveal that an address exists, because a
  * message could not be delivered. The result says whether the provider accepted it.
