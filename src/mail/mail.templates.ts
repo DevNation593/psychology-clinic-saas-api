@@ -4,7 +4,7 @@ export interface MailContent {
   text: string;
 }
 
-const BRAND = 'PsyClinic';
+const BRAND = 'HCX Care';
 
 const escapeHtml = (value: string) =>
   value.replace(

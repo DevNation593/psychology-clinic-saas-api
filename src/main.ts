@@ -66,8 +66,8 @@ async function bootstrap() {
 
   // Swagger documentation
   const config = new DocumentBuilder()
-    .setTitle('Psychology Clinic SaaS API')
-    .setDescription('Multi-tenant Psychology Clinic Management System')
+    .setTitle('HCX Care API')
+    .setDescription('Multi-tenant management system for health clinics and practitioners')
     .setVersion('1.0')
     .addBearerAuth(
       {
