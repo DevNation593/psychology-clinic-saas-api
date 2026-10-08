@@ -1,7 +1,10 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createTransport } from 'nodemailer';
 import { MailService } from './mail.service';
 import { describeDuration, invitationMail, passwordResetMail } from './mail.templates';
+
+jest.mock('nodemailer', () => ({ createTransport: jest.fn() }));
 
 describe('mail templates', () => {
   it('puts the reset link, its validity and the single-use notice in both bodies', () => {
@@ -129,9 +132,96 @@ describe('MailService', () => {
     expect(warn.mock.calls[0][0]).toContain('http://localhost:4200/reset-password?token=dev-token');
   });
 
+  describe('through SMTP', () => {
+    const smtp = {
+      SMTP_HOST: 'smtp.example.test',
+      SMTP_USER: 'mailer',
+      SMTP_PASS: 's3cret',
+      EMAIL_FROM: 'HCX Care <no-reply@example.test>',
+      FRONTEND_URL: 'https://app.example.test',
+    };
+    const createTransportMock = createTransport as unknown as jest.Mock;
+    let sendMail: jest.Mock;
+
+    beforeEach(() => {
+      sendMail = jest.fn().mockResolvedValue({
+        accepted: ['ana@example.com'],
+        rejected: [],
+        response: '250 2.0.0 OK',
+        envelope: { from: 'no-reply@example.test', to: ['ana@example.com'] },
+        messageId: '<1@example.test>',
+      });
+      createTransportMock.mockReset().mockReturnValue({ sendMail });
+    });
+
+    it('delivers with the SMTP credentials of the provider, ahead of the HTTP API', async () => {
+      const sent = await serviceWith({
+        ...smtp,
+        SMTP_PORT: '465',
+        EMAIL_API_URL: 'https://mail.example.test/send',
+      }).sendPasswordReset('ana@example.com', {
+        firstName: 'Ana',
+        token: 'abc.def',
+        expiresIn: '1h',
+      });
+
+      expect(sent).toBe(true);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(createTransportMock.mock.calls[0][0]).toMatchObject({
+        host: 'smtp.example.test',
+        port: 465,
+        secure: true,
+        auth: { user: 'mailer', pass: 's3cret' },
+      });
+      const message = sendMail.mock.calls[0][0];
+      expect(message).toMatchObject({
+        from: 'HCX Care <no-reply@example.test>',
+        to: 'ana@example.com',
+        subject: 'Restablece tu contraseña de HCX Care',
+      });
+      expect(message.text).toContain('https://app.example.test/reset-password?token=abc.def');
+      expect(message.html).toContain('https://app.example.test/reset-password?token=abc.def');
+    });
+
+    it('uses the submission port by default and refuses to send without STARTTLS', async () => {
+      await serviceWith(smtp).sendInvitation('luis@example.com', {
+        firstName: 'Luis',
+        clinicName: 'Centro Integral',
+      });
+
+      expect(createTransportMock.mock.calls[0][0]).toMatchObject({
+        port: 587,
+        secure: false,
+        requireTLS: true,
+      });
+    });
+
+    it('reports an SMTP failure without throwing or logging the link', async () => {
+      sendMail.mockRejectedValue(new Error('Invalid login: 535 Authentication failed'));
+
+      await expect(
+        serviceWith(smtp).sendPasswordReset('ana@example.com', {
+          firstName: 'Ana',
+          token: 'secret-token',
+          expiresIn: '1h',
+        }),
+      ).resolves.toBe(false);
+      expect(error.mock.calls[0][0]).toContain('535 Authentication failed');
+      expect(JSON.stringify([error.mock.calls, warn.mock.calls])).not.toContain('secret-token');
+    });
+
+    it('does not report missing configuration at startup in production', () => {
+      serviceWith({ ...smtp, NODE_ENV: 'production' });
+
+      expect(error).not.toHaveBeenCalled();
+    });
+  });
+
   it('never logs the link in production, and warns at startup that mail is not configured', async () => {
     const service = serviceWith({ NODE_ENV: 'production' });
-    expect(error.mock.calls[0][0]).toContain('EMAIL_API_URL and EMAIL_FROM are not set');
+    expect(error.mock.calls[0][0]).toContain(
+      'SMTP_HOST (or EMAIL_API_URL) and EMAIL_FROM are not set',
+    );
 
     await service.sendPasswordReset('ana@x.com', {
       firstName: 'Ana',

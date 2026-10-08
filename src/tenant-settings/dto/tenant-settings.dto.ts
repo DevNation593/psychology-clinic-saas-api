@@ -20,21 +20,6 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   fakturApiKey?: string;
 
-  @ApiPropertyOptional({ example: 'https://api.faktur.ec' })
-  @IsString()
-  @IsOptional()
-  fakturApiUrl?: string;
-
-  @ApiPropertyOptional({ example: '/invoices' })
-  @IsString()
-  @IsOptional()
-  fakturInvoicePath?: string;
-
-  @ApiPropertyOptional({ example: 'TEST', enum: ['TEST', 'PRODUCTION'] })
-  @IsString()
-  @IsOptional()
-  fakturEnvironment?: string;
-
   @ApiPropertyOptional({ example: '001' })
   @IsString()
   @IsOptional()

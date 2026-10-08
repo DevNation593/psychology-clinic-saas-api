@@ -199,9 +199,6 @@ export class BillingService {
         usesTenantConfiguration
           ? {
               apiKey: tenant.billingSettings.apiKey,
-              apiUrl: tenant.billingSettings.apiUrl || undefined,
-              invoicePath: tenant.billingSettings.invoicePath,
-              environment: tenant.billingSettings.environment,
               establishment: tenant.billingSettings.establishment || undefined,
               emissionPoint: tenant.billingSettings.emissionPoint || undefined,
               nextSequential: sequential,

@@ -384,6 +384,16 @@ Content-Type: application/json
 GET /tenants/{tenantId}/appointments?psychologistId=user-id&status=SCHEDULED&from=2024-03-01T00:00:00Z&to=2024-03-31T23:59:59Z
 ```
 
+Without `patientId` the list is a calendar, and each role sees a different one:
+
+- `MASTER`: every professional, or one with `professionalId`.
+- `PROFESIONAL`: only their own appointments.
+- `ASISTENTE`: one professional at a time. `professionalId` is required; without it the
+  answer is `400 APPOINTMENT_PROFESSIONAL_REQUIRED`.
+
+With `patientId` the list belongs to the patient record: a professional of the treating team
+also sees that patient's appointments with other professionals.
+
 ### Search Patients
 
 ```bash

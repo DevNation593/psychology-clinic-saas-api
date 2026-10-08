@@ -252,7 +252,7 @@ describe('Clinical workflow: branch, appointment, encounter, records and files (
 
       const ids = async (branchId: string) => {
         const response = await request(server())
-          .get(`${base()}/appointments?branchId=${branchId}`)
+          .get(`${base()}/appointments?branchId=${branchId}&professionalId=${professionalId}`)
           .set(as('assistant'))
           .expect(200);
         const rows = Array.isArray(response.body) ? response.body : response.body.data;
@@ -260,6 +260,18 @@ describe('Clinical workflow: branch, appointment, encounter, records and files (
       };
       expect(await ids(northBranchId)).toEqual([appointmentId]);
       expect(await ids(mainBranchId)).toEqual([]);
+
+      // An assistant sees one professional at a time; the calendar of everyone is the master's.
+      const everyone = await request(server())
+        .get(`${base()}/appointments?branchId=${northBranchId}`)
+        .set(as('assistant'))
+        .expect(400);
+      expect(everyone.body.code).toBe('APPOINTMENT_PROFESSIONAL_REQUIRED');
+      const global = await request(server())
+        .get(`${base()}/appointments?branchId=${northBranchId}`)
+        .set(as('master'))
+        .expect(200);
+      expect(global.body.map((row: { id: string }) => row.id)).toEqual([appointmentId]);
     });
   });
 
