@@ -625,6 +625,81 @@ describe('AppointmentsService canonical appointments', () => {
     );
   });
 
+  describe('calendar scope', () => {
+    const own = {
+      OR: [
+        { professionalId: 'professional-1' },
+        { professionalId: null, psychologistId: 'professional-1' },
+      ],
+    };
+    const listedWhere = () => db.appointment.findMany.mock.calls[0][0].where;
+
+    it('shows a professional only their own appointments', async () => {
+      await list({}, clinician);
+
+      expect(listedWhere().AND).toEqual([own]);
+    });
+
+    it('keeps the appointments of an assigned patient visible in the patient record', async () => {
+      await list({ patientId: 'patient-1' }, clinician);
+
+      expect(listedWhere().patientId).toBe('patient-1');
+      expect(listedWhere().AND).toEqual([
+        {
+          OR: [
+            ...own.OR,
+            {
+              patient: {
+                is: {
+                  tenantId,
+                  deletedAt: null,
+                  professionalAssignments: {
+                    some: { tenantId, professionalId: 'professional-1', isActive: true },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('shows the master every professional at once', async () => {
+      await list({}, admin);
+
+      expect(listedWhere().AND).toEqual([]);
+    });
+
+    it('asks an assistant to choose a professional instead of showing every calendar', async () => {
+      await expect(
+        list({ from: '2026-09-28', branchId: 'branch-1' }, assistant),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: { code: 'APPOINTMENT_PROFESSIONAL_REQUIRED' },
+      });
+      expect(db.appointment.findMany).not.toHaveBeenCalled();
+    });
+
+    it('shows an assistant the calendar of the chosen professional', async () => {
+      await list({ professionalId: 'professional-2' }, assistant);
+
+      expect(listedWhere().AND).toEqual([
+        {
+          OR: [
+            { professionalId: 'professional-2' },
+            { professionalId: null, psychologistId: 'professional-2' },
+          ],
+        },
+      ]);
+    });
+
+    it('shows an assistant the appointments of one patient without choosing a professional', async () => {
+      await list({ patientId: 'patient-1' }, assistant);
+
+      expect(listedWhere()).toMatchObject({ patientId: 'patient-1', AND: [] });
+    });
+  });
+
   it('rejects contradictory professional filters', async () => {
     await expect(list({ professionalId: 'one', psychologistId: 'two' })).rejects.toMatchObject({
       status: 400,

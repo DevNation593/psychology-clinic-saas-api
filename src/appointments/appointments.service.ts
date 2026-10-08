@@ -113,24 +113,38 @@ export class AppointmentsService {
         this.professionalMatch(reference.professionalId),
       );
     }
-    if (role === 'PROFESIONAL') {
-      (where.AND as Prisma.AppointmentWhereInput[]).push({
-        OR: [
-          { professionalId: actor.userId },
-          { professionalId: null, psychologistId: actor.userId },
-          {
-            patient: {
-              is: {
-                tenantId,
-                deletedAt: null,
-                professionalAssignments: {
-                  some: { tenantId, professionalId: actor.userId, isActive: true },
-                },
-              },
-            },
-          },
-        ],
+    // Without a patient the list is a calendar, and only the master sees every professional
+    // at once. Inside a patient record the treating team still sees that patient's appointments.
+    const isCalendar = !filters.patientId;
+    if (role === 'ASISTENTE' && isCalendar && !reference?.professionalId) {
+      throw new BadRequestException({
+        statusCode: 400,
+        code: 'APPOINTMENT_PROFESSIONAL_REQUIRED',
+        message: 'Selecciona un profesional para ver su calendario.',
       });
+    }
+    if (role === 'PROFESIONAL') {
+      const own = this.professionalMatch(actor.userId);
+      (where.AND as Prisma.AppointmentWhereInput[]).push(
+        isCalendar
+          ? own
+          : {
+              OR: [
+                ...(own.OR as Prisma.AppointmentWhereInput[]),
+                {
+                  patient: {
+                    is: {
+                      tenantId,
+                      deletedAt: null,
+                      professionalAssignments: {
+                        some: { tenantId, professionalId: actor.userId, isActive: true },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+      );
     }
     if (filters.specialtyId) where.specialtyId = filters.specialtyId;
     if (filters.branchId) where.branchId = filters.branchId;
