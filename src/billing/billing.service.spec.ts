@@ -132,8 +132,8 @@ describe('BillingService invoice issuer role compatibility', () => {
         billingSettings: {
           isEnabled: true,
           apiKey: 'tenant-key',
-          invoicePath: '/invoices',
-          environment: 'TEST',
+          establishment: '001',
+          emissionPoint: '002',
           nextSequential: 17,
         },
       });
@@ -174,6 +174,17 @@ describe('BillingService invoice issuer role compatibility', () => {
       });
       expect(faktur.issueInvoice.mock.calls[0][1]).toMatchObject({ nextSequential: 17 });
       expect(prisma.billingSettings.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('hands the provider the key and numbering of the clinic, never a URL, path or environment', async () => {
+      await service.createInvoice('tenant-1', 'issuer-1', dto);
+
+      expect(faktur.issueInvoice.mock.calls[0][1]).toEqual({
+        apiKey: 'tenant-key',
+        establishment: '001',
+        emissionPoint: '002',
+        nextSequential: 17,
+      });
     });
 
     it('releases the sequential and marks the invoice failed when the provider rejects', async () => {

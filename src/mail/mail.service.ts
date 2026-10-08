@@ -1,17 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createTransport } from 'nodemailer';
 import { MailContent, invitationMail, passwordResetMail } from './mail.templates';
 
 const SEND_TIMEOUT_MS = 10_000;
+const SMTP_SUBMISSION_PORT = 587;
+const SMTP_IMPLICIT_TLS_PORT = 465;
 
 /**
- * Transactional e-mail through an HTTP mail API. The request body is
- * `{ from, to, subject, html, text }` with a Bearer key, the shape that Resend and most
- * providers accept, so switching provider is a matter of configuration:
+ * Transactional e-mail, sent from EMAIL_FROM, e.g. "HCX Care <no-reply@example.com>", through
+ * one of two transports. SMTP wins when both are configured:
+ *
+ *   SMTP_HOST       server of the mail provider (the same values given to Supabase Auth)
+ *   SMTP_PORT       587 by default (STARTTLS is required); 465 uses implicit TLS
+ *   SMTP_USER
+ *   SMTP_PASS
+ *
+ * or an HTTP mail API. The request body is `{ from, to, subject, html, text }` with a Bearer
+ * key, the shape that Resend and most providers accept:
  *
  *   EMAIL_API_URL   endpoint that sends one message
  *   EMAIL_API_KEY   Bearer token
- *   EMAIL_FROM      sender, e.g. "HCX Care <no-reply@example.com>"
  *
  * Sending never throws: callers must not fail, or reveal that an address exists, because a
  * message could not be delivered. The result says whether the provider accepted it.
@@ -23,13 +32,16 @@ export class MailService {
   constructor(private readonly config: ConfigService) {
     if (this.isProduction && !this.isConfigured) {
       this.logger.error(
-        'EMAIL_API_URL and EMAIL_FROM are not set: password reset and invitation e-mails will not be delivered',
+        'SMTP_HOST (or EMAIL_API_URL) and EMAIL_FROM are not set: password reset and invitation e-mails will not be delivered',
       );
     }
   }
 
   get isConfigured(): boolean {
-    return !!this.config.get<string>('EMAIL_API_URL') && !!this.config.get<string>('EMAIL_FROM');
+    return (
+      (!!this.config.get<string>('SMTP_HOST') || !!this.config.get<string>('EMAIL_API_URL')) &&
+      !!this.config.get<string>('EMAIL_FROM')
+    );
   }
 
   /** Base URL of the web app, used to build the links placed in messages. */
@@ -58,21 +70,27 @@ export class MailService {
       return false;
     }
 
-    const apiKey = this.config.get<string>('EMAIL_API_KEY');
+    const message = {
+      from: this.config.get<string>('EMAIL_FROM'),
+      to,
+      subject: content.subject,
+      html: content.html,
+      text: content.text,
+    };
     try {
+      if (this.config.get<string>('SMTP_HOST')) {
+        await this.smtpTransport().sendMail(message);
+        return true;
+      }
+
+      const apiKey = this.config.get<string>('EMAIL_API_KEY');
       const response = await fetch(this.config.get<string>('EMAIL_API_URL')!, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         },
-        body: JSON.stringify({
-          from: this.config.get<string>('EMAIL_FROM'),
-          to,
-          subject: content.subject,
-          html: content.html,
-          text: content.text,
-        }),
+        body: JSON.stringify(message),
         signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
 
@@ -89,6 +107,25 @@ export class MailService {
       );
       return false;
     }
+  }
+
+  private smtpTransport() {
+    const port = Number(this.config.get<string>('SMTP_PORT')) || SMTP_SUBMISSION_PORT;
+    const secure = port === SMTP_IMPLICIT_TLS_PORT;
+    return createTransport({
+      host: this.config.get<string>('SMTP_HOST'),
+      port,
+      secure,
+      // The messages carry links that grant access: never fall back to an unencrypted session.
+      requireTLS: !secure,
+      auth: {
+        user: this.config.get<string>('SMTP_USER'),
+        pass: this.config.get<string>('SMTP_PASS'),
+      },
+      connectionTimeout: SEND_TIMEOUT_MS,
+      greetingTimeout: SEND_TIMEOUT_MS,
+      socketTimeout: SEND_TIMEOUT_MS,
+    });
   }
 
   private get isProduction(): boolean {

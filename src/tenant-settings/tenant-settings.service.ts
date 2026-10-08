@@ -37,9 +37,6 @@ export class TenantSettingsService {
       fakturApiKey: settings.tenant.billingSettings?.apiKey
         ? `********${settings.tenant.billingSettings.apiKey.slice(-4)}`
         : '',
-      fakturApiUrl: settings.tenant.billingSettings?.apiUrl ?? '',
-      fakturInvoicePath: settings.tenant.billingSettings?.invoicePath ?? '/invoices',
-      fakturEnvironment: settings.tenant.billingSettings?.environment ?? 'TEST',
       fakturEstablishment: settings.tenant.billingSettings?.establishment ?? '',
       fakturEmissionPoint: settings.tenant.billingSettings?.emissionPoint ?? '',
       fakturNextSequential: settings.tenant.billingSettings?.nextSequential ?? 1,
@@ -97,9 +94,6 @@ export class TenantSettingsService {
       taxIdentificationType,
       taxIdentificationNumber,
       fakturApiKey,
-      fakturApiUrl,
-      fakturInvoicePath,
-      fakturEnvironment,
       fakturEstablishment,
       fakturEmissionPoint,
       fakturNextSequential,
@@ -127,9 +121,6 @@ export class TenantSettingsService {
         create: {
           tenantId,
           apiKey: fakturApiKey || null,
-          apiUrl: fakturApiUrl,
-          invoicePath: fakturInvoicePath ?? '/invoices',
-          environment: fakturEnvironment ?? 'TEST',
           establishment: fakturEstablishment,
           emissionPoint: fakturEmissionPoint,
           nextSequential: fakturNextSequential ?? 1,
@@ -142,9 +133,6 @@ export class TenantSettingsService {
         },
         update: {
           ...(fakturApiKey && !fakturApiKey.startsWith('********') ? { apiKey: fakturApiKey } : {}),
-          apiUrl: fakturApiUrl,
-          invoicePath: fakturInvoicePath,
-          environment: fakturEnvironment,
           establishment: fakturEstablishment,
           emissionPoint: fakturEmissionPoint,
           nextSequential: fakturNextSequential,

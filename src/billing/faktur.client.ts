@@ -25,21 +25,22 @@ export interface FakturInvoiceResponse {
   [key: string]: unknown;
 }
 
+/** What a clinic contributes to an invoice; the URL, path and environment belong to the API. */
 export interface FakturConfiguration {
   apiKey: string;
-  apiUrl?: string;
-  invoicePath?: string;
-  environment: string;
   establishment?: string;
   emissionPoint?: string;
   nextSequential?: number;
 }
+
+const FAKTUR_ENVIRONMENTS = ['TEST', 'PRODUCTION'];
 
 @Injectable()
 export class FakturClient {
   private readonly baseUrl = process.env.FAKTUR_API_URL?.replace(/\/$/, '');
   private readonly apiKey = process.env.FAKTUR_API_KEY;
   private readonly invoicePath = process.env.FAKTUR_INVOICE_PATH || '/invoices';
+  private readonly environment = process.env.FAKTUR_ENVIRONMENT;
   private readonly timeoutMs = Number(process.env.FAKTUR_TIMEOUT_MS || 15000);
 
   async issueInvoice(
@@ -47,15 +48,20 @@ export class FakturClient {
     configuration?: FakturConfiguration,
   ): Promise<FakturInvoiceResponse> {
     const apiKey = configuration?.apiKey || this.apiKey;
-    const baseUrl = (configuration?.apiUrl || this.baseUrl)?.replace(/\/$/, '');
-    const invoicePath = configuration?.invoicePath || this.invoicePath;
+    const baseUrl = this.baseUrl;
     if (!baseUrl || !apiKey) {
       throw new ServiceUnavailableException(
         'La integración con Faktur no está configurada. Define FAKTUR_API_URL y FAKTUR_API_KEY.',
       );
     }
+    // No default: an API without it would issue real invoices in the test environment.
+    if (!this.environment || !FAKTUR_ENVIRONMENTS.includes(this.environment)) {
+      throw new ServiceUnavailableException(
+        'La integración con Faktur no está configurada. Define FAKTUR_ENVIRONMENT como TEST o PRODUCTION.',
+      );
+    }
 
-    // The base URL can be configured per tenant: never send the API key over plain HTTP in production.
+    // Never send an API key over plain HTTP in production.
     if (process.env.NODE_ENV === 'production' && !/^https:\/\//i.test(baseUrl)) {
       throw new ServiceUnavailableException('La URL de Faktur debe usar HTTPS.');
     }
@@ -64,7 +70,7 @@ export class FakturClient {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await fetch(`${baseUrl}${invoicePath}`, {
+      const response = await fetch(`${baseUrl}${this.invoicePath}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -74,7 +80,7 @@ export class FakturClient {
         },
         body: JSON.stringify({
           ...payload,
-          environment: configuration?.environment,
+          environment: this.environment,
           establishment: configuration?.establishment,
           emissionPoint: configuration?.emissionPoint,
           sequential: configuration?.nextSequential,

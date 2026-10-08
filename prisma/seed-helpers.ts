@@ -345,7 +345,6 @@ export async function createTenant(ctx: SeedContext, spec: SeedTenantSpec): Prom
     await db.billingSettings.create({
       data: {
         tenantId: tenant.id,
-        apiUrl: 'https://api.faktur.ec',
         establishment: '001',
         emissionPoint: '001',
         businessName: spec.fiscal?.legalName,

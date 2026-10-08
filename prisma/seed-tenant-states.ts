@@ -590,10 +590,9 @@ async function seedEnterprise(ctx: SeedContext): Promise<SeedTenant> {
       currentPeriodEnd: null,
     },
     specialties: ['psychology', 'nutrition', 'physiotherapy', 'dentistry'],
-    // Placeholder credentials and an unreachable host: issuing here ends as a FAILED invoice.
+    // Placeholder credentials: issuing here ends as a FAILED invoice.
     billing: {
       isEnabled: true,
-      apiUrl: 'https://faktur.invalid',
       apiKey: 'seed-placeholder-key',
       nextSequential: 152,
       specialTaxpayer: true,
