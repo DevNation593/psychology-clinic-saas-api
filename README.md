@@ -48,9 +48,10 @@ npm run start:dev
 - `THROTTLE_TTL` accepts seconds by default (e.g. `60`).
 - `REDIS_URL` enables scheduler + queue workers and configures their Redis connection.
 - CORS accepts `CORS_ORIGINS` (comma-separated), fallback is `FRONTEND_URL`.
-- Invitation emails use optional webhook:
-  - `EMAIL_API_URL`
-  - `EMAIL_API_KEY`
+- Password reset and invitation emails are sent from `EMAIL_FROM` through the SMTP server of
+  the mail provider (the same one configured in Supabase Auth):
+  - `SMTP_HOST`, `SMTP_PORT` (587 by default), `SMTP_USER`, `SMTP_PASS`
+  - or, when `SMTP_HOST` is not set, an HTTP mail API: `EMAIL_API_URL`, `EMAIL_API_KEY`
 - Electronic invoicing uses Faktur. The URL, path and environment are the same for every
   clinic and are read only from these variables; each clinic stores its own API key,
   establishment, emission point and numbering in its settings:

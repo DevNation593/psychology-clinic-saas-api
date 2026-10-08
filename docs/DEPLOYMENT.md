@@ -54,10 +54,17 @@ FCM_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 FCM_CLIENT_EMAIL=firebase-adminsdk@your-project.iam.gserviceaccount.com
 
 # Required: transactional e-mail (password reset and invitations).
-# The API posts { from, to, subject, html, text } with a Bearer key.
-EMAIL_API_URL=https://api.resend.com/emails
-EMAIL_API_KEY=<provider-api-key>
+# SMTP of the mail provider, the same values configured in Supabase
+# (Authentication > Emails > SMTP Settings). Port 587 requires STARTTLS; 465 uses implicit TLS.
+SMTP_HOST=<provider-smtp-host>
+SMTP_PORT=587
+SMTP_USER=<provider-smtp-user>
+SMTP_PASS=<provider-smtp-password>
 EMAIL_FROM="HCX Care <no-reply@yourdomain.com>"
+# Alternative when SMTP_HOST is not set: an HTTP mail API that accepts
+# { from, to, subject, html, text } with a Bearer key.
+# EMAIL_API_URL=https://api.resend.com/emails
+# EMAIL_API_KEY=<provider-api-key>
 # Base URL of the web app: the links in the messages point here.
 FRONTEND_URL=https://app.yourdomain.com
 
