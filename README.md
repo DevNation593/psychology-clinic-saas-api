@@ -51,10 +51,13 @@ npm run start:dev
 - Invitation emails use optional webhook:
   - `EMAIL_API_URL`
   - `EMAIL_API_KEY`
-- Electronic invoicing uses Faktur:
+- Electronic invoicing uses Faktur. The URL, path and environment are the same for every
+  clinic and are read only from these variables; each clinic stores its own API key,
+  establishment, emission point and numbering in its settings:
   - `FAKTUR_API_URL`: base URL supplied by Faktur
-  - `FAKTUR_API_KEY`: API credential supplied by Faktur
   - `FAKTUR_INVOICE_PATH`: invoice resource path, defaults to `/invoices`
+  - `FAKTUR_ENVIRONMENT`: `TEST` or `PRODUCTION`. Required: no invoice is issued without it
+  - `FAKTUR_API_KEY`: credential used only by clinics that have not stored their own
   - `FAKTUR_TIMEOUT_MS`: request timeout, defaults to `15000`
 
 Before issuing an invoice, save `legalName`, `taxIdentificationType` and

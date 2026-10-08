@@ -267,10 +267,7 @@ model BillingSettings {
   tenantId             String   @unique
   tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   provider             String   @default("FAKTUR")
-  apiUrl               String?
-  invoicePath          String   @default("/invoices")
   apiKey               String?
-  environment         String   @default("TEST") // TEST or PRODUCTION
   establishment        String?
   emissionPoint        String?
   nextSequential       Int      @default(1)
