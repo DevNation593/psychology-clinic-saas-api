@@ -10,5 +10,9 @@ process.env.DATABASE_URL = testDatabaseUrl;
 // rate limit (per handler) would reject them with 429 and hide the behaviour under test.
 process.env.THROTTLE_LIMIT = '10000';
 process.env.AUTH_THROTTLE_LIMIT = '10000';
+// The suites create users at test addresses: they must never reach the mail provider of
+// `.env`. The ones that check mail point EMAIL_API_URL at a fake endpoint.
+process.env.SMTP_HOST = '';
+process.env.EMAIL_API_URL = '';
 // A throwaway key so the suites exercise the same encrypted path as production.
 process.env.CLINICAL_ENCRYPTION_KEYS = `e2e:${Buffer.alloc(32, 7).toString('base64')}`;
